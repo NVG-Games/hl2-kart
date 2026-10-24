@@ -1,59 +1,109 @@
-# Half-Life 2: Kart
+<p align="center">
+  <img src="docs/media/banner.jpg" alt="Half-Life 2: Kart">
+</p>
 
-A Mario Kart–style kart racer for Godot 4.7, made from your own copies of
-Half-Life 2 and Half-Life. Racers, vehicles, maps, sounds, voices and music all
-come straight out of the games' files.
+<p align="center">
+  <b>A Mario Kart–style racer for Godot 4.7, built from your own copies of Half-Life 2 and Half-Life.</b><br>
+  Five long circuits · 12 racers · 6 vehicles · HL2 items · drifting and boosts · LAN and internet multiplayer
+</p>
 
-> **Free and non-commercial fan project, not affiliated with Valve.** This
-> repository holds the code only. To play you need Half-Life 2 and Half-Life on
-> Steam: a setup script builds the game's assets from them on your computer.
+<p align="center">
+  <img alt="Godot 4.7" src="https://img.shields.io/badge/Godot-4.7-478cbf?logo=godotengine&logoColor=white">
+  <img alt="License: PolyForm Noncommercial" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-orange">
+  <img alt="Platform: Windows" src="https://img.shields.io/badge/platform-Windows-0078d6">
+  <img alt="Fan project, not affiliated with Valve" src="https://img.shields.io/badge/fan%20project-not%20affiliated%20with%20Valve-555">
+</p>
+
+<p align="center"><a href="README.ru.md">Русская версия</a></p>
+
+> **Free, non-commercial fan project, not affiliated with Valve.** This repository holds
+> the code only. To play you need **Half-Life 2** and **Half-Life** on Steam: one script
+> builds every model, texture, sound and track from them on your own computer.
 > See [LEGAL.md](LEGAL.md).
 
-[Русская версия](README.ru.md)
+## The circuits
 
-## What's in it
+Every lap is about 2 km and a minute long. The road, walls, tunnels and bridges are
+built by the track tools, then dressed with the games' own textures, models, skies,
+signs and music.
 
-- **12 racers:** Alyx, Barney, Kleiner, Eli, Father Grigori, Dr. Breen, G-Man,
-  a Metrocop, a Vortigaunt, a Zombie and, from Half-Life, Gordon Freeman and
-  Adrian Shephard. Each one talks with their own lines from the games.
-- **6 vehicles:** the HL2 scout car, Gordon's Episode Two muscle car, the
-  Combine APC, a military APC, Dog (carrying the racer on his shoulders) and a
-  bathtub on wheels. Each has its own speed, acceleration, weight, handling and
-  engine sound.
-- **5 tracks:**
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/city17_circuit.webp" alt="Highway 17"></td>
+    <td width="50%"><img src="docs/media/ct17.webp" alt="CT17"></td>
+  </tr>
+  <tr>
+    <td><b>Highway 17</b><br>Out of City 17 through the Combine checkpoint, down the coast road with a jump over the inlet, back up the canal. Pick the weather.</td>
+    <td><b>CT17</b><br>Combine-held City 17: the station plaza under the Breencasts, the cobbled old town, a checkpoint, a jump over the canal, the rail yard and an underpass.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/black_mesa.webp" alt="Black Mesa"></td>
+    <td><img src="docs/media/xen.webp" alt="Xen"></td>
+  </tr>
+  <tr>
+    <td><b>Black Mesa</b><br>Indoors through the Research Facility: the Sector C lobby, labs, the tram tunnel, a storage hall, toxic waste with a jump over a slime pit, and a spiral around the Lambda reactor core. The VOX announcer is on.</td>
+    <td><b>Xen</b><br>Floating islands over the void: light stalks, crystals and fungus, two jumps across chasms, a glowing cave and the Nihilanth watching from afar.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/surface_tension.webp" alt="Surface Tension"></td>
+    <td><img src="docs/media/surface_tension.jpg" alt="Surface Tension, the dam"></td>
+  </tr>
+  <tr>
+    <td colspan="2"><b>Surface Tension</b><br>The desert outside Black Mesa: red-rock canyons and cactus, a washed-out road to jump, the steel bridge over the river gorge, the HECU camp by a landed Osprey, an old mine tunnel and the crest of the dam.</td>
+  </tr>
+</table>
 
-  | Track | Where it comes from |
-  |---|---|
-  | Highway 17 | Built from HL2 parts: City 17 streets, a Combine checkpoint, the coast road and the canal |
-  | CT17 | The City 17 station plaza, HL2 map `d1_trainstation_02` |
-  | Xen | Floating islands of the border world, HL1 map `xen_dm` |
-  | Black Mesa | Corridors around a reactor core, HL1 map `rapidcore` |
-  | Surface Tension | The desert canyon outside Black Mesa with cactus and red rock, HL1 map `c2a5w` |
+## Racers and vehicles
 
-  The real maps are converted with their baked lightmaps, so they look the way
-  they do in the games.
-- **Items** from HL2 supply crates: a homing manhack, a rollermine, an explosive
-  barrel, a HEV battery boost, the gravity gun, a headcrab canister strike on the
-  leader and a HEV charger shield.
-- **Drifting and boosts:** hold jump in a turn, let AUX POWER charge, release for
-  a mini or super turbo. Hold the throttle on "one" for a rocket start.
-- **Multiplayer:** LAN and internet, a Half-Life style server browser, lobby with
-  chat, bots that fill empty grid slots, a dedicated server and a master server.
-- **Source-style look and physics:** VertexLitGeneric and LightmappedGeneric
-  style shaders, HL2 skyboxes, `sv_gravity 600`, vehicle and surface properties
-  read from the game scripts, the HL2 soundtrack.
+<p align="center"><img src="docs/media/racers.jpg" alt="Racers"></p>
 
-## Requirements
+Alyx, Barney, Kleiner, Eli, Father Grigori, Dr. Breen, the G-Man, a Metrocop, a
+Vortigaunt and a Zombie from Half-Life 2, plus Gordon Freeman and Adrian Shephard
+from Half-Life. Each one talks with their own lines from the games.
 
-- Windows 10 or 11 (the tools also handle Linux Steam paths, but only Windows is
-  tested).
-- On Steam: **Half-Life 2** (it includes Episode One and Two) and **Half-Life**.
-- **Godot 4.7** (standard build, not .NET). The free "Godot Engine" on Steam or a
-  download from [godotengine.org](https://godotengine.org).
-- **Python 3.10+** with `numpy` and `Pillow`.
-- About 2 GB of free disk space.
+<p align="center"><img src="docs/media/vehicles.jpg" alt="Vehicles"></p>
 
-## Setup
+The scout car, Gordon's muscle car from Episode Two, the Combine APC, a military APC,
+Dog (carrying the racer on his shoulders) and a bathtub on wheels, each with its own
+speed, acceleration, weight, handling and engine sound.
+
+## Features
+
+- **Items** from HL2 supply crates: a homing manhack, a rollermine, an explosive barrel,
+  a HEV battery boost, the gravity gun, a headcrab canister strike on the leader and a
+  HEV charger shield.
+- **Drifting:** hold jump in a turn, let AUX POWER charge and release for a mini or
+  super turbo. Hold the throttle on "one" for a rocket start.
+- **Rescue:** fall off or get wedged and a Combine scanner lifts you back onto the road.
+- **Multiplayer:** LAN and internet, a Half-Life style server browser, a lobby with chat,
+  bots for the empty grid slots, a dedicated server and a master server.
+- **Source look and feel:** VertexLitGeneric / LightmappedGeneric style shaders, HL2 and
+  HL1 skyboxes, `sv_gravity 600`, vehicle and surface properties read from the game
+  scripts, HL2 and HL1 music.
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/media/menu.jpg" alt="Main menu"></td>
+    <td width="33%"><img src="docs/media/new_race.jpg" alt="New race"></td>
+    <td width="33%"><img src="docs/media/lobby.jpg" alt="Lobby"></td>
+  </tr>
+  <tr>
+    <td align="center">Main menu</td>
+    <td align="center">New race</td>
+    <td align="center">Online lobby</td>
+  </tr>
+</table>
+
+## Getting started
+
+You need:
+
+- Windows 10 or 11 (the tools also know Linux Steam paths, but only Windows is tested);
+- **Half-Life 2** (it includes Episode One and Two) and **Half-Life** on Steam;
+- **Godot 4.7**, the standard build (the free "Godot Engine" on Steam, or
+  [godotengine.org](https://godotengine.org));
+- **Python 3.10+** with `numpy` and `Pillow`;
+- about 2 GB of free disk space.
 
 ```bash
 git clone https://github.com/NVG-Games/hl2-kart.git
@@ -62,21 +112,16 @@ pip install numpy pillow
 python tools/setup_assets.py
 ```
 
-The script finds both games through your Steam libraries and Godot through the
-`GODOT` environment variable, the Steam copy, or `godot` on `PATH`. If something
-lives elsewhere, set `HL2_ROOT` / `HL1_ROOT` to the game folders or pass
-`--godot <path>`. It extracts models, textures, sounds, music and fonts, builds
-the skies, Highway 17, the four converted maps and their race lines, imports
-everything into Godot and renders the menu pictures. At the end Godot opens a
-window for a few minutes to render those pictures; let it finish.
+The setup finds both games through your Steam libraries and Godot through `GODOT`, the
+Steam copy or `godot` on `PATH` (otherwise set `HL2_ROOT` / `HL1_ROOT` or pass
+`--godot <path>`). It extracts the game content, builds the five circuits, imports
+everything into Godot and renders the menu pictures; Godot opens a window for a few
+minutes at the end. A single step can be repeated with `--only <step>` or resumed with
+`--from <step>` (`extract, music, skies, highway17, tracks, import, ui`).
 
-A step can be repeated or resumed: `--only maps`, `--from tracks`
-(steps: `extract, music, skies, highway17, maps, tracks, import, ui`).
+Then double-click `Play HL2 Kart.bat`, or run `godot --path .`.
 
-## Playing
-
-Double-click `Play HL2 Kart.bat`, run `godot --path .` in the folder, or open
-`project.godot` in the Godot editor and press F5.
+## Controls
 
 | Action | Keyboard | Gamepad |
 |---|---|---|
@@ -87,83 +132,64 @@ Double-click `Play HL2 Kart.bat`, run `godot --path .` in the folder, or open
 | Use item | E / Ctrl / Enter | LB, B |
 | Chat (online) | Y / T | |
 | Look back | C | Y |
-| Rescue (scanner) | R | Back |
+| Call the scanner | R | Back |
 | Pause | Esc / P | Start |
-
-**NEW RACE** picks the racer, vehicle, difficulty, laps and track (weather is
-offered on Highway 17; the converted maps keep their own sky). **HOW TO PLAY**
-opens by itself on the first start.
 
 ## Multiplayer
 
-The networking works like Source servers: UDP 27015 for the game, 27016 for the
-server browser and LAN discovery, and optionally a master server on UDP 27010
-for the INTERNET tab.
+The networking works like Source servers: UDP 27015 for the game, 27016 for the server
+browser and LAN discovery, and optionally a master server on UDP 27010 for the INTERNET
+tab.
 
-**Hosting.** Press CREATE SERVER and set the name, password, player limit, bots
-(fill the grid up to a size, or off for people only), laps, difficulty, track
-and weather. The host races too.
+- **Host:** CREATE SERVER, set the name, password, player limit, bots, laps, difficulty,
+  track and weather. The host races too.
+- **Join:** FIND SERVERS. On the same network the server shows up under LAN; over the
+  internet type the host's address. Without UPnP on the host's router, forward UDP
+  27015–27016 or play over a virtual LAN (Radmin VPN, ZeroTier, Tailscale).
+- **Lobby:** pick a nickname, racer and vehicle; the host changes the rules and starts.
+  A player who leaves mid-race is replaced by a bot.
 
-**Joining.** FIND SERVERS: on the same network the server shows up under LAN.
-Over the internet, type the host's public address in "Connect to address". If
-the host's router has no UPnP, forward UDP 27015–27016 by hand, or play over a
-virtual LAN (Radmin VPN, ZeroTier, Tailscale).
-
-**Lobby.** Everyone picks a nickname, racer and vehicle; ping and ready state are
-shown. The host changes the rules, kicks players and starts the race; when
-everyone is READY it starts by itself after 5 seconds. A player who leaves
-mid-race is replaced by a bot.
-
-**Dedicated server** (no window, srcds-like console):
+Dedicated server (no window, srcds-like console; settings can also go in `server.cfg`,
+see `server.cfg.example`):
 
 ```bash
-godot --headless --path . -- --dedicated --name "City 17 GP" --max 8 --bots on --laps 3 --track surface_tension
+godot --headless --path . -- --dedicated --name "City 17 GP" --max 8 --bots on --laps 3 --track xen
 ```
 
-Settings can go in `server.cfg` (see `server.cfg.example`). Console commands:
-`status`, `say <text>`, `kick <nick>`, `start`, `lobby`, `set <cvar> <value>`,
-`quit`. Track ids: `city17_circuit`, `ct17`, `xen`, `black_mesa`,
-`surface_tension`.
+Track ids: `city17_circuit`, `ct17`, `black_mesa`, `xen`, `surface_tension`.
+Console: `status`, `say <text>`, `kick <nick>`, `start`, `lobby`, `set <cvar> <value>`, `quit`.
 
-**Master server** for the INTERNET tab, on any machine with UDP 27010 open:
+Master server for the INTERNET tab, on any machine with UDP 27010 open:
 
 ```bash
 godot --headless --path . -- --master-server --port 27010
 ```
 
-Players enter its address in the INTERNET tab, servers in `sv_master` or with
-`--master host:27010`.
-
-Every player needs their own built copy of the game (this repository plus the
-setup with their own Half-Life games), servers included.
-
 ## Sharing it with friends
 
-- Share the link to this repository. Each person clones it and runs the setup
-  with their own Half-Life 2 and Half-Life.
-- Do **not** upload the `assets/` folder, extracted files or an exported build of
-  the game anywhere: not on GitHub, not on file hosts, not in chats. That content
-  belongs to Valve.
+- Share the link to this repository. Each person clones it and runs the setup with
+  their own Half-Life 2 and Half-Life, servers included.
+- Do **not** upload the `assets/` folder, extracted files or an exported build anywhere.
+  That content belongs to Valve.
 - Forks, mods and new tracks are welcome under the same non-commercial license.
-- Running a public server is fine; selling anything is not.
 
 ## For developers
 
 - `scripts/`: the game (GDScript). `shaders/`: Source-style shaders.
-- `tools/`: Python converters. VPK reader, MDL/VVD/VTX and GoldSrc MDL to glTF,
-  VTF to PNG, VMT materials, HL2 and HL1 BSP to Godot worlds with lightmaps
-  (`source_world.py`, `goldsrc_world.py`), and race lines laid on a converted map
-  (`bsp_track.py` with the track definitions in `tools/tracks/`).
-- `tests/`: headless AI races with stats (`race_stats.tscn`), screenshot tours,
-  menu shots, network client/host walkthroughs and a compile check of every
-  script (`check_scripts.tscn`).
+- `tools/`: Python. VPK, MDL/VVD/VTX, GoldSrc MDL, VTF, VMT and WAD readers;
+  `build_track.py` builds Highway 17, `track_gen.py` builds the other circuits from the
+  definitions in `tools/circuits/` (a spline of styled stretches: street, open road,
+  tunnel or hall, bridge, cutting, jump), with their terrain, props, lights and signs.
+  `source_world.py` / `goldsrc_world.py` convert whole HL2 / HL1 maps if you want to
+  experiment with real levels.
+- `tests/`: headless AI races with stats (`race_stats.tscn`), photo tours, menu layout
+  checks (`ui_fit.tscn`), network walkthroughs and a compile check of every script.
 
-New track from a Half-Life map: convert it with `goldsrc_world.py` /
-`source_world.py`, write a definition in `tools/tracks/`, build it with
-`bsp_track.py`, then add it to `TRACKS` in `scripts/core/game.gd`.
+A new circuit is one Python module in `tools/circuits/` plus an entry in `TRACKS` in
+`scripts/core/game.gd`.
 
 ## License
 
 The code is © NVG Games under the [PolyForm Noncommercial License 1.0.0](LICENSE.md):
-free to use, change and share for any non-commercial purpose. Half-Life content
-is © Valve Corporation and is not included; see [LEGAL.md](LEGAL.md).
+free to use, change and share for any non-commercial purpose. Half-Life content is ©
+Valve Corporation and is not included; see [LEGAL.md](LEGAL.md).

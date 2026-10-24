@@ -198,7 +198,7 @@ func _track() -> Control:
 	v.add_child(_track_card("res://assets/ui/items/scanner.png", "Fell off or stuck?",
 		"Drop into the sea or get wedged and a Combine scanner lifts you back onto the road. Press R to call it yourself."))
 	v.add_child(_track_card("res://assets/ui/portraits/breen.png", "Five tracks",
-		"Highway 17 starts under Dr. Breen's broadcast, leaves City 17 through the Combine checkpoint, jumps the inlet on the coast road and comes back down the canal. CT17, Xen, Black Mesa and Surface Tension are the real Half-Life maps, lighting and all."))
+		"Highway 17 starts under Dr. Breen's broadcast, leaves City 17 through the Combine checkpoint, jumps the inlet on the coast road and comes back down the canal. CT17, Black Mesa, Xen and Surface Tension rebuild those places from the games' own textures, models, signs and music."))
 	v.add_child(_track_card("res://assets/ui/items/barrel.png", "Physics everywhere",
 		"Cones, drums, crates and melons are real props: knock them over. Red barrels explode."))
 	return v

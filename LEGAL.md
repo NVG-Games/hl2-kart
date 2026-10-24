@@ -23,6 +23,9 @@ You may not:
 
 Everyone who wants to play needs their own copies of Half-Life 2 and Half-Life.
 
+The screenshots and animations in `docs/media/` show Valve's content as it appears in
+this fan project; that content remains Valve's.
+
 ## Source code
 
 The source code (GDScript, shaders, Python tools) is published by NVG Games under
