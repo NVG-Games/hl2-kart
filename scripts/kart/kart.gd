@@ -454,21 +454,28 @@ func _check_respawn(delta: float) -> void:
 		_flip_time += delta
 	else:
 		_flip_time = 0.0
+	if global_position.y < float(track.data.get("kill_y", -1e9)):
+		out = true
+	# fell into the pit under a jump: fish them out before they reach the bottom
+	if track.path.gap[path_index] == 1 and global_position.y < track.path.center[path_index].y - 5.0:
+		out = true
 	var lat := absf(track.path.lateral(global_position, path_index))
-	if lat > track.path.width[path_index] * 0.5 + float(track.data.get("offtrack", 60.0)):
+	if lat > track.path.width[path_index] * 0.5 + maxf(float(track.data.get("offtrack", 60.0)), 30.0):
 		out = true
 	if speed < 1.0 and in_throttle > 0.5:
 		_stuck_time += delta
 	else:
 		_stuck_time = 0.0
 	# no forward progress for a while (wedged on a wall / prop) -> rescue
+	# bots that stop gaining ground are lost; a player only when they are also
+	# barely moving (driving back for a crate or exploring is their call)
 	var racing_now: bool = race == null or race.racing
-	if racing_now:
+	if racing_now and (not is_player or speed < 3.0):
 		_watch_time += delta
-		if total_progress > _watch_progress + 8.0:
-			_watch_progress = total_progress
-			_watch_time = 0.0
-	if out or _flip_time > 2.0 or _stuck_time > 4.0 or _watch_time > (8.0 if is_player else 5.0):
+	if total_progress > _watch_progress + 8.0:
+		_watch_progress = total_progress
+		_watch_time = 0.0
+	if out or _flip_time > 2.0 or _stuck_time > 4.0 or _watch_time > (6.0 if is_player else 5.0):
 		_watch_time = 0.0
 		_watch_progress = total_progress
 		start_respawn()

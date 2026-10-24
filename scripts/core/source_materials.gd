@@ -163,6 +163,8 @@ static func world_material(name: String, uv_scale := Vector2.ONE) -> Material:
 			m.set_shader_parameter("has_env_mask", true)
 	if info.get("alphatest", false):
 		m.set_shader_parameter("alpha_cut", 0.5)
+	if info.get("selfillum", false):
+		m.set_shader_parameter("emission", float(info.get("glow", 2.2)))
 	_cache[key] = m
 	return m
 

@@ -3,7 +3,7 @@ extends Node3D
 ## (sharp in-game stills, slow drift and cross-fade), the HALF-LIFE² logo,
 ## a short column of Verdana menu entries, a now-playing strip.
 
-const BACKGROUNDS := ["grid", "city", "coast", "canal"]
+const BACKGROUNDS := ["grid", "city", "coast", "canal", "ct17", "black_mesa", "xen", "surface_tension"]
 const BG_SECONDS := 18.0
 
 var ui: CanvasLayer
@@ -31,7 +31,7 @@ func _ready() -> void:
 	add_child(ui)
 	root = Control.new()
 	root.theme = UiKit.theme()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	ui.add_child(root)
 	_build_background()
 	_build_title()
@@ -41,7 +41,9 @@ func _ready() -> void:
 	now_playing.anchor_right = 1.0
 	now_playing.anchor_top = 1.0
 	now_playing.anchor_bottom = 1.0
-	now_playing.offset_left = -470
+	# grows to the left from the corner, however long the title is
+	now_playing.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	now_playing.offset_left = -36
 	now_playing.offset_right = -36
 	now_playing.offset_top = -82
 	now_playing.offset_bottom = -32
@@ -74,7 +76,9 @@ func _build_background() -> void:
 			_textures.append(t)
 	_textures.shuffle()
 	bg_a = _bg_rect()
+	bg_a.set_meta("bleed", true)
 	bg_b = _bg_rect()
+	bg_b.set_meta("bleed", true)
 	bg_b.modulate.a = 0.0
 	bg_a.texture = _textures[0]
 	var shade := TextureRect.new()
@@ -86,7 +90,7 @@ func _build_background() -> void:
 	g.gradient = grad
 	g.fill_to = Vector2(1, 0)
 	shade.texture = g
-	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(shade)
 
@@ -95,7 +99,7 @@ func _bg_rect() -> TextureRect:
 	var r := TextureRect.new()
 	r.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	r.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	r.set_anchors_preset(Control.PRESET_FULL_RECT)
+	r.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	r.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(r)
@@ -215,7 +219,7 @@ func _go_race() -> void:
 	Game.stop_music()
 	var fade := ColorRect.new()
 	fade.color = Color(0, 0, 0, 0)
-	fade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	fade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.add_child(fade)
 	var loading := UiKit.label("LOADING...", 28, Color(1, 1, 1, 0.9), true)
 	loading.anchor_left = 1.0

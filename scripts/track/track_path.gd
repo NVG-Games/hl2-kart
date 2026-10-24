@@ -55,9 +55,13 @@ func closest(p: Vector3, hint := -1) -> int:
 				bd = d
 				best = i
 		return best
+	# stay on the same stretch: a part of the lap that passes close by (a hairpin,
+	# an overpass) must not steal the kart, so height counts double and every
+	# sample away from the hint costs a little
 	for k in range(-12, 25):
 		var i := wi(hint + k)
-		var d := p.distance_squared_to(center[i])
+		var dv := p - center[i]
+		var d := dv.x * dv.x + dv.z * dv.z + 4.0 * dv.y * dv.y + absf(k) * step * 0.5
 		if d < bd:
 			bd = d
 			best = i

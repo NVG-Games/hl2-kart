@@ -15,6 +15,12 @@ var _center := Vector3(180, 0, 290)
 
 func setup(trk: Track) -> void:
 	track = trk
+	# circle over the middle of whatever circuit this is
+	var sum := Vector3.ZERO
+	for c in trk.path.center:
+		sum += c
+	_center = sum / maxf(1.0, trk.path.center.size())
+	_center.y = 0.0
 	gunship = Game.spawn_model("gunship")
 	gunship.scale = Vector3.ONE * 1.4
 	add_child(gunship)

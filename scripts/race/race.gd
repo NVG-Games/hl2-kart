@@ -51,6 +51,7 @@ func _ready() -> void:
 	hud = Hud.new()
 	add_child(hud)
 	hud.setup(self)
+	Game.race_pool = track.data.get("music", [])
 	Game.play_music_mode("race")
 	if online:
 		hud.big_text("WAITING FOR PLAYERS", 30.0)

@@ -46,7 +46,7 @@ func _icon(path: String) -> Texture2D:
 	return load(path) if ResourceLoader.exists(path) else null
 
 
-func _init(card_h := 128) -> void:
+func _init(card_h := 128, vehicle_h := 96) -> void:
 	var v := self
 	v.add_theme_constant_override("separation", 10)
 	v.add_child(UiKit.section("CHOOSE YOUR RACER"))
@@ -74,7 +74,7 @@ func _init(card_h := 128) -> void:
 	var vgroup := ButtonGroup.new()
 	for i in Game.VEHICLES.size():
 		var veh: Dictionary = Game.VEHICLES[i]
-		var b := _card(veh["name"], _icon("res://assets/ui/vehicles/%s.png" % veh["id"]), Vector2(112, 96), vgroup)
+		var b := _card(veh["name"], _icon("res://assets/ui/vehicles/%s.png" % veh["id"]), Vector2(112, vehicle_h), vgroup)
 		var idx := i
 		b.pressed.connect(func(): vehicle_picked.emit(idx))
 		row.add_child(b)

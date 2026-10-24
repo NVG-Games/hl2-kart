@@ -4,6 +4,8 @@ extends Node
 ## usage: godot --path . res://tests/render_ui_assets.tscn -- [icons|backgrounds|tracks|all]
 
 const OUT := "res://assets/ui/"
+## Where on each lap (fraction) the menu background still is taken.
+const BG_AT := {"ct17": 0.04, "black_mesa": 0.74, "xen": 0.3, "surface_tension": 0.8}
 var race: Node
 var cam: Camera3D
 var shots_done := {}
@@ -197,6 +199,15 @@ func _track_thumbs() -> void:
 		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT + "tracks"))
 		img.save_png(ProjectSettings.globalize_path(OUT + "tracks/%s.png" % tr["id"]))
 		print("track card ", tr["id"])
+		if tr["id"] != "city17_circuit":
+			# a scenic still for the main menu, further round the lap
+			var at := p.transform_at(p.length * float(BG_AT.get(tr["id"], 0.3)))
+			c.global_position = at.origin - at.basis.z * -14.0 + at.basis.x * 3.0 + Vector3.UP * 5.5
+			c.look_at(p.center_at(p.length * float(BG_AT.get(tr["id"], 0.3)) + 40.0) + Vector3.UP * 3.0, Vector3.UP)
+			for f in 6:
+				await get_tree().process_frame
+			DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT + "backgrounds"))
+			get_viewport().get_texture().get_image().save_png(ProjectSettings.globalize_path(OUT + "backgrounds/%s.png" % tr["id"]))
 		r.queue_free()
 		c.queue_free()
 		for f in 3:

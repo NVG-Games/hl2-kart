@@ -16,6 +16,7 @@ uniform sampler2D env_mask_tex : hint_default_white, filter_linear_mipmap, repea
 uniform bool has_env_mask = false;
 uniform vec2 uv_scale = vec2(1.0);
 uniform float alpha_cut = 0.0;
+uniform float emission = 0.0;  // $selfillum / HL1 "~" light textures
 
 void fragment() {
 	vec2 uv = UV * uv_scale;
@@ -26,6 +27,7 @@ void fragment() {
 		c = mix(c, c * d * 2.0, detail_blend);
 	}
 	ALBEDO = c;
+	EMISSION = c * emission;
 	if (has_normal) {
 		NORMAL_MAP = texture(normal_tex, uv).rgb;
 	}

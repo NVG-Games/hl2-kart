@@ -25,21 +25,21 @@ var _is_ready := false
 
 func _ready() -> void:
 	theme = UiKit.theme()
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	var shade := ColorRect.new()
 	shade.color = Color(0, 0, 0, 0.6)
-	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(shade)
 	var root := MarginContainer.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	for side in ["left", "right"]:
-		root.add_theme_constant_override("margin_" + side, 70)
-	root.add_theme_constant_override("margin_top", 34)
-	root.add_theme_constant_override("margin_bottom", 30)
+		root.add_theme_constant_override("margin_" + side, 56)
+	root.add_theme_constant_override("margin_top", 28)
+	root.add_theme_constant_override("margin_bottom", 26)
 	add_child(root)
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 16)
+	col.add_theme_constant_override("separation", 12)
 	root.add_child(col)
 	# header
 	var head := HBoxContainer.new()
@@ -56,12 +56,16 @@ func _ready() -> void:
 	address_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	address_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 	head.add_child(address_label)
-	# racer / vehicle + players
-	var row1 := HBoxContainer.new()
-	row1.add_theme_constant_override("separation", 30)
-	col.add_child(row1)
-	picker = RacerPicker.new(112)
-	row1.add_child(picker)
+	# left: racer / vehicle and the chat under them; right: players and the rules
+	var main := HBoxContainer.new()
+	main.add_theme_constant_override("separation", 28)
+	main.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_child(main)
+	var left := VBoxContainer.new()
+	left.add_theme_constant_override("separation", 10)
+	main.add_child(left)
+	picker = RacerPicker.new(100, 84)
+	left.add_child(picker)
 	picker.racer_picked.connect(func(i: int):
 		_racer = i
 		_send_profile()
@@ -71,32 +75,12 @@ func _ready() -> void:
 	picker.vehicle_picked.connect(func(i: int):
 		_vehicle = i
 		_send_profile())
-	var pv := VBoxContainer.new()
-	pv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	pv.add_theme_constant_override("separation", 10)
-	row1.add_child(pv)
-	pv.add_child(UiKit.section("PLAYERS"))
-	var pframe := PanelContainer.new()
-	pframe.add_theme_stylebox_override("panel", UiKit.box(Color(0, 0, 0, 0.4), Color(1, 1, 1, 0.08), 1, 4, 10))
-	pframe.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	pv.add_child(pframe)
-	players_box = VBoxContainer.new()
-	players_box.add_theme_constant_override("separation", 4)
-	pframe.add_child(players_box)
-	# chat + rules
-	var row2 := HBoxContainer.new()
-	row2.add_theme_constant_override("separation", 30)
-	row2.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	col.add_child(row2)
-	var cv := VBoxContainer.new()
-	cv.custom_minimum_size.x = picker.get_combined_minimum_size().x
-	cv.add_theme_constant_override("separation", 8)
-	row2.add_child(cv)
-	cv.add_child(UiKit.section("CHAT"))
+	left.add_child(UiKit.section("CHAT"))
 	var cframe := PanelContainer.new()
-	cframe.add_theme_stylebox_override("panel", UiKit.box(Color(0, 0, 0, 0.4), Color(1, 1, 1, 0.08), 1, 4, 10))
+	cframe.add_theme_stylebox_override("panel", UiKit.box(Color(0, 0, 0, 0.55), Color(1, 1, 1, 0.08), 1, 4, 10))
 	cframe.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	cv.add_child(cframe)
+	cframe.custom_minimum_size.y = 90
+	left.add_child(cframe)
 	chat_scroll = ScrollContainer.new()
 	chat_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	cframe.add_child(chat_scroll)
@@ -110,15 +94,32 @@ func _ready() -> void:
 	chat_edit.text_submitted.connect(func(t: String):
 		Net.say(t)
 		chat_edit.text = "")
-	cv.add_child(chat_edit)
-	var rv := VBoxContainer.new()
-	rv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rv.add_theme_constant_override("separation", 8)
-	row2.add_child(rv)
-	rv.add_child(UiKit.section("RULES"))
+	left.add_child(chat_edit)
+	var right := VBoxContainer.new()
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.add_theme_constant_override("separation", 10)
+	main.add_child(right)
+	right.add_child(UiKit.section("PLAYERS"))
+	var pframe := PanelContainer.new()
+	pframe.add_theme_stylebox_override("panel", UiKit.box(Color(0, 0, 0, 0.55), Color(1, 1, 1, 0.08), 1, 4, 10))
+	pframe.custom_minimum_size.y = 8 * 34 + 20
+	right.add_child(pframe)
+	players_box = VBoxContainer.new()
+	players_box.add_theme_constant_override("separation", 4)
+	pframe.add_child(players_box)
+	right.add_child(UiKit.section("RULES"))
+	var rframe := PanelContainer.new()
+	rframe.add_theme_stylebox_override("panel", UiKit.box(Color(0, 0, 0, 0.55), Color(1, 1, 1, 0.08), 1, 4, 12))
+	rframe.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	right.add_child(rframe)
+	# the rules scroll if the window is very short, so the buttons below always stay on screen
+	var rscroll := ScrollContainer.new()
+	rscroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	rframe.add_child(rscroll)
 	rules_box = VBoxContainer.new()
-	rules_box.add_theme_constant_override("separation", 8)
-	rv.add_child(rules_box)
+	rules_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rules_box.add_theme_constant_override("separation", 6)
+	rscroll.add_child(rules_box)
 	# buttons
 	var brow := HBoxContainer.new()
 	brow.add_theme_constant_override("separation", 14)

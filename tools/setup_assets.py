@@ -4,7 +4,7 @@ The repository ships code only: models, textures, sounds, music, maps and fonts
 belong to Valve and are extracted here, on the player's machine.
 
 usage: python tools/setup_assets.py [--godot <path to Godot 4.7>] [--from <step>] [--only <step>]
-steps: extract, music, skies, highway17, maps, tracks, import, ui
+steps: extract, music, skies, highway17, tracks, import, ui
 """
 import argparse
 import json
@@ -21,16 +21,11 @@ ASSETS = os.path.join(ROOT, "assets")
 sys.path.insert(0, HERE)
 from steam_paths import HL1_ROOT, HL2_ROOT, steam_libraries  # noqa: E402
 
-# converted maps: key -> (converter, scale, BSP names)
-MAPS = [
-    ("ct17", "source_world.py", 1.8, ["d1_trainstation_02"]),
-    ("xen", "goldsrc_world.py", 4.0, ["xen_dm"]),
-    ("black_mesa", "goldsrc_world.py", 3.0, ["rapidcore"]),
-    ("surface_tension", "goldsrc_world.py", 2.5, ["c2a5w"]),
-]
-HL1_SKIES = ["desert", "alien1"]
+# circuits built by track_gen.py (tools/circuits/<name>.py)
+CIRCUITS = ["ct17", "black_mesa", "xen", "surface_tension"]
+HL1_SKIES = ["desert", "alien1", "xen8", "neb7"]
 WEATHER = ["sky_day01_01", "sky_day01_05", "sky_day02_09", "sky_day01_08", "sky_day03_06"]
-STEPS = ["extract", "music", "skies", "highway17", "maps", "tracks", "import", "ui"]
+STEPS = ["extract", "music", "skies", "highway17", "tracks", "import", "ui"]
 
 
 def log(*a):
@@ -139,12 +134,8 @@ def main():
             weather_cards()
         elif step == "highway17":
             py("build_track.py")
-        elif step == "maps":
-            for key, tool, scale, bsps in MAPS:
-                py(tool, key, scale, *bsps)
         elif step == "tracks":
-            for key, _, _, _ in MAPS:
-                py("bsp_track.py", os.path.join("tracks", key + ".json"))
+            py("track_gen.py", *CIRCUITS)
         elif step == "import":
             run([godot, "--headless", "--path", ROOT, "--import"], cwd=ROOT)
         elif step == "ui":

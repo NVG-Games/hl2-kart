@@ -43,7 +43,7 @@ func setup(r) -> void:
 	layer = 5
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	root = Control.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 	_build_counters()
@@ -231,12 +231,12 @@ func _build_pause() -> void:
 	# HL2 in-game menu: dimmed scene, logo-less title, the same flat menu entries
 	pause_panel = Control.new()
 	pause_panel.theme = UiKit.theme()
-	pause_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	pause_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	pause_panel.visible = false
 	root.add_child(pause_panel)
 	var dim := ColorRect.new()
 	dim.color = Color(0, 0, 0, 0.6)
-	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	pause_panel.add_child(dim)
 	var v := VBoxContainer.new()
 	v.anchor_top = 1.0
@@ -430,7 +430,7 @@ func show_results(karts: Array) -> void:
 	results_panel = Panel.new()
 	results_panel.theme = UiKit.theme()
 	results_panel.add_theme_stylebox_override("panel", Hl2Style.panel_style(Color(0, 0, 0, 0.55), 0))
-	results_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	results_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.add_child(results_panel)
 	var box := Panel.new()
 	box.add_theme_stylebox_override("panel", Hl2Style.panel_style(Color(0, 0, 0, 0.6), 10))
@@ -560,7 +560,7 @@ func show_net_results(order: Array, seconds: float) -> void:
 	results_panel = Panel.new()
 	results_panel.theme = UiKit.theme()
 	results_panel.add_theme_stylebox_override("panel", Hl2Style.panel_style(Color(0, 0, 0, 0.55), 0))
-	results_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	results_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	results_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(results_panel)
 	var box := Panel.new()

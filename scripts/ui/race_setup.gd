@@ -31,21 +31,21 @@ var _preview_tween: Tween
 
 func _ready() -> void:
 	theme = UiKit.theme()
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	var shade := ColorRect.new()
 	shade.color = Color(0, 0, 0, 0.55)
-	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(shade)
 	_preview = AudioStreamPlayer.new()
 	_preview.bus = "UI"
 	add_child(_preview)
 	var root := MarginContainer.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	for side in ["left", "right"]:
-		root.add_theme_constant_override("margin_" + side, 70)
-	root.add_theme_constant_override("margin_top", 40)
-	root.add_theme_constant_override("margin_bottom", 36)
+		root.add_theme_constant_override("margin_" + side, 56)
+	root.add_theme_constant_override("margin_top", 32)
+	root.add_theme_constant_override("margin_bottom", 30)
 	add_child(root)
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 18)
@@ -96,19 +96,26 @@ func _preview_column() -> Control:
 	frame.add_theme_stylebox_override("panel", UiKit.box(Color(0, 0, 0, 0.35), Color(1, 1, 1, 0.08), 1, 4, 0))
 	frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	v.add_child(frame)
-	showroom = Showroom.new(Vector2i(700, 300))
+	showroom = Showroom.new(Vector2i(560, 260))
 	frame.add_child(showroom)
+	# name, vehicle and stats on a dark plate: readable over the moving background
+	var plate := PanelContainer.new()
+	plate.add_theme_stylebox_override("panel", UiKit.box(Color(0, 0, 0, 0.62), Color(1, 1, 1, 0.08), 1, 4, 14))
+	v.add_child(plate)
+	var info := VBoxContainer.new()
+	info.add_theme_constant_override("separation", 6)
+	plate.add_child(info)
 	name_label = UiKit.label("", 30, Hl2Style.BRIGHT, true)
-	v.add_child(name_label)
-	vehicle_label = UiKit.label("", 15, UiKit.TEXT_DIM)
+	info.add_child(name_label)
+	vehicle_label = UiKit.label("", 15, UiKit.TEXT)
 	vehicle_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vehicle_label.custom_minimum_size.x = 600
-	v.add_child(vehicle_label)
+	vehicle_label.custom_minimum_size.x = 300
+	info.add_child(vehicle_label)
 	stats_box = GridContainer.new()
 	stats_box.columns = 2
 	stats_box.add_theme_constant_override("h_separation", 28)
 	stats_box.add_theme_constant_override("v_separation", 6)
-	v.add_child(stats_box)
+	info.add_child(stats_box)
 	return v
 
 
@@ -179,7 +186,7 @@ func _pic_card(tex: Texture2D, caption: String, size: Vector2, group: ButtonGrou
 	b.button_group = group
 	b.custom_minimum_size = size
 	var inner := VBoxContainer.new()
-	inner.set_anchors_preset(Control.PRESET_FULL_RECT)
+	inner.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	inner.offset_left = 6
 	inner.offset_right = -6
 	inner.offset_top = 6
@@ -217,11 +224,11 @@ func _pic_card(tex: Texture2D, caption: String, size: Vector2, group: ButtonGrou
 func _rules_row() -> Control:
 	var panel := PanelContainer.new()
 	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 34)
+	h.add_theme_constant_override("separation", 28)
 	panel.add_child(h)
 	var d := VBoxContainer.new()
 	d.add_theme_constant_override("separation", 8)
-	d.custom_minimum_size.x = 290
+	d.custom_minimum_size.x = 270
 	d.add_child(UiKit.section("DIFFICULTY"))
 	var names: Array = []
 	for x in Game.DIFFICULTIES:
@@ -239,7 +246,7 @@ func _rules_row() -> Control:
 	var group := ButtonGroup.new()
 	for tr in Game.TRACKS:
 		var id: String = tr["id"]
-		var b := _pic_card(Game.track_thumb(id), tr["short"], Vector2(150, 100), group)
+		var b := _pic_card(Game.track_thumb(id), tr["short"], Vector2(140, 96), group)
 		b.button_pressed = Game.settings.get("track", "") == id
 		b.pressed.connect(func():
 			Game.settings["track"] = id
@@ -256,7 +263,7 @@ func _rules_row() -> Control:
 	w.add_child(weather)
 	track_desc = UiKit.label("", 14, UiKit.TEXT_DIM)
 	track_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	track_desc.custom_minimum_size.x = 260
+	track_desc.custom_minimum_size.x = 220
 	w.add_child(track_desc)
 	h.add_child(w)
 	_refresh_track()

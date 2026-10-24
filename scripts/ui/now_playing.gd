@@ -17,7 +17,7 @@ func _ready() -> void:
 	title = Button.new()
 	title.flat = true
 	title.clip_text = true
-	title.custom_minimum_size = Vector2(300, 34)
+	title.custom_minimum_size = Vector2(280, 34)
 	title.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	title.add_theme_font_override("font", UiKit.font(false))
 	title.add_theme_font_size_override("font_size", 15)

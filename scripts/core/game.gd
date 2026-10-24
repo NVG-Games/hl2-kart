@@ -55,19 +55,19 @@ const VEHICLES := [
 		"desc": "A clawfoot bathtub on four wheels. Light, twitchy and very, very fast to turn."},
 ]
 
-## Circuits. "Highway 17" is built from HL2 assets; the others are real
-## Half-Life / Half-Life 2 maps converted with their lightmaps (tools/*_world.py).
+## Circuits, all built by the track tools from Half-Life / Half-Life 2 content:
+## Highway 17 by tools/build_track.py, the others by tools/track_gen.py.
 const TRACKS := [
 	{"id": "city17_circuit", "name": "Highway 17", "short": "HIGHWAY 17", "weather": true,
 		"desc": "City 17 streets, the Combine checkpoint, the coast road and the canal. Built from HL2 parts."},
 	{"id": "ct17", "name": "CT17", "short": "CT17", "weather": false,
-		"desc": "The station plaza of City 17 from Half-Life 2 (d1_trainstation_02), with the Breencast running."},
+		"desc": "Combine-held City 17: the station plaza under the Breencasts, the old town, a checkpoint, the canal jump, the rail yard and an underpass."},
 	{"id": "xen", "name": "Xen", "short": "XEN", "weather": false,
-		"desc": "Floating islands in the border world, from Half-Life (xen_dm)."},
+		"desc": "Floating islands in the border world: light stalks, crystals, two jumps over the void and a glowing cave."},
 	{"id": "black_mesa", "name": "Black Mesa", "short": "BLACK MESA", "weather": false,
-		"desc": "Corridors around a reactor core of the Black Mesa Research Facility, from Half-Life (rapidcore)."},
+		"desc": "Indoors through the Research Facility: Sector C lobby, labs, the tram tunnel, waste processing and a spiral around the Lambda core."},
 	{"id": "surface_tension", "name": "Surface Tension", "short": "SURFACE TENSION", "weather": false,
-		"desc": "A sand basin in the desert canyons outside Black Mesa: red rock, cactus and crates, from Half-Life (c2a5w)."},
+		"desc": "The desert outside Black Mesa: red-rock canyons, cactus, the river gorge bridge, the HECU camp and the dam."},
 ]
 
 const DIFFICULTIES := [
@@ -347,10 +347,16 @@ func music_title(id: String) -> String:
 
 ## mode: "menu" / "race" use the player's choice in Options (or a random pick
 ## from the curated pool); "jukebox" walks the whole soundtrack; "once" plays one track.
+## Songs a circuit asks for when race music is on "random" (Half-Life 1 for Black Mesa, Xen, the desert).
+var race_pool: Array = []
+
+
 func play_music_mode(mode: String) -> void:
 	var choice: String = settings.get(mode + "_music", "random")
 	if choice != "random" and choice != "":
 		play_track(choice, mode)
+	elif mode == "race" and not race_pool.is_empty():
+		play_track(pick(race_pool), mode)
 	else:
 		play_track(pick(RACE_MUSIC if mode == "race" else MENU_MUSIC), mode)
 
@@ -404,9 +410,18 @@ func voice_line(char_id: String, category: String) -> String:
 
 
 # ---------------------------------------------------------------- settings
+## Test scenes (res://tests/...) keep their own settings file, so running them
+## never changes the player's nickname, servers or race choices.
+func settings_path() -> String:
+	for a in OS.get_cmdline_args():
+		if a.begins_with("res://tests/"):
+			return "user://settings_test.cfg"
+	return "user://settings.cfg"
+
+
 func _load_settings() -> void:
 	var cfg := ConfigFile.new()
-	if cfg.load("user://settings.cfg") == OK:
+	if cfg.load(settings_path()) == OK:
 		for k in settings.keys():
 			settings[k] = cfg.get_value("settings", k, settings[k])
 
@@ -415,7 +430,7 @@ func save_settings() -> void:
 	var cfg := ConfigFile.new()
 	for k in settings.keys():
 		cfg.set_value("settings", k, settings[k])
-	cfg.save("user://settings.cfg")
+	cfg.save(settings_path())
 
 
 func apply_settings() -> void:

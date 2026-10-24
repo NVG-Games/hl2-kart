@@ -33,6 +33,27 @@ HL1_MODELS = [
      {"heads": 0, "weapons": 2}),
 ]
 
+# HL1 sounds for the start arches: the Black Mesa VOX announcer's words and HECU radio chatter
+VOX_SENTENCES = [
+    "attention all personnel _comma please report to sector c test lab",
+    "warning _comma anomalous materials lab access is now authorized",
+    "doctor freeman _comma please report to the lambda reactor core immediately",
+    "black mesa announcement system test _period this is a test",
+    "hazard level one _comma evacuate area immediately",
+]
+HL1_SOUNDS = ["hgrunt/c2a2_hg_chat1a.wav", "hgrunt/c2a2_hg_chat2a.wav", "hgrunt/c2a2_hg_chat3a.wav",
+              "hgrunt/c2a2_hg_chat4a.wav", "hgrunt/c2a2_hg_chat5a.wav", "hgrunt/c2a5_hg_abandon.wav",
+              "hgrunt/c2a5_hg_lebuz.wav"]
+HL1_SOUNDS += sorted({"vox/%s.wav" % w for line in VOX_SENTENCES for w in line.split()})
+
+# HL1 set dressing for the Black Mesa, Xen and Surface Tension circuits (valve/models/<name>.mdl)
+HL1_PROPS = [
+    "forklift", "loader", "sentry", "turret", "miniturret", "scientist", "filecabinet", "holo",
+    "light", "tree", "fungus", "fungus(large)", "fungus(small)", "hair", "uplant1", "uplant2", "uplant3",
+    "crystal", "big_rock", "floater", "islave", "houndeye", "controller", "nihilanth", "protozoa",
+    "dead_osprey", "osprey", "apache", "hgrunt", "tentacle2", "garg",
+]
+
 MODELS = [
     "buggy", "vehicle", "combine_apc", "props_vehicles/apc001", "props_vehicles/apc_tire001",
     "props_c17/furniturebathtub001a", "props_vehicles/carparts_wheel01a",
@@ -96,6 +117,24 @@ MODELS = [
     "props_trainstation/trashcan_indoor001a", "props_trainstation/train001", "props_trainstation/boxcar",
     "props_trainstation/payphone001a", "props_trainstation/light_signal001a",
     "props_lab/huladoll", "props_lab/monitor01a",
+    # Black Mesa
+    "props_lab/crystalbulk", "props_lab/crystalholder_bars", "props_lab/crystalholder_claw",
+    "props_lab/crystalholder_crystal", "props_lab/teleportframe", "props_lab/teleportring", "props_lab/servers",
+    "props_lab/workspace001", "props_lab/workspace002", "props_lab/workspace003", "props_lab/generator",
+    "props_lab/generatorconsole", "props_lab/pipesystem01a", "props_lab/pipesystem02a", "props_lab/pipesystem03a",
+    "props_lab/lockers", "props_lab/labturret", "props_lab/hev_case", "props_lab/hev_machine", "props_lab/securitybank",
+    "props_lab/blastdoor001a", "props_lab/powerbox02a", "props_lab/reciever_cart", "props_lab/filecabinet02",
+    "props_lab/monitor02", "props_lab/partsbin01", "props_interiors/vendingmachinesoda01a",
+    "props_interiors/furniture_desk01a", "props_interiors/furniture_chair01a", "props_wasteland/controlroom_desk001a",
+    "props_wasteland/controlroom_filecabinet001a", "props_wasteland/coolingtank01", "props_wasteland/coolingtank02",
+    "props_wasteland/pipecluster001a", "props_wasteland/pipecluster002a", "props_wasteland/light_spotlight01_lamp",
+    "props_c17/lockers001a", "props_c17/furnitureshelf001a", "props_c17/shelfunit01a", "props_c17/furnitureboiler001a",
+    "props_junk/wood_pallet001a", "props_junk/plasticcrate01a", "props_junk/propane_tank001a",
+    "props_c17/light_floodlight02_off",
+    # CT17
+    "props_c17/lamppost03a_on", "props_trainstation/boxcar2", "props_trainstation/flatcar",
+    "props_trainstation/lighttowercluster01", "props_trainstation/tanker", "props_trainstation/train002",
+    "props_trainstation/trainstation_column001", "props_trainstation/benchoutdoor01a",
 ]
 
 # chunk gibs for breakables
@@ -391,6 +430,22 @@ def main():
                             "mass": 90.0, "surfaceprop": "flesh", "aabb_min": meta["aabb_min"],
                             "aabb_max": meta["aabb_max"], "kind": "drivers"}
         log("hl1 model", key, src)
+    for name in HL1_PROPS:
+        src = os.path.join(HL1_ROOT, "valve", "models", name + ".mdl")
+        if not os.path.exists(src):
+            log("  -- missing HL1 prop", name)
+            continue
+        key = "hl1/" + name.replace("(", "_").replace(")", "")
+        try:
+            meta, mats = goldsrc_mdl.convert(src, key, ASSETS, {})
+        except Exception as e:  # noqa
+            log("  !! HL1 prop", name, repr(e))
+            continue
+        lib.db.update(mats)
+        model_index[key] = {"gltf": "res://assets/models/%s.gltf" % key, "meta": "res://assets/models/%s.json" % key,
+                            "mass": 200.0, "surfaceprop": "metal", "aabb_min": meta["aabb_min"],
+                            "aabb_max": meta["aabb_max"], "kind": "props"}
+        log("hl1 prop", key)
     with open(os.path.join(data_dir, "models.json"), "w") as f:
         json.dump(model_index, f, indent=1)
 
@@ -472,6 +527,16 @@ def main():
                         fdst.write(wav)
                 got.append("res://assets/" + dst_rel)
             voice_index[who][cat] = got
+    for rel in HL1_SOUNDS:
+        src = os.path.join(HL1_ROOT, "valve", "sound", rel)
+        dst = os.path.join(ASSETS, "sound", "hl1src", rel)
+        if os.path.exists(src) and not os.path.exists(dst):
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            with open(src, "rb") as fsrc:
+                wav, _ = sounds.convert_wav(fsrc.read())
+            with open(dst, "wb") as fdst:
+                fdst.write(wav)
+    voice_index["_vox"] = [line.split() for line in VOX_SENTENCES]
     with open(os.path.join(data_dir, "voices.json"), "w") as f:
         json.dump(voice_index, f, indent=1)
     # the whole soundtrack (for the menu jukebox), stingers excluded
