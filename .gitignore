@@ -1,0 +1,15 @@
+# Godot cache
+.godot/
+
+# Valve content: extracted on each player's machine by tools/setup_assets.py.
+# Never commit it.
+/assets/
+
+# Local files
+/screenshots/
+/server.cfg
+/export_presets.cfg
+/builds/
+__pycache__/
+*.pyc
+*.log

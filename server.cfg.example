@@ -1,0 +1,24 @@
+// Half-Life 2: Kart dedicated server config.
+// Copy to server.cfg (next to the game executable, or into the project folder)
+// and start the server with:
+//   godot --headless --path . -- --dedicated
+// Command-line flags override this file:
+//   --name "My server" --port 27015 --max 8 --bots on --grid 8 --laps 3
+//   --difficulty normal --weather "coastal storm" --password secret
+//   --lan --master master.example.net:27010 --config path/to/server.cfg
+
+hostname "City 17 Grand Prix"
+port 27015          // UDP game port; browsers query port+1 (27016)
+maxplayers 8        // people allowed on the server (1-8)
+bot_fill 1          // 1 = bots fill empty grid slots, 0 = people only
+bot_grid 8          // field size the bots fill up to (2-8)
+mp_laps 3
+mp_difficulty normal   // easy / normal / hard
+mp_weather sky_day01_01   // or: "highway 17 day", "coastal storm", "dusk", "evening"
+sv_password ""      // empty = anyone can join
+sv_lan 0            // 1 = do not register with the master server
+sv_master ""        // master server address (host[:27010]) for the INTERNET tab
+sv_upnp 0           // 1 = ask the router to forward the ports (home servers)
+
+// Console commands while it runs: status, say <text>, kick <nick>, start,
+// lobby, set <cvar> <value>, rules, quit
