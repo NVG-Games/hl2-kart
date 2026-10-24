@@ -69,6 +69,7 @@ func _studio(size: Vector2i) -> Array:
 func _save(vp: SubViewport, path: String) -> void:
 	for f in 4:
 		await get_tree().process_frame
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(path).get_base_dir())
 	vp.get_texture().get_image().save_png(ProjectSettings.globalize_path(path))
 
 
@@ -217,6 +218,7 @@ func _shot(name: String) -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	await get_tree().process_frame
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT + "backgrounds"))
 	get_viewport().get_texture().get_image().save_png(ProjectSettings.globalize_path(OUT + "backgrounds/%s.png" % name))
 	print("background ", name)
 	race.camera.make_current()
