@@ -1,196 +1,169 @@
 # Half-Life 2: Kart
 
-Картинг в духе Mario Kart на Godot 4.7, собранный из ассетов вашей копии Half-Life 2:
-модели, текстуры, небо, звуки, музыка и шрифты HUD взяты прямо из VPK-архивов игры.
+A Mario Kart–style kart racer for Godot 4.7, made from your own copies of
+Half-Life 2 and Half-Life. Racers, vehicles, maps, sounds, voices and music all
+come straight out of the games' files.
 
-## Запуск
+> **Free and non-commercial fan project, not affiliated with Valve.** This
+> repository holds the code only. To play you need Half-Life 2 and Half-Life on
+> Steam: a setup script builds the game's assets from them on your computer.
+> See [LEGAL.md](LEGAL.md).
 
-- Двойной клик по `Play HL2 Kart.bat` запускает игру через Godot из Steam.
-- Или откройте папку `hl2kart` в Godot (Import → `project.godot`) и нажмите F5.
+[Русская версия](README.ru.md)
 
-## Меню
+## What's in it
 
-- **NEW RACE.** Одиночная гонка с ботами. Выбор гонщика и машины с 3D-превью и
-  параметры заезда: сложность, число кругов, погода.
-- **FIND SERVERS.** Браузер серверов как в Half-Life: вкладки INTERNET,
-  FAVORITES, HISTORY и LAN, у каждого сервера видны игроки, статус и пинг.
-  Внизу поле для подключения по адресу (IP или имя, порт через двоеточие).
-- **CREATE SERVER.** Сервер у себя, хост тоже гоняет. Подробности в разделе
-  «Мультиплеер».
-- **HOW TO PLAY.** Управление, дрифт и турбо, предметы, трасса.
-  При первом запуске открывается само.
-- **SOUNDTRACK.** Весь саундтрек HL2 (71 трек), его можно слушать прямо в меню.
-- **OPTIONS.** Звук (общий, музыка, эффекты, голоса), видео (окно или полный
-  экран, вертикальная синхронизация, качество графики), музыка для гонки и для
-  меню, миникарта. Настройки доступны и из паузы.
+- **12 racers:** Alyx, Barney, Kleiner, Eli, Father Grigori, Dr. Breen, G-Man,
+  a Metrocop, a Vortigaunt, a Zombie and, from Half-Life, Gordon Freeman and
+  Adrian Shephard. Each one talks with their own lines from the games.
+- **6 vehicles:** the HL2 scout car, Gordon's Episode Two muscle car, the
+  Combine APC, a military APC, Dog (carrying the racer on his shoulders) and a
+  bathtub on wheels. Each has its own speed, acceleration, weight, handling and
+  engine sound.
+- **5 tracks:**
 
-## Управление
+  | Track | Where it comes from |
+  |---|---|
+  | Highway 17 | Built from HL2 parts: City 17 streets, a Combine checkpoint, the coast road and the canal |
+  | CT17 | The City 17 station plaza, HL2 map `d1_trainstation_02` |
+  | Xen | Floating islands of the border world, HL1 map `xen_dm` |
+  | Black Mesa | Corridors around a reactor core, HL1 map `rapidcore` |
+  | Surface Tension | The desert canyon outside Black Mesa with cactus and red rock, HL1 map `c2a5w` |
 
-| Действие | Клавиатура | Геймпад |
+  The real maps are converted with their baked lightmaps, so they look the way
+  they do in the games.
+- **Items** from HL2 supply crates: a homing manhack, a rollermine, an explosive
+  barrel, a HEV battery boost, the gravity gun, a headcrab canister strike on the
+  leader and a HEV charger shield.
+- **Drifting and boosts:** hold jump in a turn, let AUX POWER charge, release for
+  a mini or super turbo. Hold the throttle on "one" for a rocket start.
+- **Multiplayer:** LAN and internet, a Half-Life style server browser, lobby with
+  chat, bots that fill empty grid slots, a dedicated server and a master server.
+- **Source-style look and physics:** VertexLitGeneric and LightmappedGeneric
+  style shaders, HL2 skyboxes, `sv_gravity 600`, vehicle and surface properties
+  read from the game scripts, the HL2 soundtrack.
+
+## Requirements
+
+- Windows 10 or 11 (the tools also handle Linux Steam paths, but only Windows is
+  tested).
+- On Steam: **Half-Life 2** (it includes Episode One and Two) and **Half-Life**.
+- **Godot 4.7** (standard build, not .NET). The free "Godot Engine" on Steam or a
+  download from [godotengine.org](https://godotengine.org).
+- **Python 3.10+** with `numpy` and `Pillow`.
+- About 2 GB of free disk space.
+
+## Setup
+
+```bash
+git clone https://github.com/NVG-Games/hl2-kart.git
+cd hl2-kart
+pip install numpy pillow
+python tools/setup_assets.py
+```
+
+The script finds both games through your Steam libraries and Godot through the
+`GODOT` environment variable, the Steam copy, or `godot` on `PATH`. If something
+lives elsewhere, set `HL2_ROOT` / `HL1_ROOT` to the game folders or pass
+`--godot <path>`. It extracts models, textures, sounds, music and fonts, builds
+the skies, Highway 17, the four converted maps and their race lines, imports
+everything into Godot and renders the menu pictures. At the end Godot opens a
+window for a few minutes to render those pictures; let it finish.
+
+A step can be repeated or resumed: `--only maps`, `--from tracks`
+(steps: `extract, music, skies, highway17, maps, tracks, import, ui`).
+
+## Playing
+
+Double-click `Play HL2 Kart.bat`, run `godot --path .` in the folder, or open
+`project.godot` in the Godot editor and press F5.
+
+| Action | Keyboard | Gamepad |
 |---|---|---|
-| Газ | W / ↑ | A, правый триггер |
-| Тормоз / задний ход | S / ↓ | X, левый триггер |
-| Руль | A / D, ← / → | левый стик |
-| Прыжок и дрифт | Shift / Пробел | RB |
-| Предмет | E / Ctrl / Enter | LB, B |
-| Чат (в сетевой гонке) | Y / T | |
-| Взгляд назад | C | Y |
-| Спасение (сканер) | R | Back |
-| Пауза | Esc / P | Start |
+| Throttle | W / ↑ | A, right trigger |
+| Brake / reverse | S / ↓ | X, left trigger |
+| Steer | A / D, ← / → | left stick |
+| Jump and drift | Shift / Space | RB |
+| Use item | E / Ctrl / Enter | LB, B |
+| Chat (online) | Y / T | |
+| Look back | C | Y |
+| Rescue (scanner) | R | Back |
+| Pause | Esc / P | Start |
 
-Дрифт: зажмите Shift в повороте. Шкала AUX POWER заряжается: синие искры дают
-мини-турбо, оранжевые дают супер-турбо. Если держать газ на счёт «one»,
-получится ракетный старт.
+**NEW RACE** picks the racer, vehicle, difficulty, laps and track (weather is
+offered on Highway 17; the converted maps keep their own sky). **HOW TO PLAY**
+opens by itself on the first start.
 
-## Что внутри
+## Multiplayer
 
-- **Гонщики (12):** Аликс, Барни, Кляйнер, Илай, отец Григорий, доктор Брин,
-  G-Man, метрокоп, вортигонт, зомби (с хедкрабом) и двое из Half-Life 1:
-  Гордон Фримен и Адриан Шепард. Модели HL1 (GoldSrc MDL v10) переводит
-  `tools/goldsrc_mdl.py`. Opposing Force не установлен, поэтому Шепард
-  собран из HD-модели морпеха HECU (`valve_hd/models/hgrunt.mdl`). Если
-  поставить OP4, конвертер сам возьмёт `gearbox/models/player/shephard`.
-  Каждый говорит своими репликами из игры.
-- **Машины (6),** выбираются на экране NEW RACE вместе с гонщиком:
-  - джип HL2 (`buggy.mdl`);
-  - маслкар Гордона из Episode Two (`vehicle.mdl`, звук junker);
-  - Combine APC;
-  - армейский БТР (`props_vehicles/apc001` с отдельными колёсами
-    `apc_tire001`). Хаммера в HL1/HL2/EP2 нет, поэтому вместо него
-    военный транспорт;
-  - Дог: робот Аликс несёт гонщика на плечах и бежит, колёса виртуальные;
-  - ванна на колёсах (`furniturebathtub001a`).
+The networking works like Source servers: UDP 27015 for the game, 27016 for the
+server browser and LAN discovery, and optionally a master server on UDP 27010
+for the INTERNET tab.
 
-  У каждой машины свои скорость, разгон, масса и управляемость, свой звук
-  мотора и габариты столкновений. Соперникам машины раздаются случайно, без
-  повторов, пока есть свободные.
-- **Трасса «City 17 Circuit»** (~2 км): улицы City 17 с настоящими зданиями
-  из HL2, блокпост Альянса, прибрежное шоссе 17 с прыжком через залив,
-  грунтовка, сухой канал. Над стартом висит экран с трансляцией доктора Брина.
-- **Предметы** (ящики снабжения HL2 вместо коробок):
-  - мэнхек самонаводится на соперника впереди;
-  - роллермина отскакивает от стен и бьёт током;
-  - взрывная бочка сбрасывается назад;
-  - батарея HEV даёт ускорение;
-  - гравипушка разбрасывает всё перед вами;
-  - капсула хедкрабов бьёт по лидеру;
-  - перезарядка HEV даёт неуязвимость.
-- **Физика:** Jolt. Гравитация как в Source (`sv_gravity 600`, то есть
-  15.24 м/с²). Масса, радиусы колёс, подвеска, стабилизаторы, конус руления и
-  турбо взяты из `scripts/vehicles/jeep_test.txt`. У пропов масса и
-  `surfaceprop` из MDL, трение, упругость и звуки ударов из
-  `surfaceproperties.txt`. Ящики и арбузы разбиваются на гибы. Фонари и знаки
-  можно сбить.
-- **Графика в стиле Source:**
-  - шейдер VertexLitGeneric (half-lambert, phong с маской и fresnel ranges,
-    selfillum, envmap mask);
-  - LightmappedGeneric с detail-текстурами;
-  - рельеф, смешанный как WorldVertexTransition;
-  - вода с рефракцией и туманом из VMT;
-  - skybox HL2 с выбором погоды;
-  - HUD по `clientscheme.res`.
-- **Звук:**
-  - двигатель джипа по передачам (`first/second/third.wav`, cruise loop);
-  - заносы, удары;
-  - отсчёт голосом Overwatch;
-  - саундтрек HL2.
+**Hosting.** Press CREATE SERVER and set the name, password, player limit, bots
+(fill the grid up to a size, or off for people only), laps, difficulty, track
+and weather. The host races too.
 
-## Мультиплеер
+**Joining.** FIND SERVERS: on the same network the server shows up under LAN.
+Over the internet, type the host's public address in "Connect to address". If
+the host's router has no UPnP, forward UDP 27015–27016 by hand, or play over a
+virtual LAN (Radmin VPN, ZeroTier, Tailscale).
 
-Сеть устроена как у серверов Source. Порт UDP 27015 используется для игры,
-27016 отвечает браузеру серверов и широковещательному поиску в локальной сети.
-По желанию сервер регистрируется на мастер-сервере (UDP 27010), и тогда он
-виден во вкладке INTERNET.
+**Lobby.** Everyone picks a nickname, racer and vehicle; ping and ready state are
+shown. The host changes the rules, kicks players and starts the race; when
+everyone is READY it starts by itself after 5 seconds. A player who leaves
+mid-race is replaced by a bot.
 
-**Сыграть с друзьями.** Хост нажимает CREATE SERVER и задаёт параметры:
-- имя сервера и пароль;
-- максимум игроков (1–8);
-- боты: заполняют пустые места до выбранного размера стартовой решётки или
-  отключены совсем;
-- круги, сложность, погода;
-- «LAN only» и UPnP.
+**Dedicated server** (no window, srcds-like console):
 
-Друзья заходят через FIND SERVERS:
-- в одной сети сервер сам появится во вкладке LAN;
-- через интернет друг вводит адрес хоста в поле «Connect to address».
-
-Если роутер не поддерживает UPnP, пробросьте вручную UDP 27015–27016. Ещё
-вариант: общая виртуальная сеть (Radmin VPN, ZeroTier, Tailscale), тогда
-сервер виден как в LAN.
-
-**Лобби.** У каждого свой ник (его можно поменять в FIND SERVERS, CREATE SERVER
-или OPTIONS → GAME), свой гонщик и машина. Видны пинг и готовность игроков.
-Хост меняет правила прямо в лобби, может выгнать игрока (KICK) и запустить
-гонку кнопкой START RACE. Когда все нажали READY, гонка стартует сама через
-5 секунд. В лобби есть чат, в гонке чат открывается на Y.
-
-Примеры настроек:
-- **1 на 1:** боты выключены.
-- **Втроём с ботами:** боты включены, решётка на 8 мест.
-- **Втроём без ботов:** боты выключены, решётка из трёх.
-
-Если игрок вышел посреди гонки, его машину ведёт бот. Пока идёт гонка, зашедший
-игрок ждёт в лобби следующего заезда. Гонка заканчивается, когда финишировали
-все игроки, или через 40 секунд после финиша первого. Потом все возвращаются
-в лобби.
-
-**Выделенный сервер** (без окна, с консолью как у srcds):
-
-```
-godot --headless --path . -- --dedicated --name "City 17 GP" --max 8 --bots on --laps 3
+```bash
+godot --headless --path . -- --dedicated --name "City 17 GP" --max 8 --bots on --laps 3 --track surface_tension
 ```
 
-Настройки можно положить в `server.cfg` (образец лежит в `server.cfg.example`).
-Команды консоли:
-- `status`;
-- `say <текст>`;
-- `kick <ник>`;
-- `start`;
-- `lobby`;
-- `set <параметр> <значение>`;
-- `quit`.
+Settings can go in `server.cfg` (see `server.cfg.example`). Console commands:
+`status`, `say <text>`, `kick <nick>`, `start`, `lobby`, `set <cvar> <value>`,
+`quit`. Track ids: `city17_circuit`, `ct17`, `xen`, `black_mesa`,
+`surface_tension`.
 
-**Мастер-сервер** нужен для вкладки INTERNET. Его можно поднять на любом
-компьютере с открытым UDP 27010:
+**Master server** for the INTERNET tab, on any machine with UDP 27010 open:
 
-```
+```bash
 godot --headless --path . -- --master-server --port 27010
 ```
 
-Адрес мастер-сервера указывается:
-- у игроков во вкладке INTERNET;
-- у серверов в `sv_master` или флагом `--master host:27010`.
+Players enter its address in the INTERNET tab, servers in `sv_master` or with
+`--master host:27010`.
 
-**Как устроена синхронизация.** Свою машину каждый игрок считает у себя, так
-что управление отзывчивое и без задержки. Состояние уходит на сервер 30 раз в
-секунду. Сервер ведёт ботов и 20 раз в секунду рассылает всем снимок всех
-машин. Чужие машины показываются с поправкой на возраст снимка (dead reckoning).
-Попадания решает тот, в чью машину попали. Ящики, бочки и снаряды
-синхронизируются событиями.
+Every player needs their own built copy of the game (this repository plus the
+setup with their own Half-Life games), servers included.
 
-## Пересборка ассетов
+## Sharing it with friends
 
-Нужен Python 3 с пакетами `numpy` и `Pillow`. Путь к игре задан в `tools/srcfs.py`.
+- Share the link to this repository. Each person clones it and runs the setup
+  with their own Half-Life 2 and Half-Life.
+- Do **not** upload the `assets/` folder, extracted files or an exported build of
+  the game anywhere: not on GitHub, not on file hosts, not in chats. That content
+  belongs to Valve.
+- Forks, mods and new tracks are welcome under the same non-commercial license.
+- Running a public server is fine; selling anything is not.
 
-```
-python -I tools/extract_all.py     # модели, текстуры, звуки, музыка, шрифты
-python -I tools/make_skies.py      # панорамы неба из 6 граней skybox
-python -I tools/build_track.py     # геометрия трассы и расстановка пропов
-```
+## For developers
 
-Конвертер (`tools/mdl.py`, `vtf.py`, `materials.py`, `sounds.py`) читает VPK
-напрямую. Он переводит MDL/VVD/VTX v44–48 в glTF со скелетом и скинами,
-VTF (DXT и прочие форматы) в PNG, а MS-ADPCM WAV в PCM с сохранением точек
-петли.
+- `scripts/`: the game (GDScript). `shaders/`: Source-style shaders.
+- `tools/`: Python converters. VPK reader, MDL/VVD/VTX and GoldSrc MDL to glTF,
+  VTF to PNG, VMT materials, HL2 and HL1 BSP to Godot worlds with lightmaps
+  (`source_world.py`, `goldsrc_world.py`), and race lines laid on a converted map
+  (`bsp_track.py` with the track definitions in `tools/tracks/`).
+- `tests/`: headless AI races with stats (`race_stats.tscn`), screenshot tours,
+  menu shots, network client/host walkthroughs and a compile check of every
+  script (`check_scripts.tscn`).
 
-## Тесты (для разработки)
+New track from a Half-Life map: convert it with `goldsrc_world.py` /
+`source_world.py`, write a definition in `tools/tracks/`, build it with
+`bsp_track.py`, then add it to `TRACKS` in `scripts/core/game.gd`.
 
-В папке `tests/` лежат безоконный заезд AI со статистикой (`race_stats.tscn`),
-фотографии застреваний, фототур по трассе, скриншоты меню и эффектов и
-проверка компиляции всех скриптов.
+## License
 
-## Правовое
-
-Все модели, текстуры, звуки и музыка принадлежат Valve. Они извлекаются из
-вашей лицензионной копии Half-Life 2 только для личного некоммерческого
-использования. Не распространяйте папку `assets` и собранную игру с ними.
+The code is © NVG Games under the [PolyForm Noncommercial License 1.0.0](LICENSE.md):
+free to use, change and share for any non-commercial purpose. Half-Life content
+is © Valve Corporation and is not included; see [LEGAL.md](LEGAL.md).

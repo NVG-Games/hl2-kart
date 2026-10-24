@@ -197,8 +197,8 @@ func _track() -> Control:
 		"Drive through a row of HL2 supply crates to get a random item. The further back you are, the stronger the items."))
 	v.add_child(_track_card("res://assets/ui/items/scanner.png", "Fell off or stuck?",
 		"Drop into the sea or get wedged and a Combine scanner lifts you back onto the road. Press R to call it yourself."))
-	v.add_child(_track_card("res://assets/ui/portraits/breen.png", "City 17 Circuit",
-		"Start under Dr. Breen's broadcast, leave the city through the Combine checkpoint, take Highway 17 along the coast, jump the inlet at full speed, then race down the canal back into town."))
+	v.add_child(_track_card("res://assets/ui/portraits/breen.png", "Five tracks",
+		"Highway 17 starts under Dr. Breen's broadcast, leaves City 17 through the Combine checkpoint, jumps the inlet on the coast road and comes back down the canal. CT17, Xen, Black Mesa and Surface Tension are the real Half-Life maps, lighting and all."))
 	v.add_child(_track_card("res://assets/ui/items/barrel.png", "Physics everywhere",
 		"Cones, drums, crates and melons are real props: knock them over. Red barrels explode."))
 	return v
@@ -207,7 +207,7 @@ func _track() -> Control:
 func _online() -> Control:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 16)
-	v.add_child(_step(1, "Host", "CREATE SERVER: name it, set max players, laps and weather. Bots can fill the empty grid slots or stay off for a pure 1 on 1. You race too."))
+	v.add_child(_step(1, "Host", "CREATE SERVER: name it, set max players, laps, track and weather. Bots can fill the empty grid slots or stay off for a pure 1 on 1. You race too."))
 	v.add_child(_step(2, "Join", "FIND SERVERS: friends on your network see you under LAN. Over the internet they type your address into Connect to address (open UDP 27015-27016 on the router; UPnP tries it for you)."))
 	v.add_child(_step(3, "Lobby", "Everyone picks a racer and a vehicle and presses READY: the race starts 5 seconds after the last one. The host can also START RACE at once, change the rules and KICK."))
 	v.add_child(_step(4, "Racing online", "The race never pauses. Press Y to chat. If someone leaves, a bot takes over their kart. Results go to everyone, then back to the lobby."))
