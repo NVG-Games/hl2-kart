@@ -14,7 +14,12 @@
   <img alt="Fan project, not affiliated with Valve" src="https://img.shields.io/badge/fan%20project-not%20affiliated%20with%20Valve-555">
 </p>
 
-<p align="center"><a href="README.md">English version</a></p>
+<p align="center">
+  <a href="https://github.com/NVG-Games/hl2-kart/releases/latest"><img alt="Скачать для Windows" src="https://img.shields.io/badge/DOWNLOAD-Windows-ff9b00?style=for-the-badge&logo=windows&logoColor=white"></a>
+  <a href="https://github.com/NVG-Games/hl2-kart/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/NVG-Games/hl2-kart?style=for-the-badge&label=version&color=333"></a>
+</p>
+
+<p align="center"><a href="README.md">English version</a> · <a href="#play">Как играть</a> · <a href="CONTRIBUTING.md">Участвовать</a></p>
 
 > **Бесплатный некоммерческий фанатский проект, не связанный с Valve.** В репозитории
 > только код. Чтобы играть, нужны **Half-Life 2** и **Half-Life** в Steam: один скрипт
@@ -92,32 +97,38 @@
   </tr>
 </table>
 
-## Как начать
+<a id="play"></a>
+## Как играть
 
-Нужны:
+1. Установите **Half-Life 2** и **Half-Life** в Steam (Windows 10 или 11).
+2. Скачайте **HL2Kart-v…-windows.zip** из [последнего релиза](https://github.com/NVG-Games/hl2-kart/releases/latest)
+   и распакуйте куда угодно.
+3. Запустите **Play HL2 Kart.bat**.
 
-- Windows 10 или 11 (инструменты понимают и пути Steam в Linux, но проверено только на Windows);
-- **Half-Life 2** (в неё входят Episode One и Two) и **Half-Life** в Steam;
-- **Godot 4.7**, обычная сборка (бесплатный «Godot Engine» в Steam или с
-  [godotengine.org](https://godotengine.org));
-- **Python 3.10+** с пакетами `numpy` и `Pillow`;
-- около 2 ГБ свободного места.
+При первом запуске игра находит обе игры и собирает из них всё нужное: от 3 до 6 минут и
+около 2 ГБ. Дальше она сразу открывает меню. В архиве уже есть Godot и небольшой Python,
+ставить ничего не нужно, и нет ничего от Valve: контент делается у вас на компьютере из
+ваших копий. Когда выйдет новая версия, в главном меню появится кнопка скачать.
+
+Если Windows SmartScreen предупреждает о неизвестном приложении: *Подробнее* → *Выполнить в любом случае*.
+
+### Из исходников
+
+Для разработки или чтобы запустить свежий код из ветки `dev`:
+
+- **Godot 4.7** (обычная сборка: бесплатный «Godot Engine» в Steam или
+  [godotengine.org](https://godotengine.org)) и **Python 3.10+** с пакетами `numpy` и `Pillow`.
 
 ```bash
 git clone https://github.com/NVG-Games/hl2-kart.git
 cd hl2-kart
 pip install numpy pillow
-python tools/setup_assets.py
+godot --path .
 ```
 
-Скрипт сам находит обе игры в библиотеках Steam, а Godot через `GODOT`, копию из Steam
-или `godot` в `PATH` (иначе задайте `HL2_ROOT` / `HL1_ROOT` или передайте
-`--godot <путь>`). Он извлекает контент игр, строит пять трасс, импортирует всё в Godot
-и рисует картинки для меню; в конце Godot на несколько минут откроет окно. Отдельный шаг
-можно повторить через `--only <шаг>` или продолжить через `--from <шаг>`
-(`extract, music, skies, highway17, tracks, import, ui`).
-
-Потом двойной клик по `Play HL2 Kart.bat` или `godot --path .`.
+При первом запуске контент собирается так же (или через `python tools/setup_assets.py`;
+`--only <шаг>` и `--from <шаг>` повторяют или продолжают шаг:
+`extract, music, skies, highway17, tracks, import, ui`).
 
 ## Управление
 
@@ -164,11 +175,19 @@ godot --headless --path . -- --master-server --port 27010
 
 ## Как делиться игрой
 
-- Делитесь ссылкой на репозиторий. Каждый клонирует его и запускает установку со своими
-  Half-Life 2 и Half-Life, сервер тоже.
-- **Не выкладывайте** папку `assets/`, извлечённые файлы или собранную игру никуда.
-  Этот контент принадлежит Valve.
+- Делитесь ссылкой на [страницу релизов](https://github.com/NVG-Games/hl2-kart/releases).
+  Каждый скачивает архив и при первом запуске собирает контент из своих Half-Life 2 и
+  Half-Life, сервер тоже.
+- Сам официальный архив можно передавать. **Не выкладывайте** папку игры после первого
+  запуска, папку `assets/` или извлечённые файлы: этот контент принадлежит Valve.
 - Форки, моды и новые трассы приветствуются на тех же некоммерческих условиях.
+
+## Участие в разработке
+
+Помощь приветствуется: код, новые трассы, тестирование, переводы, идеи. Прочитайте
+[CONTRIBUTING.md](CONTRIBUTING.md), возьмите задачу с меткой `good first issue` или
+откройте свою, чтобы обсудить идею. Работа идёт в ветке **`dev`** (она основная), а
+**`main`** двигается только при выпуске версии; все версии описаны в [CHANGELOG.md](CHANGELOG.md).
 
 ## Разработчикам
 
@@ -183,7 +202,9 @@ godot --headless --path . -- --master-server --port 27010
   разметки меню (`ui_fit.tscn`), сетевые прогоны и проверка компиляции всех скриптов.
 
 Новая трасса: один модуль Python в `tools/circuits/` и запись в `TRACKS` в
-`scripts/core/game.gd`.
+`scripts/core/game.gd`. `tools/package_release.py` собирает архив для Windows; workflow
+*Release build* запускает его и готовит черновик релиза на GitHub, когда в `main` меняется
+`version.json`.
 
 ## Лицензия
 

@@ -14,7 +14,12 @@
   <img alt="Fan project, not affiliated with Valve" src="https://img.shields.io/badge/fan%20project-not%20affiliated%20with%20Valve-555">
 </p>
 
-<p align="center"><a href="README.ru.md">Русская версия</a></p>
+<p align="center">
+  <a href="https://github.com/NVG-Games/hl2-kart/releases/latest"><img alt="Download for Windows" src="https://img.shields.io/badge/DOWNLOAD-Windows-ff9b00?style=for-the-badge&logo=windows&logoColor=white"></a>
+  <a href="https://github.com/NVG-Games/hl2-kart/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/NVG-Games/hl2-kart?style=for-the-badge&label=version&color=333"></a>
+</p>
+
+<p align="center"><a href="README.ru.md">Русская версия</a> · <a href="#play">How to play</a> · <a href="CONTRIBUTING.md">Contribute</a></p>
 
 > **Free, non-commercial fan project, not affiliated with Valve.** This repository holds
 > the code only. To play you need **Half-Life 2** and **Half-Life** on Steam: one script
@@ -94,32 +99,39 @@ speed, acceleration, weight, handling and engine sound.
   </tr>
 </table>
 
-## Getting started
+<a id="play"></a>
+## Play
 
-You need:
+1. Have **Half-Life 2** and **Half-Life** installed on Steam (Windows 10 or 11).
+2. Download **HL2Kart-v…-windows.zip** from the [latest release](https://github.com/NVG-Games/hl2-kart/releases/latest)
+   and unzip it anywhere.
+3. Run **Play HL2 Kart.bat**.
 
-- Windows 10 or 11 (the tools also know Linux Steam paths, but only Windows is tested);
-- **Half-Life 2** (it includes Episode One and Two) and **Half-Life** on Steam;
-- **Godot 4.7**, the standard build (the free "Godot Engine" on Steam, or
-  [godotengine.org](https://godotengine.org));
-- **Python 3.10+** with `numpy` and `Pillow`;
-- about 2 GB of free disk space.
+The first start finds your two games and builds the game from them: 3 to 6 minutes and
+about 2 GB. After that it starts straight into the menu. The download carries Godot and
+a small Python, so there is nothing else to install, and nothing from Valve: the game's
+content is made on your computer from your own copies. When a new version is out, the
+main menu shows a download button.
+
+If Windows SmartScreen warns about an unknown app: *More info* → *Run anyway*.
+
+### From source
+
+For development, or to run the latest `dev` code:
+
+- **Godot 4.7** (standard build: the free "Godot Engine" on Steam, or
+  [godotengine.org](https://godotengine.org)) and **Python 3.10+** with `numpy` and `Pillow`.
 
 ```bash
 git clone https://github.com/NVG-Games/hl2-kart.git
 cd hl2-kart
 pip install numpy pillow
-python tools/setup_assets.py
+godot --path .
 ```
 
-The setup finds both games through your Steam libraries and Godot through `GODOT`, the
-Steam copy or `godot` on `PATH` (otherwise set `HL2_ROOT` / `HL1_ROOT` or pass
-`--godot <path>`). It extracts the game content, builds the five circuits, imports
-everything into Godot and renders the menu pictures; Godot opens a window for a few
-minutes at the end. A single step can be repeated with `--only <step>` or resumed with
-`--from <step>` (`extract, music, skies, highway17, tracks, import, ui`).
-
-Then double-click `Play HL2 Kart.bat`, or run `godot --path .`.
+The first start builds the content the same way (or run `python tools/setup_assets.py`;
+`--only <step>` and `--from <step>` repeat or resume a step:
+`extract, music, skies, highway17, tracks, import, ui`).
 
 ## Controls
 
@@ -167,11 +179,19 @@ godot --headless --path . -- --master-server --port 27010
 
 ## Sharing it with friends
 
-- Share the link to this repository. Each person clones it and runs the setup with
-  their own Half-Life 2 and Half-Life, servers included.
-- Do **not** upload the `assets/` folder, extracted files or an exported build anywhere.
-  That content belongs to Valve.
+- Share the link to the [releases page](https://github.com/NVG-Games/hl2-kart/releases).
+  Everyone downloads the zip and builds the content from their own Half-Life 2 and
+  Half-Life on the first start, servers included.
+- Re-sharing the official zip is fine. Do **not** share a folder after its first start,
+  the `assets/` folder or any extracted files: that content belongs to Valve.
 - Forks, mods and new tracks are welcome under the same non-commercial license.
+
+## Contributing
+
+Help is welcome: code, new tracks, testing, translations, ideas. Read
+[CONTRIBUTING.md](CONTRIBUTING.md), pick an issue labelled `good first issue`, or open one
+to discuss an idea. Work happens on the **`dev`** branch (the default); **`main`** only
+moves for a release, and every release is listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## For developers
 
@@ -186,7 +206,9 @@ godot --headless --path . -- --master-server --port 27010
   checks (`ui_fit.tscn`), network walkthroughs and a compile check of every script.
 
 A new circuit is one Python module in `tools/circuits/` plus an entry in `TRACKS` in
-`scripts/core/game.gd`.
+`scripts/core/game.gd`. `tools/package_release.py` builds the Windows download; the
+*Release build* workflow runs it and drafts the GitHub release when `version.json`
+changes on `main`.
 
 ## License
 

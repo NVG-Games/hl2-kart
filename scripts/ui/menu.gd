@@ -13,6 +13,7 @@ var bg_b: TextureRect
 var title_box: Control
 var items: VBoxContainer
 var now_playing: NowPlaying
+var update_box: Control
 var setup: RaceSetup
 var lobby: Lobby
 var dialog: Dialog
@@ -49,6 +50,7 @@ func _ready() -> void:
 	now_playing.offset_bottom = -32
 	now_playing.open_soundtrack.connect(func(): _open(SoundtrackPanel.new()))
 	root.add_child(now_playing)
+	_build_version()
 	if Game.now_playing == "":
 		Game.play_music_mode("menu")
 	Net.joined.connect(_on_joined)
@@ -182,10 +184,36 @@ func _build_items() -> void:
 		items.add_child(b)
 
 
+## Version in the corner, and a download button when GitHub has a newer release.
+func _build_version() -> void:
+	var col := VBoxContainer.new()
+	col.anchor_top = 1.0
+	col.anchor_bottom = 1.0
+	col.offset_left = 120
+	col.offset_bottom = -32
+	col.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	col.add_theme_constant_override("separation", 8)
+	root.add_child(col)
+	update_box = col
+	var ver := UiKit.label("v" + Game.version, 14, Color(1, 1, 1, 0.4))
+	col.add_child(ver)
+	var up := Updater.new()
+	add_child(up)
+	up.update_available.connect(func(new_version: String, url: String):
+		var b := UiKit.button("UPDATE AVAILABLE: v%s  ·  DOWNLOAD" % new_version, 380)
+		b.add_theme_color_override("font_color", UiKit.ORANGE)
+		b.pressed.connect(func(): OS.shell_open(url))
+		col.add_child(b)
+		col.move_child(b, 0))
+	up.check()
+
+
 func _set_menu_visible(v: bool) -> void:
 	title_box.visible = v
 	items.visible = v
 	now_playing.visible = v
+	if update_box:
+		update_box.visible = v
 
 
 func _open(d: Dialog) -> void:

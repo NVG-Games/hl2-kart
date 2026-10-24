@@ -1,0 +1,47 @@
+# Builds the Windows download and drafts a GitHub release for it.
+# Runs when version.json changes on main (a release), or by hand from the Actions tab.
+# The release stays a draft until a maintainer reviews and publishes it.
+name: Release build
+
+on:
+  push:
+    branches: [main]
+    paths: [version.json]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache Godot and Python downloads
+        uses: actions/cache@v4
+        with:
+          path: .cache/release
+          key: release-downloads-${{ hashFiles('tools/package_release.py') }}
+
+      - name: Build the download
+        run: python tools/package_release.py
+
+      - name: Draft the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ver=$(python -c "import json; print(json.load(open('version.json'))['version'])")
+          tag="v$ver"
+          python tools/release_notes.py "$ver" > notes.md
+          if gh release view "$tag" > /dev/null 2>&1; then
+            gh release upload "$tag" dist/*.zip --clobber
+          else
+            gh release create "$tag" dist/*.zip --draft --target "$GITHUB_SHA" \
+              --title "Half-Life 2: Kart $tag" --notes-file notes.md
+          fi

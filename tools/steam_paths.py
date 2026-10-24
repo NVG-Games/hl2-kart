@@ -60,5 +60,10 @@ HL2_ROOT = find_game("Half-Life 2", "HL2_ROOT")
 HL1_ROOT = find_game("Half-Life", "HL1_ROOT")
 
 if __name__ == "__main__":
-    print("Half-Life 2:", HL2_ROOT, "(found)" if os.path.isdir(HL2_ROOT) else "(MISSING)")
-    print("Half-Life:  ", HL1_ROOT, "(found)" if os.path.isdir(HL1_ROOT) else "(MISSING)")
+    if "--json" in sys.argv:
+        import json
+        print(json.dumps({"hl2": HL2_ROOT, "hl2_ok": os.path.isdir(os.path.join(HL2_ROOT, "hl2")),
+                          "hl1": HL1_ROOT, "hl1_ok": os.path.isdir(os.path.join(HL1_ROOT, "valve"))}))
+    else:
+        print("Half-Life 2:", HL2_ROOT, "(found)" if os.path.isdir(HL2_ROOT) else "(MISSING)")
+        print("Half-Life:  ", HL1_ROOT, "(found)" if os.path.isdir(HL1_ROOT) else "(MISSING)")

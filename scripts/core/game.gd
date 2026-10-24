@@ -119,6 +119,7 @@ var settings := {
 	"menu_music": "random",
 	"show_minimap": true,
 	"tutorial_seen": false,
+	"check_updates": true,
 	# multiplayer
 	"nickname": "",
 	"master_server": "",
@@ -138,6 +139,12 @@ var settings := {
 ## empty in single player. Read race rules through race_setting().
 var session := {}
 
+## This build (version.json) and the game content it needs (assets/data/build.json,
+## written by tools/setup_assets.py).
+var version := ""
+var content_version := 0
+var repo := "NVG-Games/hl2-kart"
+
 var music: AudioStreamPlayer
 var music_library: Array = []  # [{id, album, title}] from assets/data/music.json
 var now_playing := ""
@@ -149,13 +156,23 @@ var _rng := RandomNumberGenerator.new()
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	models = load_json("res://assets/data/models.json")
-	materials_db = load_json("res://assets/data/materials.json")
-	surfaceprops = load_json("res://assets/data/surfaceprops.json")
-	voices = load_json("res://assets/data/voices.json")
-	skies = load_json("res://assets/data/skies.json")
-	music_library = load_json("res://assets/data/music.json")
+	var v: Dictionary = load_json("res://version.json")
+	version = str(v.get("version", ""))
+	content_version = int(v.get("content", 0))
+	repo = str(v.get("repo", repo))
+	# the Half-Life content (absent until the first-start setup has built it)
+	if FileAccess.file_exists("res://assets/data/models.json"):
+		models = load_json("res://assets/data/models.json")
+		materials_db = load_json("res://assets/data/materials.json")
+		surfaceprops = load_json("res://assets/data/surfaceprops.json")
+		voices = load_json("res://assets/data/voices.json")
+		skies = load_json("res://assets/data/skies.json")
+		var ml = load_json("res://assets/data/music.json")
+		music_library = ml if ml is Array else []
 	_rng.randomize()
+	# the bundled Godot is an editor build, which marks the window "(DEBUG)"
+	get_tree().create_timer(0.05).timeout.connect(func():
+		get_window().title = str(ProjectSettings.get_setting("application/config/name")))
 	_setup_buses()
 	_load_settings()
 	music = AudioStreamPlayer.new()
@@ -163,6 +180,16 @@ func _ready() -> void:
 	add_child(music)
 	music.finished.connect(_on_music_finished)
 	apply_settings()
+
+
+## The Half-Life content has been built on this machine for this version of the game.
+func content_ready() -> bool:
+	if not FileAccess.file_exists("res://assets/data/build.json"):
+		# built before build.json existed: fine as long as the data is there
+		return FileAccess.file_exists("res://assets/data/models.json") and content_version <= 1 \
+			and FileAccess.file_exists("res://assets/track/ct17.json")
+	var b = load_json("res://assets/data/build.json")
+	return b is Dictionary and int(b.get("content", 0)) >= content_version
 
 
 func load_json(path: String) -> Variant:

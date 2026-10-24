@@ -103,4 +103,8 @@ func _game() -> Control:
 	v.add_child(_music_row("Race music", "race_music"))
 	v.add_child(_music_row("Menu music", "menu_music"))
 	v.add_child(UiKit.row("Show minimap", UiKit.toggle(Game.settings["show_minimap"], func(on: bool): _apply("show_minimap", on))))
+	v.add_child(UiKit.row("Check for updates", UiKit.toggle(Game.settings.get("check_updates", true),
+		func(on: bool): _apply("check_updates", on))))
+	var ver := UiKit.label("Version %s  ·  github.com/%s" % [Game.version, Game.repo], 15, UiKit.TEXT_DIM)
+	v.add_child(ver)
 	return v

@@ -1,0 +1,39 @@
+name: Bug report
+description: Something in the game does not work as it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you see, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen
+      description: Track, racer, vehicle, menu... the steps to see the problem.
+      placeholder: |
+        1. NEW RACE, Xen, 3 laps
+        2. Drive into the cave
+        3. ...
+  - type: input
+    id: version
+    attributes:
+      label: Game version
+      description: Shown in the bottom-left corner of the main menu (for example v0.1.0).
+    validations:
+      required: true
+  - type: dropdown
+    id: how
+    attributes:
+      label: How do you run it?
+      options:
+        - Release download (Play HL2 Kart.bat)
+        - From source with Godot
+  - type: textarea
+    id: log
+    attributes:
+      label: Log or screenshot
+      description: If the first start failed, attach setup.log (the OPEN LOG button shows it). Screenshots help a lot.

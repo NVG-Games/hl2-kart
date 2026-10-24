@@ -5,7 +5,7 @@ config_version=5
 
 config/name="Half-Life 2: Kart"
 config/description="Kart racer built from Half-Life 2 assets"
-run/main_scene="res://scenes/main.tscn"
+run/main_scene="res://scenes/boot.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 
 [autoload]

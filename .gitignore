@@ -13,3 +13,7 @@
 __pycache__/
 *.pyc
 *.log
+
+# release builds
+/dist/
+/.cache/
