@@ -40,8 +40,8 @@ jobs:
           tag="v$ver"
           python tools/release_notes.py "$ver" > notes.md
           if gh release view "$tag" > /dev/null 2>&1; then
-            gh release upload "$tag" dist/*.zip --clobber
+            gh release upload "$tag" dist/*.zip dist/*.exe --clobber
           else
-            gh release create "$tag" dist/*.zip --draft --target "$GITHUB_SHA" \
+            gh release create "$tag" dist/*.zip dist/*.exe --draft --target "$GITHUB_SHA" \
               --title "Half-Life 2: Kart $tag" --notes-file notes.md
           fi

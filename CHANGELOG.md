@@ -5,6 +5,16 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-25
+
+### Added
+- `HL2Kart-v0.1.1-windows.exe`: the whole download in one file. The first run unpacks it to
+  `%LOCALAPPDATA%\HL2Kart` and every run starts the game from there.
+
+### Changed
+- The first start begins building the game content by itself when both Half-Life 2 and
+  Half-Life are found; a click is only needed when a game has to be located by hand.
+
 ## [0.1.0] - 2026-10-24
 
 The first public build.

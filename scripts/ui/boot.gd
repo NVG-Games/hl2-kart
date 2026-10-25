@@ -3,7 +3,8 @@ extends Control
 ## player's Half-Life 2 and Half-Life, runs tools/setup_assets.py to build the
 ## models, textures, sounds and tracks from them, then restarts into the menu.
 ## Built from engine defaults only (the HL2 fonts do not exist yet).
-## "--setup-now" on the command line starts building without a click.
+## When both games are found the build starts by itself after a short pause
+## ("--setup-now" on the command line skips the pause).
 
 const ORANGE := Color8(255, 155, 0)
 const DIM := Color(1, 1, 1, 0.6)
@@ -33,8 +34,10 @@ func _ready() -> void:
 	_build_ui()
 	_python = _find_python()
 	_detect()
-	if "--setup-now" in OS.get_cmdline_user_args():
-		_start.call_deferred()
+	# both games found: no reason to make the player click
+	if not _build.disabled:
+		_status.text = "Found Half-Life 2 and Half-Life. Building starts in a moment..."
+		get_tree().create_timer(0.1 if "--setup-now" in OS.get_cmdline_user_args() else 2.5).timeout.connect(_start)
 
 
 # ---------------------------------------------------------------- ui

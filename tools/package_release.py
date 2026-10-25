@@ -1,9 +1,13 @@
-"""Builds the Windows release download: HL2Kart-v<version>-windows.zip.
+"""Builds the Windows release downloads: HL2Kart-v<version>-windows.zip and
+HL2Kart-v<version>-windows.exe (the same zip inside a one-file launcher).
 
 It holds the game's code (this repository), Godot 4.7 (MIT license) and an
 embedded Python with numpy and Pillow, so players need nothing but their own
 Half-Life 2 and Half-Life. No Valve content goes into it: on the first start
 the game builds that from the player's games (scenes/boot.tscn).
+
+The .exe is built with the C# compiler that ships with Windows (.NET Framework
+4.8, tools/launcher/Launcher.cs); elsewhere only the zip is made.
 
 usage: python tools/package_release.py [--out dist] [--cache .cache/release]
 """
@@ -27,7 +31,7 @@ GODOT_RAW = "https://raw.githubusercontent.com/godotengine/godot/{v}/{f}"
 PYTHON_ZIP = "https://www.python.org/ftp/python/{v}/python-{v}-embed-amd64.zip"
 PY_PACKAGES = ["numpy", "pillow"]
 # repository paths that stay out of the download
-SKIP = ("docs/", ".github/", ".gitattributes", ".gitignore")
+SKIP = ("docs/", ".github/", ".gitattributes", ".gitignore", "tools/launcher/")
 
 
 def log(*a):
@@ -143,6 +147,29 @@ folder the game builds: that content belongs to Valve (see LEGAL.md).
 """ % version)
 
 
+CSC = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Microsoft.NET", "Framework64", "v4.0.30319", "csc.exe")
+
+
+def build_exe(zip_path, out_exe, version):
+    """One-file launcher: the zip as an embedded resource, unpacked on first run."""
+    if not os.path.exists(CSC):
+        log("no C# compiler (%s): skipping the .exe" % CSC)
+        return None
+    src = open(os.path.join(HERE, "launcher", "Launcher.cs"), encoding="utf-8").read().replace("@VERSION@", version)
+    tmp = os.path.join(os.path.dirname(out_exe), "Launcher.cs")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(src)
+    cmd = [CSC, "/nologo", "/target:winexe", "/optimize+", "/platform:anycpu",
+           "/out:" + out_exe, "/win32icon:" + os.path.join(HERE, "launcher", "icon.ico"),
+           "/resource:%s,payload.zip" % zip_path,
+           "/r:System.IO.Compression.dll", "/r:System.IO.Compression.FileSystem.dll",
+           "/r:System.Windows.Forms.dll", "/r:System.Drawing.dll", tmp]
+    subprocess.run(cmd, check=True)
+    os.remove(tmp)
+    log("done: %s (%.0f MB)" % (out_exe, os.path.getsize(out_exe) / 1e6))
+    return out_exe
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", default=os.path.join(ROOT, "dist"))
@@ -172,6 +199,7 @@ def main():
                 p = os.path.join(d, f)
                 z.write(p, os.path.join("HL2Kart", os.path.relpath(p, stage)))
     log("done: %s (%.0f MB)" % (out_zip, os.path.getsize(out_zip) / 1e6))
+    build_exe(out_zip, os.path.join(a.out, name + ".exe"), version)
     print(out_zip)
 
 

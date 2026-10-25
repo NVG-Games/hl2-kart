@@ -172,7 +172,7 @@ func _ready() -> void:
 	_rng.randomize()
 	# the bundled Godot is an editor build, which marks the window "(DEBUG)"
 	get_tree().create_timer(0.05).timeout.connect(func():
-		get_window().title = str(ProjectSettings.get_setting("application/config/name")))
+		DisplayServer.window_set_title(str(ProjectSettings.get_setting("application/config/name"))))
 	_setup_buses()
 	_load_settings()
 	music = AudioStreamPlayer.new()
