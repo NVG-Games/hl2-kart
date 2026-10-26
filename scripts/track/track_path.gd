@@ -10,6 +10,10 @@ var up := PackedVector3Array()
 var width := PackedFloat32Array()
 var speed := PackedFloat32Array()
 var gap := PackedByteArray()
+## 1 where falling below the road means leaving the track (open edges, jumps)
+var pit := PackedByteArray()
+## tube stretches: the pipe's radius (gravity pulls towards its wall), 0 elsewhere
+var mag := PackedFloat32Array()
 var theme: Array = []
 var step := 6.0
 var length := 1000.0
@@ -35,6 +39,13 @@ func _init(d: Dictionary) -> void:
 		speed.append(v)
 	for g in d["gap"]:
 		gap.append(g)
+	for g in d.get("pit", d["gap"]):
+		pit.append(g)
+	for r in d.get("mag", []):
+		mag.append(r)
+	if mag.size() != gap.size():
+		mag.resize(gap.size())
+		mag.fill(0.0)
 	theme = d["theme"]
 	n = center.size()
 	step = length / n

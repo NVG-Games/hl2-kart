@@ -22,11 +22,11 @@ CTRL = [
     (410, 0, -262, 18, "checkpoint"),
     (490, 0, -222, 20, "avenue", {"gap": True, "gap_span": (0.40, 0.60), "ramp_lift": 2.2}),
     (560, 0, -150, 20, "avenue"),
-    (600, 0, -60, 21, "yard"),
+    (600, 0, -60, 21, "yard", {"gap": True, "gap_span": (0.35, 0.5), "ramp_lift": 2.4}),
     (595, 0, 40, 21, "yard"),
     (575, -1.6, 88, 19, "cut", {"height": 3.6}),
-    (545, -4, 125, 18, "underpass"),
-    (465, -7, 178, 18, "underpass"),
+    (545, -4, 125, 18, "pipe"),
+    (465, -7, 178, 18, "pipe"),
     (375, -6, 200, 18, "underpass"),
     (330, -3.6, 207, 20, "cut", {"height": 4.6}),
     (275, -0.5, 214, 22, "avenue"),
@@ -49,8 +49,9 @@ TRACK = {
     "id": "ct17",
     "name": "CT17",
     "ctrl": CTRL,
-    "items": [0.12, 0.37, 0.6, 0.83],
-    "boosts": [0.03, 0.46, 0.79],
+    "items": [0.06, 0.18, 0.3, 0.42, 0.51, 0.6, 0.78, 0.88],
+    "boosts": [0.03, 0.11, 0.22, 0.33, 0.36, 0.455, 0.56, 0.62, 0.7, 0.76, 0.85, 0.95],
+    "barrels": [0.15, 0.4, 0.9],
     "vmax": 38.0,
     "offtrack": 40.0,
     "sky": "sky_day01_01",
@@ -92,8 +93,14 @@ def styles(m):
                       "light_every": 10.0, "light_rows": [-0.45, 0.45], "light_color": [0.85, 0.92, 1.0],
                       "light_energy": 1.6, "portal": concrete, "wall_gap": 0.6, "cover": 2.5, "lid_w": 8.0,
                       "lid_mat": m.hl2("nature/dirtfloor003a")},
-        "overpass": {"kind": "bridge", "road": road, "road_u": "full", "skirt": concrete, "barrier": jersey,
+        # the overpass over the canal lost its barriers: run wide and you swim
+        "overpass": {"kind": "bridge", "road": road, "road_u": "full", "skirt": concrete, "pit": True,
                      "pillar": concrete, "pillar_every": 22.0, "pillar_size": 1.8},
+        # a Combine pipe under the city: the road climbs the wall nearly to the roof and comes back
+        "pipe": {"kind": "tube", "road": road, "road_u": "full", "road_rep": 6.0,
+                 "wall": m.hl2("metal/citadel_metalwall072a"), "skin": m.hl2("metal/citadel_metalwall072a"),
+                 "glow": m.hl2("lights/white001"), "radius": 11.0, "roll": 150.0, "profile": "wall",
+                 "ring_every": 12.0, "light_color": [0.55, 0.8, 1.0], "light_energy": 1.6},
     }
 
 

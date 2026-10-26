@@ -25,7 +25,7 @@ def _spiral():
     for k, a in enumerate(angs):
         r = math.radians(a)
         y = -14.0 + 10.0 * k / (len(angs) - 1)
-        pts.append((ROOM_C[0] + math.cos(r) * SPIRAL_R, y, ROOM_C[2] + math.sin(r) * SPIRAL_R, 14, "reactor",
+        pts.append((ROOM_C[0] + math.cos(r) * SPIRAL_R, y, ROOM_C[2] + math.sin(r) * SPIRAL_R, 16, "reactor",
                     {"spiral": True}))
     return pts
 
@@ -39,10 +39,10 @@ CTRL = [
     (205, -1.5, -195, 16, "lab"),
     (280, -4, -218, 16, "lab"),
     (350, -8, -195, 15, "tram"),
-    (420, -11, -145, 15, "tram"),
-    (462, -12, -65, 15, "tram"),
+    (420, -11, -145, 15, "accel"),
+    (462, -12, -65, 15, "accel"),
     (468, -12, 25, 15, "tram"),
-    (432, -12, 110, 20, "storage"),
+    (432, -12, 110, 20, "storage", {"gap": True, "gap_span": (0.49, 0.6), "ramp_lift": 2.2}),
     (345, -12, 160, 20, "storage"),
     (262, -13, 168, 13, "waste", {"gap": True, "gap_span": (0.42, 0.62), "ramp_lift": 1.4}),
     (190, -14, 152, 13, "waste"),
@@ -62,8 +62,9 @@ TRACK = {
     "music": ['hl1_song10', 'hl1_song11', 'hl1_song14', 'hl1_song15', 'hl1_song17', 'hl1_song25_remix3'],
     "name": "Black Mesa",
     "ctrl": CTRL,
-    "items": [0.1, 0.33, 0.56, 0.8],
-    "boosts": [0.02, 0.4, 0.66],
+    "items": [0.05, 0.16, 0.27, 0.43, 0.52, 0.62, 0.79, 0.92],
+    "boosts": [0.02, 0.1, 0.24, 0.35, 0.4, 0.46, 0.56, 0.67, 0.75, 0.84, 0.95],
+    "barrels": [0.2, 0.6, 0.9],
     "vmax": 34.0,
     "offtrack": 30.0,
     "sky": "sky_day01_01",
@@ -96,12 +97,17 @@ def styles(m):
                  "wall_rep": 4.0, "band": g("c1a4_w5"), "band_h": 2.0, "band_rep": 2.0, "ceil": g("crete3_ceil01"),
                  "ceil_rep": 3.0, "light": g("~tracklite"), "light_every": 14.0, "light_rows": [-0.85, 0.85],
                  "light_w": 0.8, "light_l": 3.0, "light_color": [1.0, 0.82, 0.55], "light_energy": 1.4, "wall_gap": 1.0},
+        # the anomalous materials accelerator: the road rolls once round the pipe
+        "accel": {"kind": "tube", "road": g("tnnl_flr4"), "road_rep": 4.0, "wall": g("metal_wall04"),
+                  "skin": g("metal_wall04"), "glow": g("skkylite", glow=True), "radius": 11.0, "roll": -360.0,
+                  "ring_every": 14.0, "light_color": [0.75, 0.88, 1.0], "light_energy": 1.6},
         "storage": {"kind": "tunnel", "road": g("crete4_flr01"), "road_rep": 4.0, "height": 16.0, "wall": g("silo2_wall1"),
                     "side_floor": g("crete2_flr01"),
                     "wall_rep": 4.0, "band": stripe, "band_h": 1.0, "band_rep": 1.0, "ceil": g("drkmtlt_ceil01"),
                     "ceil_rep": 4.0, "light": g("c3a2_light", glow=True), "light_every": 12.0,
                     "light_rows": [-0.7, 0.0, 0.7], "light_w": 2.0, "light_l": 2.6, "light_color": [1.0, 0.9, 0.75],
-                    "light_energy": 1.7, "wall_gap": 9.0},
+                    "light_energy": 1.7, "wall_gap": 9.0,
+                    "gap_pit": {"mat": g("!toxicgrn", glow=True), "depth": 6.0, "glow": True}},
         "waste": {"kind": "tunnel", "road": g("c1a1_flr2a"), "road_rep": 3.0, "height": 9.0, "wall": g("c2a4e_w1"),
                   "wall_rep": 3.0, "ceil": g("crete3_ceil01"), "light": g("~light5a"), "light_every": 12.0,
                   "light_rows": [-0.9, 0.9], "light_w": 0.8, "light_l": 3.2, "light_color": [0.55, 1.0, 0.55],
@@ -109,8 +115,12 @@ def styles(m):
                   "pit": {"mat": g("!toxicgrn", glow=True), "depth": 1.4, "glow": True},
                   "gap_pit": {"mat": g("!toxicgrn", glow=True), "depth": 4.0, "glow": True},
                   "barrier": {"kind": "fence", "mat": g("{grate2"), "h": 1.1, "rep": 2.0}},
+        # the spiral's inner railing has stretches torn out: cut the corner there and you drop
+        # into the coolant pool
         "reactor": {"kind": "bridge", "road": g("tnnl_flr4"), "road_rep": 4.0, "skirt": g("metal_wall04"),
-                    "barrier": {"kind": "fence", "mat": g("{grate2"), "h": 1.2, "rep": 2.0}, "pillar": g("metal_wall04"),
+                    "barrier": {"kind": "fence", "mat": g("{grate2"), "h": 1.2, "rep": 2.0, "sides": "outside",
+                                "broken": [70.0, 18.0]},
+                    "pit": True, "pillar": g("metal_wall04"),
                     "pillar_floor": POOL_Y, "pillar_every": 26.0, "pillar_size": 1.6},
         "corridor": {"kind": "tunnel", "road": g("crete2_flr01"), "road_rep": 3.0, "height": 8.0, "wall": g("c2a4e_w1"),
                      "wall_rep": 3.0, "band": stripe, "band_h": 0.7, "band_rep": 1.0, "ceil": g("crete3_ceil01"),

@@ -61,13 +61,13 @@ const TRACKS := [
 	{"id": "city17_circuit", "name": "Highway 17", "short": "HIGHWAY 17", "weather": true,
 		"desc": "City 17 streets, the Combine checkpoint, the coast road and the canal. Built from HL2 parts."},
 	{"id": "ct17", "name": "CT17", "short": "CT17", "weather": false,
-		"desc": "Combine-held City 17: the station plaza under the Breencasts, the old town, a checkpoint, the canal jump, the rail yard and an underpass."},
+		"desc": "Combine-held City 17: the station plaza under the Breencasts, the old town, two jumps, a Combine pipe up the wall and an overpass with no barriers."},
 	{"id": "xen", "name": "Xen", "short": "XEN", "weather": false,
-		"desc": "Floating islands in the border world: light stalks, crystals, two jumps over the void and a glowing cave."},
+		"desc": "Floating islands in the border world: a bridge with no railings, two jumps over the void and a living tube that rolls you all the way round."},
 	{"id": "black_mesa", "name": "Black Mesa", "short": "BLACK MESA", "weather": false,
-		"desc": "Indoors through the Research Facility: Sector C lobby, labs, the tram tunnel, waste processing and a spiral around the Lambda core."},
+		"desc": "Indoors through the Research Facility: labs, the accelerator tube, jumps over the storage hall and a slime pit, and an open spiral around the Lambda core."},
 	{"id": "surface_tension", "name": "Surface Tension", "short": "SURFACE TENSION", "weather": false,
-		"desc": "The desert outside Black Mesa: red-rock canyons, cactus, the river gorge bridge, the HECU camp and the dam."},
+		"desc": "The desert outside Black Mesa: canyons, the gorge bridge, a jump through the HECU camp, twice round the dam's water main and a cliff road with no barrier."},
 ]
 
 const DIFFICULTIES := [

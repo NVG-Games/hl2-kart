@@ -9,6 +9,7 @@ var lane := 0.0
 var _lane_target := 0.0
 var _lane_t := 0.0
 var _item_wait := 0.0
+var _blind_t := 0.0
 var _drift_hold := 0.0
 var _reverse_t := 0.0
 var _rng := RandomNumberGenerator.new()
@@ -40,6 +41,10 @@ func drive(k: Kart, delta: float) -> void:
 	lane = lerpf(lane, _lane_target, delta * 0.8)
 	var s := k.lap_progress
 	var i_here := path.index_at(s)
+	# beside an open edge: hold the racing line and ease off a little
+	var edge := path.pit[i_here] == 1 and path.gap[i_here] == 0
+	if edge:
+		lane = lerpf(lane, 0.0, delta * 3.0)
 	var off_lat := absf(path.lateral(pos, i_here))
 	var half := path.width[i_here] * 0.5
 	var look := clampf(6.0 + sp * 0.32, 6.0, 16.0)
@@ -74,7 +79,7 @@ func drive(k: Kart, delta: float) -> void:
 	for j in win:
 		vt = minf(vt, path.speed[path.wi(i0 + j)] + j * path.step * 0.35)
 	var top := k.max_speed
-	vt = minf(vt * (0.85 + skill * 0.25), top)
+	vt = minf(vt * (0.85 + skill * 0.25) * (0.92 if edge else 1.0), top)
 	# rubber band toward the player
 	var player := _player(k)
 	if player and player != k:
@@ -99,6 +104,8 @@ func drive(k: Kart, delta: float) -> void:
 	var drift := false
 	if skill > 0.97 and sp > 20.0 and absf(ang) > 0.14 and absf(ang) < 0.4 and k.grounded and bend > 0.5:
 		_drift_hold = 0.7
+	if edge:
+		_drift_hold = 0.0
 	if _drift_hold > 0.0:
 		_drift_hold -= delta
 		drift = absf(steer) > 0.15 or k.drifting
@@ -116,6 +123,12 @@ func drive(k: Kart, delta: float) -> void:
 		steer = -steer
 		if _reverse_t > 2.6:
 			_reverse_t = 0.0
+	# a headcrab on the face: driving half blind
+	if k.blind_time > 0.0:
+		_blind_t += delta
+		steer = clampf(steer + sin(_blind_t * 3.7) * 0.7, -1.0, 1.0)
+		throttle *= 0.8
+		drift = false
 	k.in_throttle = throttle
 	k.in_brake = brake
 	k.in_steer = steer
@@ -147,8 +160,16 @@ func _want_item(k: Kart, delta: float) -> bool:
 			use = _someone(k, 5.0, 60.0)
 		"gravgun":
 			use = _someone(k, 2.0, 18.0)
-		"barrel":
+		"barrel", "melon", "melon3", "hopper":
 			use = _someone(k, -40.0, -3.0) or _item_wait < -6.0
+		"cball":
+			use = _someone(k, 5.0, 70.0)
+		"saw":
+			use = _someone(k, 4.0, 60.0)
+		"headcrab":
+			use = k.place > 1
+		"xenport":
+			use = absf(k.in_steer) < 0.4
 	if use:
 		_item_wait = _rng.randf_range(0.6, 2.5)
 	return use

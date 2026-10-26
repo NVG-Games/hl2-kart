@@ -16,8 +16,8 @@ CTRL = [
     (0, 20, 0, 18, "island"),
     (90, 20, -8, 18, "island"),
     (155, 21, -48, 17, "island"),
-    (205, 24, -110, 13, "bridge"),
-    (238, 27, -178, 13, "bridge"),
+    (205, 24, -110, 11, "ledge"),
+    (238, 27, -178, 11, "ledge"),
     (262, 28, -242, 17, "island"),
     (325, 29, -292, 17, "island"),
     (405, 30, -290, 17, "island"),
@@ -45,8 +45,8 @@ TRACK = {
     "music": ['hl1_song3', 'hl1_song5', 'hl1_song6', 'hl1_song9', 'hl1_song19'],
     "name": "Xen",
     "ctrl": CTRL,
-    "items": [0.1, 0.3, 0.55, 0.82],
-    "boosts": [0.03, 0.385, 0.69],
+    "items": [0.06, 0.2, 0.3, 0.46, 0.645, 0.73, 0.82, 0.92],
+    "boosts": [0.03, 0.12, (0.18, -3.0), (0.2, 3.0), 0.33, 0.385, 0.62, 0.665, 0.745, 0.86, 0.975],
     "vmax": 38.0,
     "offtrack": 40.0,
     "kill_y": -25.0,
@@ -67,11 +67,13 @@ def styles(m):
         "bridge": {"kind": "bridge", "road": g("xeno_6flr2"), "road_rep": 5.0, "skirt": g("xeno_6aw1"),
                    "skirt_h": 3.0, "barrier": {"kind": "wall", "mat": g("xeno_8w1"), "h": 0.9, "thick": 0.6, "rep": 2.5},
                    "pillar_every": 1e9},
-        "cave": {"kind": "tunnel", "road": road, "road_rep": 5.0, "height": 10.0, "wall": g("xeno_6a"),
-                 "wall_rep": 5.0, "ceil": g("xeno_10w1"), "ceil_rep": 5.0, "light": g("crys_2top", glow=True),
-                 "light_every": 11.0, "light_rows": [-0.6, 0.6], "light_w": 2.4, "light_l": 2.4,
-                 "light_color": [0.55, 1.0, 0.65], "light_energy": 1.8, "wall_gap": 1.5, "cover": 4.0, "lid_w": 9.0,
-                 "lid_mat": g("xeno_14"), "portal": g("c4a1a_swmpwl")},
+        # the bridge up to the crystal fields has no railings: drive straight or fall into the void
+        "ledge": {"kind": "bridge", "road": g("xeno_6flr2"), "road_rep": 5.0, "skirt": g("xeno_6aw1"),
+                  "skirt_h": 3.0, "pillar_every": 1e9, "pit": True},
+        # the cave is a living tube floating over the void: the road rolls once all the way round
+        "cave": {"kind": "tube", "road": g("xeno_6flr2"), "road_rep": 5.0, "wall": g("xeno_6a"),
+                 "skin": g("xeno_14"), "glow": g("crys_2top", glow=True), "radius": 12.0, "roll": 360.0,
+                 "ring_every": 16.0, "light_color": [0.55, 1.0, 0.65], "light_energy": 1.6},
     }
 
 
@@ -87,7 +89,7 @@ def terrain(trk, m):
     def build(f, trk):
         P = f.P
         land = np.array([(trk.kind(i) in ("open", "tunnel")) and not trk.gap[i] for i in range(trk.n)])
-        void = np.array([trk.gap[i] or trk.kind(i) == "bridge" for i in range(trk.n)])
+        void = np.array([trk.gap[i] or trk.kind(i) in ("bridge", "tube") for i in range(trk.n)])
         d_land = f.dist_to(trk, land)
         d_void = f.dist_to(trk, void)
         # each island reaches 28..62 m from its road, a little less toward a chasm

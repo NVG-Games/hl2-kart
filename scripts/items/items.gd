@@ -11,13 +11,25 @@ const INFO := {
 	"gravgun": {"name": "GRAVITY GUN", "model": "weapons/w_physics", "desc": "Punt everything in front"},
 	"canister": {"name": "HEADCRAB CANISTER", "model": "props_combine/headcrabcannister01a", "desc": "Strikes the leader"},
 	"hev": {"name": "HEV OVERCHARGE", "model": "items/hevsuit", "desc": "Invulnerable and fast"},
+	"cball": {"name": "ENERGY BALL", "model": "items/combine_rifle_ammo01", "desc": "Bounces off walls"},
+	"melon": {"name": "WATERMELON", "model": "props_junk/watermelon01", "desc": "Drop it, watch them slip"},
+	"melon3": {"name": "3x WATERMELON", "model": "props_junk/watermelon01", "desc": "Three to drop"},
+	"hopper": {"name": "HOPPER MINE", "model": "props_combine/combine_mine01", "desc": "Jumps at whoever comes close"},
+	"saw": {"name": "SAWBLADE", "model": "props_junk/sawblade001a", "desc": "Cuts through everyone in front"},
+	"headcrab": {"name": "HEADCRAB", "model": "headcrabclassic", "desc": "Jumps on the faces ahead"},
+	"xenport": {"name": "XEN TELEPORT", "model": "props_lab/teleportring", "desc": "Warps you down the road"},
 }
+
+const MELON := "props_junk/watermelon01"
 
 # weights per race position bucket: front, middle, back
 const TABLE := {
-	"front": {"barrel": 30, "rollermine": 30, "battery": 20, "manhack": 10, "gravgun": 10},
-	"middle": {"manhack": 25, "rollermine": 15, "battery": 20, "barrel": 10, "gravgun": 15, "battery3": 8, "manhack3": 7},
-	"back": {"battery3": 22, "manhack3": 18, "hev": 18, "canister": 12, "manhack": 15, "gravgun": 15},
+	"front": {"melon": 20, "barrel": 12, "rollermine": 12, "hopper": 12, "battery": 14, "cball": 10, "manhack": 8,
+		"gravgun": 6, "melon3": 6},
+	"middle": {"cball": 14, "manhack": 12, "melon3": 8, "saw": 12, "headcrab": 10, "rollermine": 6, "battery": 10,
+		"gravgun": 8, "battery3": 6, "hopper": 6, "manhack3": 8},
+	"back": {"battery3": 14, "xenport": 14, "hev": 12, "canister": 10, "headcrab": 12, "manhack3": 12, "saw": 8,
+		"cball": 8, "gravgun": 6, "battery": 4},
 }
 
 
@@ -63,7 +75,7 @@ static func use(k: Kart) -> void:
 	if k.item_count <= 0:
 		k.item = ""
 	k.item_changed.emit(k)
-	if id in ["manhack", "manhack3", "rollermine", "canister", "gravgun"]:
+	if id in ["manhack", "manhack3", "rollermine", "canister", "gravgun", "cball", "saw", "headcrab"]:
 		k.audio.say("hit")
 	if Net.active:
 		Net.send_event("item", [k.net_slot, id, k.global_transform, k.linear_velocity, extra])
@@ -106,6 +118,26 @@ static func _spawn(k: Kart, id: String, extra: Dictionary) -> void:
 			var c := CanisterStrike.new()
 			k.get_parent().add_child(c)
 			c.launch(k, race, _kart_slot(k, int(extra.get("target", -1))) if extra.has("target") else null)
+		"cball":
+			var ball := EnergyBall.new()
+			k.get_parent().add_child(ball)
+			ball.launch(k)
+			_tag(ball, nid)
+		"melon", "melon3":
+			_tag(_drop_melon(k), nid)
+		"hopper":
+			var mine := HopperMine.new()
+			k.get_parent().add_child(mine)
+			mine.drop(k)
+			_tag(mine, nid)
+		"saw":
+			var saw := SawbladeProjectile.new()
+			k.get_parent().add_child(saw)
+			saw.launch(k)
+		"headcrab":
+			_headcrabs(k)
+		"xenport":
+			_xen_teleport(k)
 		"hev":
 			k.star_time = 7.0
 			k.boost(7.0, 0.6)
@@ -127,7 +159,10 @@ static func net_remove(tree: SceneTree, nid: String, trap := false) -> void:
 			continue
 		if trap and n is PhysProp:
 			n.set_meta("net_done", true)
-			(n as PhysProp).explode()
+			if (n as PhysProp).model_key == MELON:
+				(n as PhysProp).smash()
+			else:
+				(n as PhysProp).explode()
 		elif n.has_method("net_hit"):
 			n.net_hit()
 		else:
@@ -145,6 +180,44 @@ static func _drop_barrel(k: Kart) -> PhysProp:
 	p.add_to_group("traps")
 	Game.play_3d("res://assets/sound/physics/metal/metal_barrel_impact_hard1.wav", p.global_position, -2.0, 1.0, 10.0)
 	return p
+
+
+## A watermelon left on the road: whoever drives into it spins out (Kart._on_body_entered).
+static func _drop_melon(k: Kart) -> PhysProp:
+	var p := PhysProp.new()
+	k.get_parent().add_child(p)
+	p.setup(MELON)
+	var back := k.global_basis.z
+	p.global_position = k.global_position + back * 3.4 + k.grav_up * 0.9
+	p.linear_velocity = k.linear_velocity * 0.25 + back * 1.5
+	p.mass = 30.0
+	p.set_meta("trap_owner", k)
+	p.add_to_group("traps")
+	Game.play_3d("res://assets/sound/physics/flesh/flesh_squishy_impact_hard1.wav", p.global_position, -4.0, 1.0, 10.0)
+	return p
+
+
+## Headcrabs leap onto everyone ahead: their view is blocked for a few seconds.
+static func _headcrabs(k: Kart) -> void:
+	Game.play_3d("res://assets/sound/npc/headcrab/alert1.wav", k.global_position, 2.0, 1.0, 14.0, k)
+	var delay := 0.0
+	for n in k.get_tree().get_nodes_in_group("karts"):
+		var o := n as Kart
+		if o == k or o.finished or o.total_progress <= k.total_progress:
+			continue
+		o.blind(3.6, delay)
+		delay += 0.15
+
+
+## Through a Xen portal: the kart comes out further down the road, at speed.
+static func _xen_teleport(k: Kart) -> void:
+	var green := Color(0.4, 1.0, 0.5)
+	Effects.sparks(k.get_parent(), k.global_position + k.grav_up, 2.5, green)
+	Game.play_3d("res://assets/sound/weapons/gauss/fire1.wav", k.global_position, 2.0, 0.8, 18.0)
+	if not k.remote:
+		k.teleport_ahead(140.0)
+	Effects.sparks(k.get_parent(), k.global_position + k.grav_up, 2.5, green)
+	Game.play_3d("res://assets/sound/weapons/physcannon/energy_sing_explosion2.wav", k.global_position, 0.0, 1.2, 18.0)
 
 
 static func _punt(k: Kart) -> void:

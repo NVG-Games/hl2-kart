@@ -140,6 +140,9 @@ class Trk:
         self.gap = np.zeros(n, bool)
         self._apply_gaps()
         self._frames()
+        self._tubes()
+        # where falling below the road means leaving the track (open edges, jumps)
+        self.pit = self.gap | np.array([bool(self.styles[s].get("pit")) for s in self.style])
 
     def _h(self, ci):
         c = self.ctrl[ci]
@@ -195,6 +198,62 @@ class Trk:
         self.up /= np.linalg.norm(self.up, axis=1, keepdims=True)
         self.flat_right = right
 
+    def _tubes(self):
+        """Tube stretches: the road runs on the inside of a pipe and rolls around it
+        (a corkscrew, or up a wall and back), so a kart drives on walls and the
+        ceiling. The spline gives the road at the pipe's bottom; the pipe's axis is
+        `radius` above it. Keeps the untwisted frames in base/base_up/base_right
+        (terrain and the pipe's geometry follow those) and writes mag (the radius,
+        0 outside tubes): the game turns gravity towards the pipe wall there."""
+        n = self.n
+        self.base = self.pos.copy()
+        self.base_up = self.up.copy()
+        self.base_right = self.right.copy()
+        self.theta = np.zeros(n)
+        self.mag = np.zeros(n)
+        self.tube_runs = []
+        for ids in self.runs(lambda i: self.kind(i) == "tube", with_gaps=True):
+            st = self.styles[self.style[ids[0]]]
+            R = float(st.get("radius", 12.0))
+            roll = math.radians(st.get("roll", 360.0))
+            L = len(ids) * self.step
+            mouth = min(st.get("mouth", 14.0), L * 0.2)
+            u = np.clip((np.arange(len(ids)) * self.step - mouth) / max(L - 2 * mouth, 1e-3), 0.0, 1.0)
+            if st.get("profile", "screw") == "wall":
+                e = np.sin(np.pi * u) ** 2          # up the wall and back down
+            else:
+                e = u * u * (3 - 2 * u)              # all the way round
+            th = roll * e
+            axis = self.pos[ids] + self.up[ids] * R
+            rad = -(np.cos(th)[:, None] * self.up[ids] + np.sin(th)[:, None] * self.right[ids])
+            self.pos[ids] = axis + rad * R
+            self.theta[ids] = th
+            self.mag[ids] = R
+            self.tube_runs.append((ids, R))
+        if not self.tube_runs:
+            return
+        f = np.roll(self.pos, -1, axis=0) - np.roll(self.pos, 1, axis=0)
+        f /= np.linalg.norm(f, axis=1, keepdims=True)
+        for ids, R in self.tube_runs:
+            for i in ids:
+                up = self.base[i] + self.base_up[i] * R - self.pos[i]
+                up /= np.linalg.norm(up)
+                fw = f[i] - up * np.dot(f[i], up)
+                fw /= np.linalg.norm(fw)
+                self.fwd[i] = fw
+                self.up[i] = up
+                self.right[i] = np.cross(fw, up)
+
+    def surface(self, i, lat, h=0.0):
+        """A point `lat` metres across the road and `h` above it (on a tube's curve)."""
+        if self.mag[i] > 0.0:
+            R = self.mag[i]
+            a = self.theta[i] + lat / R
+            axis = self.base[i] + self.base_up[i] * R
+            rad = -(math.cos(a) * self.base_up[i] + math.sin(a) * self.base_right[i])
+            return axis + rad * (R - h)
+        return self.pos[i] + self.right[i] * lat + self.up[i] * h
+
     def edge(self, i, off):
         return self.pos[i] + self.right[i] * off
 
@@ -237,8 +296,10 @@ def build_geometry(trk, mats, meshes, ctx):
     n = trk.n
     S = trk.styles
 
-    # road surface, per style
+    # road surface, per style (a tube builds its own, all the way round)
     for name, st in S.items():
+        if st["kind"] == "tube":
+            continue
         for ids in trk.runs(lambda i, nm=name: trk.style[i] == nm):
             hw = trk.width[ids] / 2
             L = trk.pos[ids] - trk.right[ids] * hw[:, None]
@@ -268,6 +329,8 @@ def build_geometry(trk, mats, meshes, ctx):
                 _bridge(trk, ids, st, meshes, ctx)
             elif k == "trench":
                 _trench(trk, ids, st, meshes)
+            elif k == "tube":
+                _tube(trk, ids, st, meshes, ctx)
     # faces where the road ends at a jump
     for a, b in trk.gaps:
         for j, sgn in (((a - 1) % n, 1.0), (b % n, -1.0)):
@@ -535,6 +598,10 @@ def _bridge(trk, ids, st, meshes, ctx):
     hw = trk.width[ids] / 2
     v = _unwrap_s(trk, ids)
     skirt = st.get("skirt_h", 1.6)
+    # a railing on the outside of the bend only leaves the inside open to fall from
+    bar_side = None
+    if st.get("barrier", {}).get("sides") == "outside":
+        bar_side = -1 if np.mean(trk.curv[ids]) > 0 else 1
     for sgn in (-1, 1):
         r = trk.right[ids] * sgn
         rf = trk.flat_right[ids] * sgn
@@ -546,8 +613,15 @@ def _bridge(trk, ids, st, meshes, ctx):
         else:
             meshes["side"].strip(st["skirt"], low, E, skirt / 4.0, 0.0, v / 4.0, nrm, nrm)
         bar = st.get("barrier")
-        if bar:
+        if bar and (bar_side is None or bar_side == sgn):
             _barrier(meshes, bar, E, rf, v, sgn)
+        elif bar and bar.get("broken"):
+            # the other side: a railing with stretches torn out of it ([every, open] metres)
+            every, open_ = bar["broken"]
+            keep = (v - v[0]) % every > open_
+            for a, b in _bool_runs(keep):
+                if b - a > 1:
+                    _barrier(meshes, bar, E[a:b], rf[a:b], v[a:b], sgn)
     # underside
     L = trk.pos[ids] - trk.right[ids] * hw[:, None] - UP * skirt
     R = trk.pos[ids] + trk.right[ids] * hw[:, None] - UP * skirt
@@ -590,6 +664,88 @@ def _trench(trk, ids, st, meshes):
                                   UP[None].repeat(len(ids), 0))
 
 
+def _tube(trk, ids, st, meshes, ctx):
+    """The pipe of a tube stretch (see Trk._tubes): its whole inside is road, the lane
+    in the road material and the rest in the pipe's, glowing strips along the lane's
+    edges and light rings every `ring_every` metres; the outside is a plain skin. At
+    both mouths the bottom flattens onto the road plane, so the road runs in without
+    a kerb, and the roll only starts once the pipe is round."""
+    R = float(st.get("radius", 12.0))
+    segs = int(st.get("segs", 48))
+    base, up0, r0 = trk.base[ids], trk.base_up[ids], trk.base_right[ids]
+    axis = base + up0 * R
+    th = trk.theta[ids]
+    m_ = len(ids)
+    s = np.arange(m_) * trk.step
+    L = m_ * trk.step
+    mouth = min(st.get("mouth", 14.0), L * 0.2)
+    flat = 1.0 - np.clip(np.minimum(s, L - s) / mouth, 0.0, 1.0)  # 1 at the mouths
+    hw = trk.width[ids] / 2
+    alpha = hw / R
+    v = _unwrap_s(trk, ids)
+    phi = np.linspace(-math.pi, math.pi, segs + 1)
+    c, sn = np.cos(phi), np.sin(phi)
+    radial = -(c[None, :, None] * up0[:, None, :] + sn[None, :, None] * r0[:, None, :])
+    P = axis[:, None, :] + radial * R
+    # mouths: pull the bottom arc down onto the road plane
+    lift = R * (1.0 - c)
+    k = np.clip(1.0 - (np.abs(phi)[None, :] - alpha[:, None]) / 0.4, 0.0, 1.0)
+    P -= up0[:, None, :] * (lift[None, :] * k * flat[:, None])[..., None]
+    N = axis[:, None, :] - P
+    N /= np.maximum(np.linalg.norm(N, axis=2, keepdims=True), 1e-6)
+    rep = _uvlen(st, "road", 6.0)
+    U = phi * R / rep
+    lane_mat, pipe_mat = st["road"], st.get("wall", st["road"])
+    buckets = {lane_mat: ([], [], [], []), pipe_mat: ([], [], [], [])}
+    for a in range(m_ - 1):
+        for j in range(segs):
+            mid = 0.5 * (phi[j] + phi[j + 1])
+            d = (mid - th[a] + math.pi) % (2 * math.pi) - math.pi
+            mat = lane_mat if abs(d) < alpha[a] else pipe_mat
+            pp, nn, uu, ii = buckets[mat]
+            b0 = len(pp)
+            pp += [P[a, j], P[a + 1, j], P[a, j + 1], P[a + 1, j + 1]]
+            nn += [N[a, j], N[a + 1, j], N[a, j + 1], N[a + 1, j + 1]]
+            uu += [[U[j], v[a] / rep], [U[j], v[a + 1] / rep], [U[j + 1], v[a] / rep], [U[j + 1], v[a + 1] / rep]]
+            ii += [b0, b0 + 1, b0 + 2, b0 + 2, b0 + 1, b0 + 3]
+    for mat, (pp, nn, uu, ii) in buckets.items():
+        if pp:
+            meshes["road"].add(mat, pp, nn, uu, ii)
+    # the outside: a plain skin a little out, facing away
+    skin = st.get("skin", pipe_mat)
+    O = axis[:, None, :] + radial * (R + 0.6)
+    for j in range(segs):
+        a0, a1 = O[:, j], O[:, j + 1]
+        nrm = -0.5 * (N[:, j] + N[:, j + 1])
+        meshes["deco"].strip(skin, a0, a1, U[j], U[j + 1], v / rep, nrm, nrm)
+    glow = st.get("glow")
+    if not glow:
+        return
+    # lane edges: thin glowing strips just off the surface, where the pipe is round
+    round_ = np.where(flat < 1e-6)[0]
+    if len(round_) > 1:
+        sub = ids[round_[0]:round_[-1] + 1]
+        hs = hw[round_[0]:round_[-1] + 1]
+        vs = v[round_[0]:round_[-1] + 1]
+        for side in (-1.0, 1.0):
+            e0 = np.array([trk.surface(i, side * (hs[q] - 0.25), 0.04) for q, i in enumerate(sub)])
+            e1 = np.array([trk.surface(i, side * (hs[q] + 0.25), 0.04) for q, i in enumerate(sub)])
+            nrm = trk.up[sub]
+            if side > 0:
+                meshes["glow"].strip(glow, e0, e1, 0.0, 1.0, vs / 4.0, nrm, nrm)
+            else:
+                meshes["glow"].strip(glow, e1, e0, 0.0, 1.0, vs / 4.0, nrm, nrm)
+    # light rings around the pipe
+    every = st.get("ring_every", 18.0)
+    for q in range(int(mouth / trk.step) + 1, m_ - 2, max(1, int(every / trk.step))):
+        a0 = axis[q] + radial[q] * (R - 0.05)
+        a1 = a0 + (base[q + 1] - base[q]) * 0.35
+        nrm = N[q]
+        meshes["glow"].strip(glow, a0, a1, 0.0, 1.0, U / 2.0, nrm, nrm)
+        if st.get("light_color"):
+            ctx.light(axis[q].tolist(), st["light_color"], st.get("light_range", 26.0), st.get("light_energy", 1.4))
+
+
 def pillar_meshes(trk, meshes, pillars, ground_h):
     for base, fwd, right, hw, st in pillars:
         g = ground_h(base[0], base[2])
@@ -619,8 +775,10 @@ class Field:
     """Heightfield over the circuit's bounds with nearest-road lookups."""
 
     def __init__(self, trk, margin, cell):
-        lo = trk.pos[:, [0, 2]].min(0) - margin
-        hi = trk.pos[:, [0, 2]].max(0) + margin
+        # tubes twist the road around their pipe: the ground follows the untwisted line
+        src = trk.base
+        lo = src[:, [0, 2]].min(0) - margin
+        hi = src[:, [0, 2]].max(0) + margin
         self.cell = cell
         self.nx = int((hi[0] - lo[0]) / cell) + 1
         self.nz = int((hi[1] - lo[1]) / cell) + 1
@@ -628,7 +786,7 @@ class Field:
         self.zs = lo[1] + np.arange(self.nz) * cell
         X, Z = np.meshgrid(self.xs, self.zs)
         self.P = np.stack([X.ravel(), Z.ravel()], 1)
-        rp = trk.pos[:, [0, 2]]
+        rp = src[:, [0, 2]]
         near = np.zeros(len(self.P), np.int64)
         dist = np.zeros(len(self.P))
         for a in range(0, len(self.P), 4096):
@@ -642,16 +800,16 @@ class Field:
         self.lat = ((self.P - rp[near]) * trk.flat_right[near][:, [0, 2]]).sum(1)
         self.kind = np.array([trk.kind(i) for i in range(trk.n)])[near]
         self.style = np.array(trk.style)[near]
-        self.road_h = trk.pos[near, 1]
-        self.half = trk.width[near] / 2
+        self.road_h = src[near, 1]
+        self.half = np.maximum(trk.width[near] / 2, trk.mag[near] + 1.0)
         self.gap = trk.gap[near]
-        self.tunnel_top = trk.pos[near, 1] + trk.height[near]
+        self.tunnel_top = src[near, 1] + trk.height[near]
         self.H = None
         self.col = None
 
     def dist_to(self, trk, mask):
         """Distance from every cell to the nearest road sample where mask is true."""
-        rp = trk.pos[np.asarray(mask, bool)][:, [0, 2]]
+        rp = trk.base[np.asarray(mask, bool)][:, [0, 2]]
         out = np.full(len(self.P), 1e9)
         if len(rp) == 0:
             return out
@@ -693,7 +851,7 @@ def carve(field, nat, trk, flat=6.0, blend=28.0, tunnel_cover=3.0, gap_floor=Non
     inside = tun & (f.dist < f.half + 1.5)
     h = np.where(tun & ~inside, np.maximum(h, roof * (1 - tc) + nat * tc), h)
     h = np.where(inside, under, h)
-    br = (f.kind == "bridge") | f.gap
+    br = (f.kind == "bridge") | (f.kind == "tube") | f.gap
     if gap_floor is not None:
         dip = smoothstep(f.half + 20.0, f.half * 0.3, f.dist) * br
         h = h * (1 - dip) + np.minimum(nat, gap_floor) * dip
@@ -909,15 +1067,18 @@ def gameplay(trk, line, vt, defn):
         w = trk.width[i] / 2 - 2.5
         for k in range(cnt):
             o = -w + 2 * w * k / (cnt - 1)
-            p = trk.pos[i] + trk.right[i] * o + trk.up[i] * 1.2
-            rows.append(p.tolist())
+            rows.append(trk.surface(i, o, 1.2).tolist())
     data["item_boxes"] = rows
     pads = []
-    for frac in defn.get("boosts", []):
+    for b in defn.get("boosts", []):
+        # a fraction of the lap (on the racing line) or (fraction, metres across)
+        frac, lat = (b, None) if np.isscalar(b) else b
         i = int(frac * n) % n
         if trk.gap[i]:
             continue
-        p = line[i] + trk.up[i] * 0.06
+        if lat is None:
+            lat = float(np.dot(line[i] - trk.pos[i], trk.right[i]))
+        p = trk.surface(i, lat, 0.06)
         pads.append({"pos": p.tolist(), "fwd": trk.fwd[i].tolist(), "up": trk.up[i].tolist()})
     data["boost_pads"] = pads
     step = 3
@@ -933,6 +1094,8 @@ def gameplay(trk, line, vt, defn):
         "width": trk.width[ids].round(2).tolist(),
         "speed": vt[ids].round(2).tolist(),
         "gap": trk.gap[ids].astype(int).tolist(),
+        "pit": trk.pit[ids].astype(int).tolist(),
+        "mag": trk.mag[ids].round(2).tolist(),
         "theme": [trk.kind(i) for i in ids],
     }
     return data
@@ -1007,6 +1170,12 @@ def build(module_name):
     styles = mod.styles(mats)
     trk = Trk(defn["ctrl"], styles, defn.get("step", 2.0))
     print("%s: %.0f m, %d samples" % (name, trk.length, trk.n))
+    # where each stretch sits on the lap (fractions, for placing items and boosts)
+    for nm in styles:
+        for ids in trk.runs(lambda i, s_=nm: trk.style[i] == s_, with_gaps=True):
+            print("  %-10s %.3f-%.3f  %4.0f m" % (nm, ids[0] / trk.n, ids[-1] / trk.n, len(ids) * trk.step))
+    for a, b in trk.gaps:
+        print("  jump       %.3f-%.3f" % (a / trk.n, b / trk.n))
     models = json.load(open(os.path.join(ASSETS, "data", "models.json")))
     ctx = Ctx(trk, models, np.random.default_rng(defn.get("seed", 17)))
     ctx.mats = mats
@@ -1027,8 +1196,23 @@ def build(module_name):
     ctx.field = field
     pillar_meshes(trk, meshes, ctx.pillars, (lambda x, z: field.sample(x, z)) if field else (lambda x, z: None))
     line, off, vt = racing_line(trk)
+    # beside an open edge the line stays near the middle: the apex is where you fall
+    edge = trk.pit & ~trk.gap
+    if edge.any():
+        lim = np.maximum(trk.width / 2 - 6.5, 0.0)
+        off = np.where(edge, np.clip(off, -lim, lim), off)
+        line = trk.pos + trk.right * off[:, None]
     vt = np.minimum(vt, defn.get("vmax", 40.0))
     mod.decorate(ctx)
+    # hazards on the road: loose clusters of explosive barrels
+    for frac in defn.get("barrels", []):
+        i = int(frac * trk.n) % trk.n
+        hw = trk.width[i] / 2 - 1.5
+        for k in range(3):
+            j = (i + k * 3) % trk.n
+            q = trk.surface(j, float(ctx.rng.uniform(-hw, hw)), 0.7)
+            ctx.add("props_c17/oildrum001_explosive", q.tolist(), float(ctx.rng.uniform(0, 6.28)), physics=True,
+                    ground=False)
     if ctx.missing:
         print("  models not extracted:", sorted(ctx.missing))
     print("  props %d, lights %d" % (len(ctx.props), len(ctx.lights)))

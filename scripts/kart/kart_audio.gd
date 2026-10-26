@@ -115,7 +115,7 @@ func _process(delta: float) -> void:
 				_set_loop(engine, snd["cruise"], "cruise")
 		elif _mode == "gear" and not engine.playing:
 			_set_loop(engine, snd["cruise"], "cruise")
-		engine.pitch_scale = lerpf(engine.pitch_scale, 0.9 + frac * 0.25 + (0.12 if kart.boost_time > 0.0 else 0.0), delta * 4.0)
+		engine.pitch_scale = maxf(0.05, lerpf(engine.pitch_scale, 0.9 + frac * 0.25 + (0.12 if kart.boost_time > 0.0 else 0.0), minf(1.0, delta * 4.0)))
 		engine.volume_db = lerpf(engine.volume_db, 0.0, delta * 6.0)
 	else:
 		_gear = -1
@@ -125,7 +125,7 @@ func _process(delta: float) -> void:
 			_set_loop(engine, snd["off_slow"], "off_slow")
 		else:
 			_set_loop(engine, snd["idle"], "idle")
-		engine.pitch_scale = lerpf(engine.pitch_scale, 0.95 + frac * 0.2, delta * 3.0)
+		engine.pitch_scale = maxf(0.05, lerpf(engine.pitch_scale, 0.95 + frac * 0.2, minf(1.0, delta * 3.0)))
 		engine.volume_db = lerpf(engine.volume_db, -3.0, delta * 4.0)
 	# skid while drifting or sliding sideways
 	var sliding := kart.drifting and kart.grounded

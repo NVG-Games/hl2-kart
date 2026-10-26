@@ -39,22 +39,22 @@ signs and music.
   </tr>
   <tr>
     <td><b>Highway 17</b><br>Out of City 17 through the Combine checkpoint, down the coast road with a jump over the inlet, back up the canal. Pick the weather.</td>
-    <td><b>CT17</b><br>Combine-held City 17: the station plaza under the Breencasts, the cobbled old town, a checkpoint, a jump over the canal, the rail yard and an underpass.</td>
+    <td><b>CT17</b><br>Combine-held City 17: the station plaza under the Breencasts, the cobbled old town, a checkpoint, a jump over the canal, another into the rail yard, a Combine pipe whose road climbs the wall to the roof, and an overpass over the canal with no barriers.</td>
   </tr>
   <tr>
     <td><img src="docs/media/black_mesa.webp" alt="Black Mesa"></td>
     <td><img src="docs/media/xen.webp" alt="Xen"></td>
   </tr>
   <tr>
-    <td><b>Black Mesa</b><br>Indoors through the Research Facility: the Sector C lobby, labs, the tram tunnel, a storage hall, toxic waste with a jump over a slime pit, and a spiral around the Lambda reactor core. The VOX announcer is on.</td>
-    <td><b>Xen</b><br>Floating islands over the void: light stalks, crystals and fungus, two jumps across chasms, a glowing cave and the Nihilanth watching from afar.</td>
+    <td><b>Black Mesa</b><br>Indoors through the Research Facility: the Sector C lobby, labs, the tram tunnel and the accelerator tube that rolls you all the way round, a jump across the storage hall, toxic waste with a jump over a slime pit, and a spiral around the Lambda reactor core with nothing on the inside but the coolant pool. The VOX announcer is on.</td>
+    <td><b>Xen</b><br>Floating islands over the void: light stalks, crystals and fungus, a bridge with no railings, two jumps across chasms, a living tube floating over the void that rolls you all the way round, and the Nihilanth watching from afar.</td>
   </tr>
   <tr>
     <td><img src="docs/media/surface_tension.webp" alt="Surface Tension"></td>
     <td><img src="docs/media/surface_tension.jpg" alt="Surface Tension, the dam"></td>
   </tr>
   <tr>
-    <td colspan="2"><b>Surface Tension</b><br>The desert outside Black Mesa: red-rock canyons and cactus, a washed-out road to jump, the steel bridge over the river gorge, the HECU camp by a landed Osprey, an old mine tunnel and the crest of the dam.</td>
+    <td colspan="2"><b>Surface Tension</b><br>The desert outside Black Mesa: red-rock canyons and cactus, a washed-out road to jump, the steel bridge over the river gorge, the HECU camp by a landed Osprey, a jump through the camp, the dam's water main that rolls you twice round the pipe, the cliff road with nothing between you and the drop, and the crest of the dam.</td>
   </tr>
 </table>
 
@@ -75,8 +75,12 @@ speed, acceleration, weight, handling and engine sound.
 ## Features
 
 - **Items** from HL2 supply crates: a homing manhack, a rollermine, an explosive barrel,
-  a HEV battery boost, the gravity gun, a headcrab canister strike on the leader and a
-  HEV charger shield.
+  a HEV battery boost, the gravity gun, a headcrab canister strike on the leader, a HEV
+  charger shield, the AR2's energy ball (bounces off walls), watermelons to slip on, a
+  hopper mine, Ravenholm's sawblade, a headcrab on the face of everyone ahead and a Xen
+  teleport down the road.
+- **Tubes and open edges:** in a glowing tube the road climbs the wall and runs over the
+  ceiling; some bridges and cliff roads have no railings, so a wide line ends in a fall.
 - **Drifting:** hold jump in a turn, let AUX POWER charge and release for a mini or
   super turbo. Hold the throttle on "one" for a rocket start.
 - **Rescue:** fall off or get wedged and a Combine scanner lifts you back onto the road.

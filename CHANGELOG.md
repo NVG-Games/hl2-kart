@@ -5,6 +5,24 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
 
 ## [Unreleased]
 
+### Added
+- Tubes: on CT17, Black Mesa, Xen and Surface Tension a stretch of road runs inside a pipe and rolls
+  round it (up the wall, over the ceiling, or all the way round twice). Gravity pulls towards the
+  pipe wall there and the camera rolls with the kart.
+- Open edges: Xen's first bridge, CT17's overpass, the Surface Tension cliff road and the inside of
+  the Black Mesa reactor spiral have no railings. Run wide and you fall; the scanner fishes you out.
+- A second jump on CT17 (into the rail yard), Black Mesa (the storage hall) and Surface Tension
+  (the HECU camp).
+- Seven new items: energy ball (bounces off walls), watermelon and 3x watermelon (spin out whoever
+  hits them), hopper mine (jumps at whoever comes close), sawblade (cuts through everyone in front),
+  headcrab (covers the faces of everyone ahead) and Xen teleport (140 m down the road).
+- Clusters of explosive barrels on the road.
+
+### Changed
+- Twice as many supply crate rows (8 per lap) and about four times as many boost pads.
+- Item odds per race position include the new items.
+- Game content version 2: the first start after updating rebuilds the tracks.
+
 ## [0.1.1] - 2026-10-25
 
 ### Added

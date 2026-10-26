@@ -834,7 +834,7 @@ def gameplay(trk, line, off, vt):
     data["grid"] = grid
     # item crate rows
     rows = []
-    for frac in (0.13, 0.36, 0.585, 0.83):
+    for frac in (0.07, 0.19, 0.31, 0.43, 0.6, 0.71, 0.83, 0.94):
         i = int(frac * n)
         while trk.gap[i % n]:
             i += 5
@@ -847,7 +847,7 @@ def gameplay(trk, line, off, vt):
     data["item_boxes"] = rows
     # boost pads on long straights
     pads = []
-    for frac in (0.06, 0.47, 0.71, 0.93):
+    for frac in (0.03, 0.11, 0.2, 0.3, 0.4, 0.47, 0.55, 0.66, 0.75, 0.86, 0.93):
         i = int(frac * n)
         if trk.gap[i]:
             continue
@@ -867,6 +867,7 @@ def gameplay(trk, line, off, vt):
         "width": trk.width[ids].round(2).tolist(),
         "speed": vt[ids].round(2).tolist(),
         "gap": trk.gap[ids].astype(int).tolist(),
+        "pit": trk.gap[ids].astype(int).tolist(),
         "theme": [trk.theme[i] for i in ids],
     }
     return data

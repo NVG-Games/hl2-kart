@@ -13,6 +13,13 @@ const ITEM_TEXT := {
 	"gravgun": "Punts every kart and prop in a cone in front of you.",
 	"canister": "A Combine shell aimed at the race leader. Watch the blue beam and swerve.",
 	"hev": "Seven seconds of overcharge: faster, invulnerable, and anyone you touch goes flying.",
+	"cball": "The AR2's energy ball. Skims along the road, ricochets off walls and flattens the first kart it touches. Careful: it can come back for you.",
+	"melon": "Drop it behind you. Whoever drives over it slips and spins.",
+	"melon3": "Three watermelons: drop them one after another.",
+	"hopper": "Dropped behind you, it arms in a second, then jumps at the first kart that comes close and goes off.",
+	"saw": "Ravenholm's sawblade, flung straight ahead. It cuts through every kart in the way and sticks in the first wall.",
+	"headcrab": "Headcrabs leap onto the face of everyone ahead of you. They can't see a thing for a few seconds.",
+	"xenport": "A Xen portal: you come out 140 metres further down the road, at full speed.",
 }
 
 var tabs: TabBar
@@ -29,7 +36,7 @@ func _init() -> void:
 
 func _ready() -> void:
 	tabs = TabBar.new()
-	for t in ["CONTROLS", "DRIVING", "ITEMS", "THE TRACK", "ONLINE"]:
+	for t in ["CONTROLS", "DRIVING", "ITEMS", "MORE ITEMS", "THE TRACK", "ONLINE"]:
 		tabs.add_tab(t)
 	tabs.focus_mode = Control.FOCUS_ALL
 	body.add_child(tabs)
@@ -37,7 +44,9 @@ func _ready() -> void:
 	holder.add_theme_constant_override("margin_top", 10)
 	holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	body.add_child(holder)
-	pages = [_controls(), _driving(), _items(), _track(), _online()]
+	pages = [_controls(), _driving(), _items(["battery", "manhack", "rollermine", "barrel", "gravgun", "canister", "hev",
+		"battery3", "manhack3"]), _items(["cball", "saw", "headcrab", "melon", "hopper", "xenport", "melon3"]),
+		_track(), _online()]
 	for p in pages:
 		holder.add_child(p)
 	tabs.tab_changed.connect(_show)
@@ -144,12 +153,12 @@ func _driving() -> Control:
 	return v
 
 
-func _items() -> Control:
+func _items(ids: Array) -> Control:
 	var grid := GridContainer.new()
 	grid.columns = 3
 	grid.add_theme_constant_override("h_separation", 18)
 	grid.add_theme_constant_override("v_separation", 14)
-	for id in ["battery", "manhack", "rollermine", "barrel", "gravgun", "canister", "hev", "battery3", "manhack3"]:
+	for id in ids:
 		var card := HBoxContainer.new()
 		card.add_theme_constant_override("separation", 10)
 		card.custom_minimum_size = Vector2(360, 120)
@@ -200,7 +209,9 @@ func _track() -> Control:
 	v.add_child(_track_card("res://assets/ui/portraits/breen.png", "Five tracks",
 		"Highway 17 starts under Dr. Breen's broadcast, leaves City 17 through the Combine checkpoint, jumps the inlet on the coast road and comes back down the canal. CT17, Black Mesa, Xen and Surface Tension rebuild those places from the games' own textures, models, signs and music."))
 	v.add_child(_track_card("res://assets/ui/items/barrel.png", "Physics everywhere",
-		"Cones, drums, crates and melons are real props: knock them over. Red barrels explode."))
+		"Cones, drums, crates and melons are real props: knock them over. Red barrels explode, and some lie right on the road."))
+	v.add_child(_track_card("res://assets/ui/items/xenport.png", "Tubes and open edges",
+		"Inside a glowing tube you stick to the wall: the road rolls up the side and over the ceiling. Some bridges and cliff roads have no railings: run wide and you fall."))
 	return v
 
 

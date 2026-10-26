@@ -11,6 +11,7 @@ var _fwd := Vector3.FORWARD
 var _shake := 0.0
 var _pos := Vector3.ZERO
 var _orbit := 0.0
+var _up := Vector3.UP  # rolls with the kart in a tube
 
 
 func _ready() -> void:
@@ -58,11 +59,12 @@ func _physics_process(delta: float) -> void:
 
 func _chase(delta: float) -> void:
 	var k := target
+	_up = Kart.ease_up(_up, k.grav_up, delta * 5.0)
 	var kfwd := -k.global_basis.z
 	var v := k.linear_velocity
 	if v.length() > 6.0 and v.normalized().dot(kfwd) > 0.0 and k.grounded:
 		kfwd = (kfwd + v.normalized() * 1.2).normalized()
-	kfwd.y *= 0.4
+	kfwd -= _up * kfwd.dot(_up) * 0.6
 	if kfwd.length() < 0.1:
 		kfwd = _fwd
 	kfwd = kfwd.normalized()
@@ -75,16 +77,16 @@ func _chase(delta: float) -> void:
 	var size := clampf(1.0 + (k.spec.length / ref.length - 1.0) * 0.5, 0.9, 1.15)
 	var rise := maxf(0.0, k.spec.height - ref.height)
 	var dist := (8.6 + clampf(k.speed / 35.0, 0.0, 1.0) * 1.6) * size
-	var desired := k.global_position - dir * dist + Vector3.UP * (3.3 + rise * 0.5)
+	var desired := k.global_position - dir * dist + _up * (3.3 + rise * 0.5)
 	# keep the camera out of walls (canal, buildings)
 	var space := get_world_3d().direct_space_state
-	var from := k.global_position + Vector3.UP * 1.6
+	var from := k.global_position + _up * 1.6
 	var q := PhysicsRayQueryParameters3D.create(from, desired, Game.LAYER_WORLD)
 	var hit := space.intersect_ray(q)
 	if not hit.is_empty():
 		desired = hit["position"] + (from - desired).normalized() * 0.6
 	_pos = _pos.lerp(desired, minf(1.0, delta * 18.0))
 	global_position = _pos
-	look_at(k.global_position + dir * 5.0 + Vector3.UP * (1.4 + rise * 0.4), Vector3.UP)
+	look_at(k.global_position + dir * 5.0 + _up * (1.4 + rise * 0.4), _up)
 	var fov_t := 66.0 + clampf(k.speed / k.max_speed, 0.0, 1.3) * 8.0 + (6.0 if k.boost_time > 0.0 else 0.0)
 	fov = lerpf(fov, fov_t, minf(1.0, delta * 3.0))

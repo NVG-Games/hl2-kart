@@ -72,6 +72,8 @@ var wheel_spin := 0.0
 var steer_visual := 0.0
 var air_time := 0.0
 var ground_normal := Vector3.UP
+## which way is up for this kart: the sky, or inside a tube the pipe's axis
+var grav_up := Vector3.UP
 
 var drifting := false
 var drift_dir := 0
@@ -81,6 +83,7 @@ var hop_time := 0.0
 var boost_time := 0.0
 var boost_power := 1.0
 var star_time := 0.0  # invulnerable "charged suit"
+var blind_time := 0.0  # a headcrab on the face
 var shrink_time := 0.0
 var _drift_held := false
 var _item_held := false
@@ -255,7 +258,8 @@ func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
 				st.apply_force(up * fa, pa)
 			if wheel_contact[c]:
 				st.apply_force(-up * fa, pc)
-	ground_normal = nsum.normalized() if wheels_on_ground > 0 else Vector3.UP
+	ground_normal = nsum.normalized() if wheels_on_ground > 0 else grav_up
+	_tube_gravity(st, dt)
 	if grounded:
 		air_time = 0.0
 	else:
@@ -361,16 +365,16 @@ func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
 		drifting = false if air_time > 0.6 else drifting
 		# light air control + self-righting (the jeep's countertorquefactor)
 		var av := st.angular_velocity
-		var yaw := av.dot(Vector3.UP)
-		av += Vector3.UP * (-steer * 1.2 - yaw) * minf(1.0, dt * 2.0)
-		var axis := up.cross(Vector3.UP)
+		var yaw := av.dot(grav_up)
+		av += grav_up * (-steer * 1.2 - yaw) * minf(1.0, dt * 2.0)
+		var axis := up.cross(grav_up)
 		av += axis * 3.0 * dt * 4.0
 		av *= 1.0 - minf(1.0, dt * 1.2)
 		st.angular_velocity = av
 
 	# self-right when flipped on the ground
-	if up.dot(Vector3.UP) < 0.3 and speed < 6.0 and state != State.RESPAWN:
-		var axis2 := up.cross(Vector3.UP).normalized()
+	if up.dot(grav_up) < 0.3 and speed < 6.0 and state != State.RESPAWN:
+		var axis2 := up.cross(grav_up).normalized()
 		if axis2.length() < 0.1:
 			axis2 = fwd
 		st.apply_torque(axis2 * mass * 12.0)
@@ -409,6 +413,36 @@ func _update_drift(dt: float, steer: float, st: PhysicsDirectBodyState3D) -> voi
 	_drift_held = in_drift
 
 
+## Inside a tube gravity pulls towards the pipe wall (the surface under the wheels,
+## or straight out from the axis in the air), so a kart can drive up the wall and
+## along the ceiling. Elsewhere grav_up eases back to the sky.
+func _tube_gravity(st: PhysicsDirectBodyState3D, dt: float) -> void:
+	var path: TrackPath = track.path if track else null
+	var r: float = path.mag[path_index] if path and path.mag.size() > path_index else 0.0
+	if r <= 0.0:
+		grav_up = ease_up(grav_up, Vector3.UP, dt * 4.0)
+		return
+	var want: Vector3
+	if grounded:
+		want = ground_normal
+	else:
+		var axis := path.center[path_index] + path.up[path_index] * r
+		var out := st.transform.origin - axis
+		out -= path.fwd[path_index] * out.dot(path.fwd[path_index])
+		want = -out.normalized() if out.length() > 0.5 else path.up[path_index]
+	grav_up = ease_up(grav_up, want, dt * 10.0)
+	var g := st.total_gravity
+	st.apply_central_force(-g * mass - grav_up * mass * g.length() * 1.25)
+
+
+## Turns an up vector towards another (opposite vectors included) and keeps it unit length.
+static func ease_up(from: Vector3, to: Vector3, t: float) -> Vector3:
+	var v := from.lerp(to, clampf(t, 0.0, 1.0))
+	if v.length() < 0.2:
+		v = from.lerp(to, 0.5) + from.cross(to).normalized() * 0.5 if from.cross(to).length() > 0.01 else to
+	return v.normalized() if v.length() > 0.0001 else to
+
+
 func _end_drift() -> void:
 	if drift_level >= 1:
 		boost(0.75 if drift_level == 1 else 1.4, 0.8 if drift_level == 1 else 1.0)
@@ -435,6 +469,7 @@ func _physics_process(delta: float) -> void:
 		controller.drive(self, delta)
 	_update_progress()
 	_update_items(delta)
+	blind_time = maxf(blind_time - delta, 0.0)
 	if state == State.NORMAL and not finished:
 		_check_respawn(delta)
 	if state == State.RESPAWN:
@@ -450,14 +485,15 @@ var _watch_time := 0.0
 
 func _check_respawn(delta: float) -> void:
 	var out := global_position.y < track.sea_level - 1.5
-	if global_basis.y.dot(Vector3.UP) < 0.2:
+	if global_basis.y.dot(grav_up) < 0.2:
 		_flip_time += delta
 	else:
 		_flip_time = 0.0
 	if global_position.y < float(track.data.get("kill_y", -1e9)):
 		out = true
 	# fell into the pit under a jump: fish them out before they reach the bottom
-	if track.path.gap[path_index] == 1 and global_position.y < track.path.center[path_index].y - 5.0:
+	# or off an open edge (a jump, a bridge without railings)
+	if track.path.pit[path_index] == 1 and global_position.y < track.path.center[path_index].y - 5.0:
 		out = true
 	var lat := absf(track.path.lateral(global_position, path_index))
 	if lat > track.path.width[path_index] * 0.5 + maxf(float(track.data.get("offtrack", 60.0)), 30.0):
@@ -558,6 +594,34 @@ func _update_items(delta: float) -> void:
 	_item_held = in_item
 
 
+## A headcrab lands on the driver's face after `delay` seconds (see FaceCrab).
+func blind(seconds: float, delay := 0.0) -> void:
+	if star_time > 0.0 or state == State.RESPAWN or finished:
+		return
+	var crab := FaceCrab.new()
+	add_child(crab)
+	crab.attach(self, seconds, delay)
+
+
+## Out of a Xen portal `metres` further down the road, at speed, never into a jump gap.
+func teleport_ahead(metres: float) -> void:
+	var p := track.path
+	var s := lap_progress + metres
+	var guard := 0
+	while (p.gap[p.index_at(s)] == 1 or p.gap[p.index_at(s + 12.0)] == 1) and guard < 60:
+		s += p.step
+		guard += 1
+	var t := p.transform_at(s)
+	var lane := clampf(p.lateral(global_position, path_index), -3.0, 3.0)
+	var v := maxf(linear_velocity.length(), 22.0)
+	global_transform = Transform3D(t.basis, t.origin + t.basis.y * 1.0 + t.basis.x * lane)
+	linear_velocity = -t.basis.z * v
+	angular_velocity = Vector3.ZERO
+	path_index = p.index_at(s)
+	boost(1.0, 1.0)
+	star_time = maxf(star_time, 0.8)
+
+
 func give_item(id: String, count := 1) -> void:
 	item = id
 	item_count = count
@@ -587,7 +651,7 @@ func tumble(by: Kart = null, impulse := Vector3.ZERO) -> void:
 	state_time = 0.0
 	drifting = false
 	boost_time = 0.0
-	apply_central_impulse(impulse + Vector3.UP * mass * 7.0)
+	apply_central_impulse(impulse + grav_up * mass * 7.0)
 	apply_torque_impulse(global_basis.z * mass * 3.0 * (1.0 if _rng.randf() > 0.5 else -1.0))
 	visual.spin()
 	audio.hurt()
@@ -603,6 +667,16 @@ func _drop_trailing() -> void:
 
 func _on_body_entered(other: Node) -> void:
 	var impact := linear_velocity.length()
+	# a watermelon left on the road: slip and spin
+	if other is PhysProp and (other as PhysProp).model_key == Items.MELON and (other as PhysProp).is_in_group("traps"):
+		var melon := other as PhysProp
+		if not remote:
+			var by = melon.get_meta("trap_owner", null)
+			spin_out(by as Kart if is_instance_valid(by) else null)
+			if melon.has_meta("nid"):
+				Net.send_event("trap", [melon.get_meta("nid")])
+		melon.smash(linear_velocity * 0.4)
+		return
 	if other is PhysProp:
 		var pp := other as PhysProp
 		if impact > 5.0:
