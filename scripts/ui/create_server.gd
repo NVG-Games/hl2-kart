@@ -62,6 +62,8 @@ func _ready() -> void:
 	right.add_child(UiKit.row("Laps", UiKit.slider(1, 9, 1, int(s.get("laps", 3)), func(v: float): _put("laps", int(v))), 220))
 	var names: Array = Game.DIFFICULTIES.map(func(d: Dictionary) -> String: return d["name"])
 	right.add_child(UiKit.row("Difficulty", UiKit.segmented(names, int(s.get("difficulty", 1)), func(i: int): _put("difficulty", i)), 220))
+	right.add_child(UiKit.row("Track hazards", UiKit.segmented(["OFF", "ON"], int(s.get("hazards", 1)),
+		func(i: int): _put("hazards", i)), 220))
 	var weather := UiKit.dropdown(Game.sky_names(), Game.sky_index(str(s.get("sky", ""))), func(i: int): _put("sky", Game.SKIES[i][0]))
 	var track_names: Array = Game.TRACKS.map(func(t: Dictionary) -> String: return t["name"])
 	right.add_child(UiKit.row("Track", UiKit.dropdown(track_names, Game.track_index(str(s.get("track", ""))), func(i: int):
@@ -90,6 +92,7 @@ func _start() -> void:
 		"name": str(s.get("host_name", "")), "port": int(s.get("host_port", Net.DEFAULT_PORT)),
 		"max_players": int(s.get("host_max_players", 8)), "bots": bool(s.get("host_bots", true)),
 		"grid": int(s.get("host_grid", 8)), "laps": int(s.get("laps", 3)), "difficulty": int(s.get("difficulty", 1)),
+		"hazards": int(s.get("hazards", 1)),
 		"sky": str(s.get("sky", "sky_day01_01")), "track": str(s.get("track", "city17_circuit")),
 		"password": str(s.get("host_password", "")),
 		"lan_only": bool(s.get("host_lan_only", false)), "upnp": bool(s.get("host_upnp", true)),

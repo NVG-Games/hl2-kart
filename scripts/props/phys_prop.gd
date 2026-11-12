@@ -144,7 +144,9 @@ func explode() -> void:
 	# a dropped barrel exists on every peer: blow up all the copies
 	if has_meta("nid") and not has_meta("net_done"):
 		Net.send_event("trap", [get_meta("nid")])
-	Effects.explosion(get_parent(), global_position, 1.0)
+	# a barrel dropped as an item blows up on its owner's account (their "hit" line, the crowd's)
+	var by = get_meta("trap_owner") if has_meta("trap_owner") else null
+	Effects.explosion(get_parent(), global_position, 1.0, by as Kart if is_instance_valid(by) else null)
 	queue_free()
 
 

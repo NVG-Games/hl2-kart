@@ -69,7 +69,9 @@ func _video() -> Control:
 	v.add_child(UiKit.row("Vertical sync", vs))
 	var q := UiKit.segmented(["LOW", "MEDIUM", "HIGH"], int(Game.settings["quality"]), func(i: int): _apply("quality", i))
 	v.add_child(UiKit.row("Graphics quality", q))
-	var note := UiKit.label("HIGH adds real-time bounce lighting (SDFGI) and screen-space reflections.\nLOW also turns off ambient occlusion and bloom and shortens shadow distance.", 15, UiKit.TEXT_DIM)
+	var c := UiKit.segmented(["OFF", "FEW", "FULL"], int(Game.settings.get("crowds", 2)), func(i: int): _apply("crowds", i))
+	v.add_child(UiKit.row("Spectators", c))
+	var note := UiKit.label("HIGH adds real-time bounce lighting (SDFGI) and screen-space reflections.\nLOW also turns off ambient occlusion and bloom and shortens shadow distance.\nSpectators change from the next race on.", 15, UiKit.TEXT_DIM)
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(note)
 	return v

@@ -2,6 +2,7 @@ class_name ItemBox
 extends Area3D
 ## item_item_crate: the HL2 supply crate as an item box. Smashes into its
 ## chunk gibs when driven through and re-materialises a few seconds later.
+## Its offset, bob and spin are in its own frame: Track tilts it to the surface in tubes.
 
 const RESPAWN := 1.8
 
@@ -65,7 +66,8 @@ func _on_body(body: Node) -> void:
 	if Net.active:
 		Net.send_event("box", [index])
 	if k.item == "" and k.roulette <= 0.0:
-		var id := Items.roll(k.place, k.get_tree().get_nodes_in_group("karts").size())
+		var karts := k.get_tree().get_nodes_in_group("karts")
+		var id := Items.roll(k.place, karts.size(), karts)
 		k.give_item(id, 3 if id.ends_with("3") else 1)
 		if k.is_player:
 			Game.play_ui("res://assets/sound/items/ammocrate_open.wav", -4.0)
@@ -81,16 +83,17 @@ func _smash(vel: Vector3) -> void:
 	_cool = RESPAWN
 	model.visible = false
 	_glow.visible = false
-	# visual gibs
+	# visual gibs, thrown off the surface the crate floats over (a tube wall or ceiling too)
 	var gibs: Array = PhysProp.GIBS["items/item_item_crate"]
+	var b := global_basis
 	for g in gibs:
 		var p := PhysProp.new()
 		get_parent().add_child(p)
 		p.setup(g)
-		p.global_position = global_position + Vector3(randf_range(-0.6, 0.6), randf_range(-0.3, 0.6), randf_range(-0.6, 0.6))
+		p.global_position = global_position + b * Vector3(randf_range(-0.6, 0.6), randf_range(-0.3, 0.6), randf_range(-0.6, 0.6))
 		(p.get_child(0) as Node3D).scale = Vector3.ONE * 1.6
 		p.collision_layer = 0
-		p.linear_velocity = vel * 0.7 + Vector3(randf_range(-4, 4), randf_range(2, 6), randf_range(-4, 4))
+		p.linear_velocity = vel * 0.7 + b * Vector3(randf_range(-4, 4), randf_range(2, 6), randf_range(-4, 4))
 		p.angular_velocity = Vector3(randf_range(-8, 8), randf_range(-8, 8), randf_range(-8, 8))
 		p.lifetime = 3.0
 		p.collision_mask = Game.LAYER_WORLD

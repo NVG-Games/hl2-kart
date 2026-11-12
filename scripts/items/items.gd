@@ -16,27 +16,43 @@ const INFO := {
 	"melon3": {"name": "3x WATERMELON", "model": "props_junk/watermelon01", "desc": "Three to drop"},
 	"hopper": {"name": "HOPPER MINE", "model": "props_combine/combine_mine01", "desc": "Jumps at whoever comes close"},
 	"saw": {"name": "SAWBLADE", "model": "props_junk/sawblade001a", "desc": "Cuts through everyone in front"},
-	"headcrab": {"name": "HEADCRAB", "model": "headcrabclassic", "desc": "Jumps on the faces ahead"},
+	"headcrab": {"name": "HEADCRAB", "model": "headcrabclassic", "desc": "Jumps on the next racers ahead"},
 	"xenport": {"name": "XEN TELEPORT", "model": "props_lab/teleportring", "desc": "Warps you down the road"},
 }
 
 const MELON := "props_junk/watermelon01"
+## Models the items spawn mid-race (projectiles, traps, the face crab; gibs: PhysProp.GIBS):
+## Effects.prewarm loads and draws them while the race loads.
+const SPAWNS := ["manhack", "roller", "props_junk/sawblade001a", "props_combine/combine_mine01",
+	"props_combine/headcrabcannister01a", "headcrabclassic", "props_c17/oildrum001_explosive", MELON]
 
-# weights per race position bucket: front, middle, back
+# weights per race position bucket: front, middle, back (each sums to 100). The nine
+# original items keep their old proportions and 80 % of every bucket; the seven newer
+# ones share the other 20 %, so they turn up now and then instead of half the time
 const TABLE := {
-	"front": {"melon": 20, "barrel": 12, "rollermine": 12, "hopper": 12, "battery": 14, "cball": 10, "manhack": 8,
-		"gravgun": 6, "melon3": 6},
-	"middle": {"cball": 14, "manhack": 12, "melon3": 8, "saw": 12, "headcrab": 10, "rollermine": 6, "battery": 10,
-		"gravgun": 8, "battery3": 6, "hopper": 6, "manhack3": 8},
-	"back": {"battery3": 14, "xenport": 14, "hev": 12, "canister": 10, "headcrab": 12, "manhack3": 12, "saw": 8,
-		"cball": 8, "gravgun": 6, "battery": 4},
+	"front": {"barrel": 24, "rollermine": 24, "battery": 16, "manhack": 8, "gravgun": 8,
+		"melon": 9, "hopper": 5, "cball": 4, "melon3": 2},
+	"middle": {"manhack": 20, "battery": 16, "rollermine": 12, "gravgun": 12, "barrel": 8, "battery3": 6, "manhack3": 6,
+		"cball": 6, "saw": 5, "melon3": 3, "hopper": 3, "headcrab": 3},
+	"back": {"battery3": 18, "manhack3": 14, "hev": 14, "manhack": 12, "gravgun": 12, "canister": 10,
+		"xenport": 8, "saw": 6, "cball": 3, "headcrab": 3},
 }
 
+# HEADCRAB: a short blindfold for the next few racers ahead, one crab item in play at a time
+const CRAB_HOLD := 2.5  # seconds on a face (was 3.6)
+const CRAB_RANGE := 200.0  # metres ahead it reaches
+const CRAB_MAX := 3  # faces per use: the nearest racers ahead
+const CRAB_COOLDOWN := 20.0  # race seconds after one is used before a crate hands out another
+static var _crab_used_at := -1000.0
 
-static func roll(place: int, total: int) -> String:
+
+static func roll(place: int, total: int, karts: Array = []) -> String:
 	var f := float(place - 1) / maxf(total - 1, 1)
 	var bucket := "front" if f < 0.2 else ("middle" if f < 0.65 else "back")
 	var t: Dictionary = TABLE[bucket]
+	if t.has("headcrab") and not _crab_allowed(karts):
+		t = t.duplicate()
+		t.erase("headcrab")
 	var sum := 0
 	for k in t:
 		sum += t[k]
@@ -46,6 +62,31 @@ static func roll(place: int, total: int) -> String:
 		if r < 0:
 			return k
 	return "battery"
+
+
+## A crate may hand out a HEADCRAB: nobody holds one and the last one was a while ago.
+static func _crab_allowed(karts: Array) -> bool:
+	var now := -1.0
+	for o in karts:
+		var k := o as Kart
+		if k.item == "headcrab":
+			return false
+		if now < 0.0 and k.race:
+			now = float(k.race.get("race_time"))
+	return now < _crab_used_at or now - _crab_used_at >= CRAB_COOLDOWN
+
+
+## The racers a HEADCRAB used by `k` would jump on: the nearest CRAB_MAX ahead within
+## CRAB_RANGE that can take one (Kart.can_take_crab).
+static func crab_targets(k: Kart) -> Array:
+	var ahead: Array = []
+	for n in k.get_tree().get_nodes_in_group("karts"):
+		var o := n as Kart
+		var d := o.total_progress - k.total_progress
+		if o != k and d > 0.0 and d < CRAB_RANGE and o.can_take_crab():
+			ahead.append(o)
+	ahead.sort_custom(func(a: Kart, b: Kart) -> bool: return a.total_progress < b.total_progress)
+	return ahead.slice(0, CRAB_MAX)
 
 
 static var _net_seq := 0
@@ -118,6 +159,9 @@ static func _spawn(k: Kart, id: String, extra: Dictionary) -> void:
 			var c := CanisterStrike.new()
 			k.get_parent().add_child(c)
 			c.launch(k, race, _kart_slot(k, int(extra.get("target", -1))) if extra.has("target") else null)
+			if c.target:
+				# the shell is marked over its target: the spectators there know what comes out of it
+				CrowdDirector.notify(k.get_tree(), &"headcrab", c.target.global_position, c.target, k)
 		"cball":
 			var ball := EnergyBall.new()
 			k.get_parent().add_child(ball)
@@ -197,16 +241,17 @@ static func _drop_melon(k: Kart) -> PhysProp:
 	return p
 
 
-## Headcrabs leap onto everyone ahead: their view is blocked for a few seconds.
+## Headcrabs leap onto the next few racers ahead: their view is blocked for a moment.
 static func _headcrabs(k: Kart) -> void:
 	Game.play_3d("res://assets/sound/npc/headcrab/alert1.wav", k.global_position, 2.0, 1.0, 14.0, k)
+	if k.race:
+		_crab_used_at = float(k.race.get("race_time"))
 	var delay := 0.0
-	for n in k.get_tree().get_nodes_in_group("karts"):
-		var o := n as Kart
-		if o == k or o.finished or o.total_progress <= k.total_progress:
-			continue
-		o.blind(3.6, delay)
-		delay += 0.15
+	for o in crab_targets(k):
+		if (o as Kart).blind(CRAB_HOLD, delay):
+			delay += 0.15
+			# spectators by a racer with a headcrab on its face: scientists cower and scream
+			CrowdDirector.notify(k.get_tree(), &"headcrab", (o as Kart).global_position, o, k)
 
 
 ## Through a Xen portal: the kart comes out further down the road, at speed.

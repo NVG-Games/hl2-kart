@@ -10,7 +10,8 @@ const L := Vector3(1, 0, 0)
 
 ## vortigaunt rig (digitigrade legs, own spine/arm names)
 const VORT := {
-	"Pelvis": "hips", "Spine": "spine1", "Spine1": "spine2", "Head1": "head",
+	"Pelvis": "hips", "Spine": "spine1", "Spine1": "spine2", "Spine2": "spine3", "Spine4": "spine4",
+	"Neck1": "neck1", "Head1": "head",
 	"L_Thigh": "leg_bone1_L", "L_Calf": "leg_bone2_L", "L_Ankle": "leg_bone3_L",
 	"R_Thigh": "leg_bone1_R", "R_Calf": "leg_bone2_R", "R_Ankle": "leg_bone3_R",
 	"L_Clavicle": "clavical_L", "L_UpperArm": "arm1_L", "L_Forearm": "arm2_L", "L_Hand": "hand1_L",
@@ -37,18 +38,61 @@ static func is_vort(sk: Skeleton3D) -> bool:
 	return bone(sk, "ValveBiped.leg_bone3_L") >= 0
 
 
-static func aim(sk: Skeleton3D, b: String, child: String, dir: Vector3) -> void:
+## Turn bone `b` so the direction to `child` points along `dir`. Without that child
+## nothing moves, unless `fallback`: then the bone's own rest direction from its parent
+## is used (rigs without hand bones). Drivers never use the fallback.
+static func aim(sk: Skeleton3D, b: String, child: String, dir: Vector3, fallback := false) -> void:
 	var bi := limb(sk, b)
+	if bi < 0:
+		return
 	var ci := limb(sk, child)
-	if bi < 0 or ci < 0:
+	if ci < 0 and not fallback:
 		return
 	var g := sk.get_bone_global_pose(bi)
-	var cg := sk.get_bone_global_pose(ci)
-	var cur := (cg.origin - g.origin).normalized()
+	var cur: Vector3
+	if ci >= 0:
+		cur = (sk.get_bone_global_pose(ci).origin - g.origin).normalized()
+	else:
+		var par := sk.get_bone_parent(bi)
+		if par < 0:
+			return
+		var rest := sk.get_bone_global_rest(bi)
+		var rdir := (rest.origin - sk.get_bone_global_rest(par).origin).normalized()
+		# the rest direction, carried through this bone's change of basis since the rest pose
+		cur = (g.basis * rest.basis.inverse() * rdir).normalized()
 	if cur.length() < 0.5:
 		return
 	var q := Quaternion(cur, dir.normalized())
 	sk.set_bone_global_pose(bi, Transform3D(Basis(q) * g.basis, g.origin))
+
+
+## Like aim, measured to a bone further up the chain: Spine -> Neck1 (Head1 where a rig
+## has no neck) bends the whole back, where Spine -> Spine1 is too short on some rigs.
+static func aim_chain(sk: Skeleton3D, b: String, far_child: String, dir: Vector3) -> void:
+	var bi := limb(sk, b)
+	var ci := limb(sk, far_child)
+	if ci < 0:
+		ci = limb(sk, "Head1")
+	if bi < 0 or ci < 0:
+		return
+	var g := sk.get_bone_global_pose(bi)
+	var cur := (sk.get_bone_global_pose(ci).origin - g.origin).normalized()
+	if cur.length() < 0.5:
+		return
+	sk.set_bone_global_pose(bi, Transform3D(Basis(Quaternion(cur, dir.normalized())) * g.basis, g.origin))
+
+
+## How far the lowest foot (toe, vortigaunt ankle) is below its rest height in the
+## current pose: lift the root by this to keep a crouch's feet on the floor.
+static func foot_offset(sk: Skeleton3D) -> float:
+	var low := INF
+	var rest_low := INF
+	for f in ["L_Foot", "R_Foot", "L_Toe0", "R_Toe0", "L_Ankle", "R_Ankle"]:
+		var bi := limb(sk, f)
+		if bi >= 0:
+			low = minf(low, sk.get_bone_global_pose(bi).origin.y)
+			rest_low = minf(rest_low, sk.get_bone_global_rest(bi).origin.y)
+	return rest_low - low if low < INF else 0.0
 
 
 static func _legs_seated(sk: Skeleton3D, s: String, sg: float) -> void:
@@ -59,6 +103,12 @@ static func _legs_seated(sk: Skeleton3D, s: String, sg: float) -> void:
 	else:
 		aim(sk, s + "_Calf", s + "_Foot", F * 0.35 - U * 0.94 + L * sg * 0.03)
 		aim(sk, s + "_Foot", s + "_Toe0", F * 0.85 + U * 0.1)
+
+
+## Only the legs of the seated pose (spectators on a bench keep their own arms).
+static func seated_legs(sk: Skeleton3D) -> void:
+	_legs_seated(sk, "L", 1.0)
+	_legs_seated(sk, "R", -1.0)
 
 
 static func seated(sk: Skeleton3D) -> void:

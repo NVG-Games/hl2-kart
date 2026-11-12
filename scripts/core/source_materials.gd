@@ -135,13 +135,19 @@ static func _build_model_material(info: Dictionary) -> Material:
 	return m
 
 
-static func world_material(name: String, uv_scale := Vector2.ONE) -> Material:
-	var key := "W|" + name + "|" + str(uv_scale)
+## Material for a world surface (track geometry). `lit` makes it glow even when its VMT has no
+## $selfillum, from both sides (the generator's light rings, lamp strips and glowing liquids).
+static func world_material(name: String, uv_scale := Vector2.ONE, lit := false) -> Material:
+	var key := "W|" + name + "|" + str(uv_scale) + ("|lit" if lit else "")
 	if _cache.has(key):
 		return _cache[key]
 	var info: Dictionary = Game.materials_db.get(name, {})
 	var m := ShaderMaterial.new()
-	m.shader = WORLD_SHADER
+	# $translucent with an alpha channel (chain-link fences, grates) is cut out like $alphatest
+	# and, like $nocull, seen from both sides
+	var cut: bool = info.get("alphatest", false) or (info.get("translucent", false) and info.get("albedo_alpha", false))
+	var two_sided: bool = lit or info.get("nocull", false) or (cut and not info.get("alphatest", false))
+	m.shader = _two_sided() if two_sided else WORLD_SHADER
 	m.set_shader_parameter("albedo_tex", tex(info.get("albedo", "")))
 	m.set_shader_parameter("uv_scale", uv_scale)
 	var normal := tex(info.get("normal", ""))
@@ -161,12 +167,23 @@ static func world_material(name: String, uv_scale := Vector2.ONE) -> Material:
 		if em:
 			m.set_shader_parameter("env_mask_tex", em)
 			m.set_shader_parameter("has_env_mask", true)
-	if info.get("alphatest", false):
+	if cut:
 		m.set_shader_parameter("alpha_cut", 0.5)
-	if info.get("selfillum", false):
+	if lit or info.get("selfillum", false):
 		m.set_shader_parameter("emission", float(info.get("glow", 2.2)))
 	_cache[key] = m
 	return m
+
+
+static var _world_2s: Shader
+
+
+## The world shader without back-face culling.
+static func _two_sided() -> Shader:
+	if _world_2s == null:
+		_world_2s = Shader.new()
+		_world_2s.code = WORLD_SHADER.code.replace("render_mode ", "render_mode cull_disabled, ")
+	return _world_2s
 
 
 ## Walk a model instance and swap every imported surface material.

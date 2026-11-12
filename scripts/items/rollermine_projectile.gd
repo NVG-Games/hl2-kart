@@ -65,7 +65,7 @@ func _physics_process(delta: float) -> void:
 	if flat.length() > 1.0:
 		_dir = flat.normalized()
 	var want := _dir * maxf(_speed, 18.0)
-	linear_velocity = Vector3(lerpf(v.x, want.x, delta * 2.0), v.y, lerpf(v.z, want.z, delta * 2.0))
+	linear_velocity = Vector3(lerpf(v.x, want.x, minf(1.0, delta * 2.0)), v.y, lerpf(v.z, want.z, minf(1.0, delta * 2.0)))
 
 
 func _on_body(other: Node) -> void:

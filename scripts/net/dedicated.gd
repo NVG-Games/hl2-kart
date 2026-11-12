@@ -11,19 +11,28 @@ var _status_t := 0.0
 
 func _ready() -> void:
 	name = "Console"
+	# commands come from a console, a pipe or a file; with none (started detached, stdin NUL)
+	# there is nothing to read
+	var st := OS.get_stdin_type()
+	if st != OS.STD_HANDLE_CONSOLE and st != OS.STD_HANDLE_PIPE and st != OS.STD_HANDLE_FILE:
+		return
 	_thread = Thread.new()
 	_thread.start(_read_stdin)
 	print("type 'help' for commands")
 
 
+## Reads command lines until quit / exit or the end of the input, so the thread is done before
+## the server quits (one still looping at shutdown left a Thread warning and exit code -1).
 func _read_stdin() -> void:
 	while not _quit:
 		var line := OS.read_string_from_stdin(1024)
 		if line == "":
-			OS.delay_msec(200)
-			continue
+			return  # the end of a pipe or a file
 		for l in line.split("\n", false):
-			_command.call_deferred(l.strip_edges())
+			var c := l.strip_edges()
+			if c.to_lower() in ["quit", "exit"]:
+				_quit = true
+			_command.call_deferred(c)
 
 
 func _process(delta: float) -> void:
@@ -42,7 +51,7 @@ func _command(line: String) -> void:
 	match cmd:
 		"help":
 			print("status | say <text> | kick <nick> | start | lobby | set <rule> <value> | rules | quit")
-			print("rules: hostname maxplayers bot_fill bot_grid mp_laps mp_difficulty mp_weather sv_password")
+			print("rules: hostname maxplayers bot_fill bot_grid mp_laps mp_difficulty mp_hazards mp_weather sv_password")
 		"status":
 			var info := Net.server_info()
 			print("hostname: %s\nstate   : %s\nplayers : %d/%d" % [info["name"], info["state"], info["players"], info["max"]])
@@ -87,3 +96,6 @@ func _command(line: String) -> void:
 
 func _exit_tree() -> void:
 	_quit = true
+	# a reader still waiting for a console line can not be woken: the process ends it
+	if _thread and not _thread.is_alive():
+		_thread.wait_to_finish()

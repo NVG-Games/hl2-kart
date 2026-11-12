@@ -7,6 +7,15 @@ from PIL import Image
 import keyvalues
 import vtf
 
+# DX-level blocks of a VMT ('">=dx90_20b" { ... }'): the ones that hold on today's hardware override
+# the material's own keys (the first listed wins); "<dx90_20b" only fills keys nothing else sets
+DX_BLOCKS = (">=dx90_20b", ">=dx90", ">dx90")
+DX_FALLBACK = ("<dx90_20b",)
+
+
+def _values(block):
+    return {k.lower(): v for k, v in block if not isinstance(v, list)}
+
 
 class MaterialLib:
     def __init__(self, fs, assets_root):
@@ -51,6 +60,12 @@ class MaterialLib:
                 params[k.lower()] = v
             elif k.lower() in ("proxies",):
                 params["__proxies"] = [p[0].lower() for p in v]
+        blocks = {k.lower(): v for k, v in body if isinstance(v, list)}
+        for cond in reversed(DX_BLOCKS):
+            params.update(_values(blocks.get(cond, [])))
+        for cond in DX_FALLBACK:
+            for k, v in _values(blocks.get(cond, [])).items():
+                params.setdefault(k, v)
         return shader, params
 
     # ---------- textures ----------
@@ -58,7 +73,8 @@ class MaterialLib:
         return "materials/" + tex.lower().replace("\\", "/") + suffix + ".png"
 
     def export_texture(self, tex, kind="color"):
-        """Decode materials/<tex>.vtf and write a PNG. Returns path relative to assets root."""
+        """Decode materials/<tex>.vtf into a PNG (once: later runs reuse the file).
+        Returns {"path": relative to assets root, "has_alpha" or "mask" for normal maps}, or None."""
         tex = tex.lower().replace("\\", "/")
         if tex.endswith(".vtf"):
             tex = tex[:-4]
@@ -67,35 +83,44 @@ class MaterialLib:
         key = (tex, kind)
         if key in self.tex_cache:
             return self.tex_cache[key]
+        rel = self._png_rel(tex)
+        if os.path.exists(os.path.join(self.assets_root, rel)):
+            # exported by an earlier run: the files tell what decoding the VTF again would
+            result = {"path": rel}
+            if kind == "normal":
+                mrel = self._png_rel(tex, "_mask")
+                if os.path.exists(os.path.join(self.assets_root, mrel)):
+                    result["mask"] = mrel
+            else:
+                with Image.open(os.path.join(self.assets_root, rel)) as im:
+                    result["has_alpha"] = "A" in im.getbands()
+            self.tex_cache[key] = result
+            return result
         data = self.fs.read("materials/" + tex + ".vtf")
         if data is None:
             self.tex_cache[key] = None
             return None
         try:
-            img, info = vtf.decode(data)
+            img, _ = vtf.decode(data)
         except Exception as e:  # noqa
             print("  !! vtf", tex, e)
             self.tex_cache[key] = None
             return None
-        result = {"info": info}
+        result = {"path": rel}
         if kind == "normal":
             a = np.array(img)
             mask = a[:, :, 3].copy()
             a[:, :, 1] = 255 - a[:, :, 1]  # DirectX (Y-) -> OpenGL (Y+)
             a[:, :, 3] = 255
-            rel = self._png_rel(tex)
             self._save(Image.fromarray(a, "RGBA").convert("RGB"), rel)
-            result["path"] = rel
             if mask.min() < 250:
                 mrel = self._png_rel(tex, "_mask")
                 self._save(Image.fromarray(mask, "L"), mrel)
                 result["mask"] = mrel
         else:
-            rel = self._png_rel(tex)
             a = np.array(img)
             has_alpha = a[:, :, 3].min() < 250
             self._save(img if has_alpha else img.convert("RGB"), rel)
-            result["path"] = rel
             result["has_alpha"] = bool(has_alpha)
         self.tex_cache[key] = result
         return result

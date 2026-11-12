@@ -19,7 +19,7 @@ func launch(k: Kart, r, forced_target: Kart = null) -> void:
 	owner_kart = k
 	race = r
 	s = k.total_progress + 5.0
-	lateral = k.track.path.lateral(k.global_position, k.path_index)
+	lateral = k.geo().lateral(k.global_position, k.route_index)
 	target = forced_target if forced_target else next_ahead(k)
 	model = Game.spawn_model("manhack")
 	model.scale = Vector3.ONE * 1.6
@@ -70,9 +70,17 @@ func _physics_process(delta: float) -> void:
 		goal = target.global_position + Vector3.UP * 1.0
 	else:
 		s += speed * delta
-		lateral = lerpf(lateral, 0.0, delta * 0.5)
-		var i := path.index_at(s)
-		goal = path.line_at(s) + path.right[i] * lateral * 0.3 + path.up[i] * 1.6
+		lateral = lerpf(lateral, 0.0, minf(1.0, delta * 0.5))
+		# along the road its target is on: a branch over the lap stretch it covers
+		var g: TrackPath = path
+		var at := fposmod(s, path.length)
+		if target and is_instance_valid(target) and target.route >= 0:
+			var br := path.branches[target.route]
+			if at >= br.fork_s and at <= br.merge_s:
+				g = br
+				at = br.u_at_main(at)
+		var i := g.index_at(at)
+		goal = g.line_at(at) + g.right[i] * lateral * 0.3 + g.up[i] * 1.6
 		if target and is_instance_valid(target) and s > target.total_progress + 10.0:
 			s = target.total_progress - 5.0
 	var to := goal - pos

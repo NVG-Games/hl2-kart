@@ -30,6 +30,10 @@ func _process(delta: float) -> void:
 		return
 	t += delta
 	if not _landed:
+		# the target got charged / rescued / finished before the crab reached it
+		if kart.star_time > 0.0 or kart.state == Kart.State.RESPAWN or kart.finished:
+			queue_free()
+			return
 		if t >= wait:
 			_land()
 		return
@@ -75,3 +79,4 @@ func _leave() -> void:
 	if _leaving < 0.0:
 		_leaving = 0.0
 		kart.blind_time = 0.0
+		kart.crab_immune = Kart.CRAB_IMMUNE

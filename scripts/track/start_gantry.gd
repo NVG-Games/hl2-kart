@@ -6,25 +6,32 @@ extends Node3D
 ## Xen: two giant crystals with an energy beam. The desert: an HECU frame with
 ## radio chatter.
 
+const COMMENT_GAP := 15.0  # seconds between two comments on the race
+
 var feed: BreenFeed
 var speaker: AudioStreamPlayer3D
 var _t := 0.0
 var _next_line := 2.0
 var _lines: Array[String] = []
 var _words: Array[String] = []  # VOX sentence being spoken, word by word
+var _comment_t := -INF  # when the last comment started
+var _comment_prio := 0  # and its priority
+var _commenting := false  # one is being spoken now
 
 
 var style := "combine"
 
 
-func setup(xf: Transform3D, road_width: float, kind := "combine") -> void:
+## `clear`: metres beside each road edge karts may drive on at the line (kerb and pavement,
+## data["gantry_clear"]): the pillars stand behind them.
+func setup(xf: Transform3D, road_width: float, kind := "combine", clear := 0.0) -> void:
 	global_transform = xf
 	style = kind
+	var half := road_width * 0.5 + maxf(1.8, clear + 0.8)
 	if kind != "combine":
-		_themed(road_width)
+		_themed(half)
 		return
 	var metal := SourceMaterials.world_material("metal/citadel_metalwall072a", Vector2(1, 3))
-	var half := road_width * 0.5 + 1.8
 	for side in [-1.0, 1.0]:
 		var pillar := MeshInstance3D.new()
 		var bm := BoxMesh.new()
@@ -91,9 +98,8 @@ func setup(xf: Transform3D, road_width: float, kind := "combine") -> void:
 	_lines.sort()
 
 
-## Arches for the other worlds.
-func _themed(road_width: float) -> void:
-	var half := road_width * 0.5 + 1.8
+## Arches for the other worlds; `half`: from the centre line to a pillar's middle.
+func _themed(half: float) -> void:
 	match style:
 		"blackmesa":
 			# under the lobby ceiling (12 m)
@@ -235,10 +241,39 @@ func _build_feed() -> void:
 	add_child(feed)
 
 
+## A remark on the race (the spectators' director calls it): `path` is a sound file, or
+## "vox:<words>" for the Black Mesa announcer. It cuts the random broadcast; it is refused
+## while a comment of the same or higher priority plays and within COMMENT_GAP seconds of
+## the last one unless `priority` is higher. Returns whether it was taken.
+func comment(path: String, priority := 1) -> bool:
+	if speaker == null or path == "":
+		return false
+	if priority <= _comment_prio and (_commenting or _t - _comment_t < COMMENT_GAP):
+		return false
+	_words.clear()
+	if path.begins_with("vox:"):
+		for w in path.substr(4).split(" ", false):
+			_words.append(w)
+		speaker.stop()
+	else:
+		var s := Game.stream(path)
+		if s == null:
+			return false
+		speaker.stream = s
+		speaker.play()
+	_commenting = true
+	_comment_t = _t
+	_comment_prio = priority
+	_next_line = maxf(_next_line, 9.0)
+	return true
+
+
 func _process(delta: float) -> void:
 	if speaker == null:
 		return
 	_t += delta
+	if _commenting and not speaker.playing and _words.is_empty():
+		_commenting = false
 	if style == "blackmesa":
 		_vox(delta)
 		return

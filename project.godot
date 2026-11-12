@@ -1,4 +1,11 @@
 ; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
 config_version=5
 
 [application]
@@ -29,11 +36,12 @@ texture={
 
 [physics]
 
-3d/default_gravity=15.24
-3d/physics_engine="Jolt Physics"
 common/physics_ticks_per_second=120
+common/max_physics_steps_per_frame=16
+3d/physics_engine="Jolt Physics"
+3d/default_gravity=15.24
 
 [rendering]
 
-anti_aliasing/quality/msaa_3d=2
 textures/default_filters/anisotropic_filtering_level=4
+anti_aliasing/quality/msaa_3d=2

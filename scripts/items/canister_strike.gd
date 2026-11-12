@@ -10,6 +10,7 @@ var model: Node3D
 var _impact_pos := Vector3.ZERO
 var _landed := false
 var _marker: MeshInstance3D
+static var _marker_mat: StandardMaterial3D
 
 
 static func leader_for(k: Kart) -> Kart:
@@ -40,13 +41,19 @@ func launch(k: Kart, _race, forced_target: Kart = null) -> void:
 	cyl.bottom_radius = 0.15
 	cyl.height = 160.0
 	_marker.mesh = cyl
-	var m := StandardMaterial3D.new()
-	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	m.albedo_color = Color(0.4, 0.8, 1.0, 0.6)
-	_marker.material_override = m
+	_marker.material_override = marker_material()
 	add_child(_marker)
+
+
+## The blue column over the target, one material for every shell (its shader stays compiled).
+static func marker_material() -> StandardMaterial3D:
+	if _marker_mat == null:
+		_marker_mat = StandardMaterial3D.new()
+		_marker_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_marker_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_marker_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		_marker_mat.albedo_color = Color(0.4, 0.8, 1.0, 0.6)
+	return _marker_mat
 
 
 func _physics_process(delta: float) -> void:

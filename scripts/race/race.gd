@@ -6,6 +6,12 @@ extends Node3D
 
 signal standings_changed
 
+const INTRO_TIME := 3.6  # the fly-by before the countdown
+const COUNT_TIME := 3.6  # 3-2-1 and GO
+## frames drawn behind the loading card before the race shows: the first one compiles the
+## circuit's shaders and pipelines (1-2 s on the outdoor maps, more with a cold shader cache),
+## the rest look along the intro's fly-by so it does not stutter on what comes into view
+const WARMUP_FRAMES := 5
 
 var track: Track
 var karts: Array[Kart] = []
@@ -13,6 +19,7 @@ var player: Kart
 var camera: RaceCamera
 var hud: Hud
 var racing := false
+var _leader: Kart = null  # who led at the last standings (the spectators' "lead" event)
 var finished_count := 0
 var race_time := 0.0
 var laps := 3
@@ -25,6 +32,10 @@ var _results_shown := false
 var demo := false  # attract mode: all karts AI
 var online := false
 var input_blocked := false  # online: pause menu / chat open (the race goes on)
+var net_t0 := -1.0  # online: the server's clock at GO (the start, the race time and the hazards run on it)
+var _net_begun := false  # online: the server has started the race (net_begin)
+var _card: CanvasLayer  # the loading card over the first frames (WARMUP_FRAMES)
+var _warm := 0
 
 
 func _ready() -> void:
@@ -41,6 +52,10 @@ func _ready() -> void:
 		_spawn_karts()
 	_countdown = 0.0
 	_phase = "wait" if online else "intro"
+	if online:
+		# the server's snapshots and events reach the race from now on; it hears the race is ready
+		# once its first frames are drawn (_warmed)
+		Net.race = self
 	if Net.dedicated:
 		Net.race_ready(self)
 		return
@@ -52,10 +67,67 @@ func _ready() -> void:
 	add_child(hud)
 	hud.setup(self)
 	Game.race_pool = track.data.get("music", [])
-	Game.play_music_mode("race")
 	if online:
-		hud.big_text("WAITING FOR PLAYERS", 30.0)
-		Net.race_ready(self)
+		hud.big_text("WAITING FOR PLAYERS", 600.0)
+	if DisplayServer.get_name() == "headless":
+		_warmed()
+	else:
+		if not online:
+			_phase = "load"
+		_card = _loading_card()
+	if online and Net.begin_t0 > 0.0:
+		net_begin(Net.begin_t0)  # heard before this scene was up
+
+
+## Black with LOADING... in the corner, as the menu leaves the screen (Menu._go_race).
+func _loading_card() -> CanvasLayer:
+	var c := CanvasLayer.new()
+	c.layer = 50
+	add_child(c)
+	var root := Control.new()
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	c.add_child(root)
+	var black := ColorRect.new()
+	black.color = Color.BLACK
+	black.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	black.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(black)
+	var l := UiKit.label("LOADING...", 28, Color(1, 1, 1, 0.9), true)
+	l.anchor_left = 1.0
+	l.anchor_right = 1.0
+	l.anchor_top = 1.0
+	l.anchor_bottom = 1.0
+	l.offset_left = -260
+	l.offset_top = -80
+	root.add_child(l)
+	return c
+
+
+func _process(_delta: float) -> void:
+	if _card == null:
+		return
+	_warm += 1
+	if _warm < WARMUP_FRAMES:
+		return
+	var tw := create_tween()
+	tw.tween_property(_card.get_child(0), "modulate:a", 0.0, 0.3)
+	tw.tween_callback(_card.queue_free)
+	_card = null
+	_warmed()
+
+
+## The first frames are drawn: the race shows and its music starts; offline the intro starts,
+## online the server hears this peer is ready (and the start goes on if it was already heard).
+func _warmed() -> void:
+	Game.play_music_mode("race")
+	if not online:
+		if _phase == "load":
+			_phase = "intro"
+		return
+	Net.race_ready(self)
+	if _net_begun and _phase == "wait":
+		_start_intro()
 
 
 ## Online grid: my kart, the server's bots, everyone else as proxies.
@@ -73,9 +145,7 @@ func _spawn_net_karts() -> void:
 		k.global_transform = track.spawn_transform(slot)
 		k.last_valid = k.global_transform
 		k.add_to_group("karts")
-		k._last_s = track.path.progress(k.global_position, track.path.closest(k.global_position))
-		k.lap = 0 if k._last_s < track.path.length * 0.5 else -1
-		k._crossed_half = k.lap == -1
+		_place_on_grid(k)
 		k.total_progress = k.lap * track.path.length + k._last_s
 		if mine:
 			k.controller = AIController.new(0.95, 7) if Net.autodrive else PlayerController.new()
@@ -87,6 +157,8 @@ func _spawn_net_karts() -> void:
 			if not e["bot"]:
 				_add_name_tag(k)
 		k.got_hit.connect(_on_kart_hit)
+		# counted and streamed: its viewers react to every hit, one while it spins too
+		k.got_hit.connect(func(kk: Kart, _by: Kart) -> void: kk.net_hits += 1)
 		karts.append(k)
 	if player == null and not karts.is_empty():
 		player = karts[0]
@@ -111,14 +183,38 @@ func kart_by_slot(slot: int) -> Kart:
 	return karts[slot] if slot >= 0 and slot < karts.size() else null
 
 
-## The server says everyone has loaded: fly-by, then the countdown.
-func net_begin() -> void:
-	if _phase != "wait":
+## The server says everyone has loaded: fly-by, then the countdown. `t0` is the server's
+## clock as it said so: GO comes INTRO_TIME + COUNT_TIME later on every peer, by that clock,
+## so a peer that hears it late (a long load) skips what it missed and starts at once.
+func net_begin(t0 := -1.0) -> void:
+	if _phase != "wait" or _net_begun:
 		return
+	_net_begun = true
+	if t0 > 0.0:
+		net_t0 = t0 + INTRO_TIME + COUNT_TIME
+	if _card == null:
+		_start_intro()
+
+
+func _start_intro() -> void:
 	_phase = "intro"
 	_countdown = 0.0
 	if hud:
 		hud.big_text("", 0.0)
+
+
+## Seconds since GO on a clock every peer shares (negative before GO): the track hazards'
+## timetables run on it. Online it is the server's clock from the GO it announced; offline,
+## and online until this peer's clock has synchronised, it is the race time.
+func hazard_clock() -> float:
+	if online and net_t0 > 0.0 and Net.clock_synced():
+		return Net.now() - net_t0
+	match _phase:
+		"race", "done":
+			return race_time
+		"count":
+			return _countdown - COUNT_TIME
+	return -100.0
 
 
 ## Something happened on another peer (see Net.send_event).
@@ -136,12 +232,20 @@ func net_event(kind: String, args: Array) -> void:
 			Items.net_remove(get_tree(), str(args[0]), true)
 		"proj":
 			Items.net_remove(get_tree(), str(args[0]))
+		"hz":
+			if track.hazards:
+				track.hazards.net_event(args)
+		"branch":
+			var kb := kart_by_slot(int(args[0]))
+			if kb and kb.remote:
+				on_branch(kb, int(args[1]), bool(args[2]))
 		"finish":
 			var k2 := kart_by_slot(int(args[0]))
 			if k2 and k2.remote and not k2.finished:
 				k2.finished = true
 				k2.finish_time = float(args[1])
 				finished_count += 1
+				CrowdDirector.notify(get_tree(), &"finish", k2.global_position, k2, null, finished_count)
 		"bot":
 			var k3 := kart_by_slot(int(args[0]))
 			if k3 == null:
@@ -192,36 +296,53 @@ func _spawn_karts() -> void:
 		else:
 			var sk: float = diff["ai_skill"] * randf_range(0.93, 1.03)
 			k.controller = AIController.new(sk, i * 101 + 7)
-		k._last_s = track.path.progress(k.global_position, track.path.closest(k.global_position))
-		k.lap = 0 if k._last_s < track.path.length * 0.5 else -1
-		k._crossed_half = k.lap == -1
+		_place_on_grid(k)
 		k.got_hit.connect(_on_kart_hit)
 		karts.append(k)
 	if player == null:
 		player = karts[-1]
 
 
+## Lap state of a kart on its grid slot (the grid is on the main road, before the line).
+func _place_on_grid(k: Kart) -> void:
+	k.route = -1
+	k.route_index = track.path.closest(k.global_position)
+	k.path_index = k.route_index
+	k._last_s = track.path.progress(k.global_position, k.route_index)
+	k.lap = 0 if k._last_s < track.path.length * 0.5 else -1
+	k._crossed_half = k.lap == -1
+
+
 func _physics_process(delta: float) -> void:
 	_bump_karts()
 	if _phase == "intro" or _phase == "count":
 		_update_standings()
+	# online the start and the race time follow the server's clock (seconds from GO, the same on
+	# every peer whatever its frame rate or how late it heard the start); offline they count steps
+	var shared := online and net_t0 > 0.0 and Net.clock_synced()
+	var clock := Net.now() - net_t0 if shared else 0.0
 	match _phase:
-		"wait":
-			pass
+		"load", "wait":
+			# behind the loading card the fly-by is shown from its end back to its start, then it
+			# holds its first shot until the intro starts
+			if camera:
+				camera.intro_t = INTRO_TIME * (1.0 - float(_warm + 1) / WARMUP_FRAMES) if _card else 0.0
 		"intro":
-			_countdown += delta
-			if _countdown > 0.4 and not has_meta("intro_voice") and player:
+			_countdown = clock + INTRO_TIME + COUNT_TIME if shared else _countdown + delta
+			if camera and shared:
+				camera.intro_t = _countdown
+			if _countdown > 0.4 and _countdown < INTRO_TIME and not has_meta("intro_voice") and player:
 				set_meta("intro_voice", true)
 				player.audio.say("start", true)
-			if _countdown > 3.6 or (Input.is_action_just_pressed("use_item") and not online):
+			if _countdown > INTRO_TIME or (Input.is_action_just_pressed("use_item") and not online):
 				_phase = "count"
-				_countdown = 0.0
+				_countdown = clock + COUNT_TIME if shared else 0.0
 				if camera:
 					camera.mode = RaceCamera.Mode.CHASE
 				Game.play_ui("res://assets/sound/npc/overwatch/radiovoice/on1.wav", -2.0)
 		"count":
 			var prev := _countdown
-			_countdown += delta
+			_countdown = clock + COUNT_TIME if shared else _countdown + delta
 			for i in 3:
 				var t := 0.6 + i * 1.0
 				if prev < t and _countdown >= t:
@@ -231,15 +352,16 @@ func _physics_process(delta: float) -> void:
 					if hud:
 						hud.big_text(str(3 - i), 0.9)
 			# rocket start: hold accelerate during the last count
-			if _countdown > 2.0 and _countdown < 3.6:
+			if _countdown > 2.0 and _countdown < COUNT_TIME:
 				if Input.get_action_strength("accelerate") > 0.5 and not input_blocked:
 					_rocket_ok = _countdown > 2.75
 				else:
 					_rocket_ok = false
-			if _countdown >= 3.6:
+			if _countdown >= COUNT_TIME:
 				_phase = "race"
 				racing = true
-				race_time = 0.0
+				race_time = maxf(clock, 0.0) if shared else 0.0
+				CrowdDirector.notify(get_tree(), &"start", track.path.center[0])
 				Game.play_ui("res://assets/sound/npc/overwatch/radiovoice/off4.wav", -2.0)
 				Game.play_ui("res://assets/sound/buttons/combine_button7.wav", 0.0)
 				if hud:
@@ -252,11 +374,8 @@ func _physics_process(delta: float) -> void:
 						k.boost(1.2, 1.0)
 					elif not k.is_player and randf() < 0.6:
 						k.boost(0.8, 0.8)
-		"race":
-			race_time += delta
-			_update_standings()
-		"done":
-			race_time += delta
+		"race", "done":
+			race_time = maxf(clock, 0.0) if shared else race_time + delta
 			_update_standings()
 
 
@@ -333,6 +452,10 @@ func _update_standings() -> void:
 		return a.total_progress > b.total_progress)
 	for i in sorted.size():
 		(sorted[i] as Kart).place = i + 1
+	if racing and not sorted.is_empty() and sorted[0] != _leader:
+		if _leader != null:
+			CrowdDirector.notify(get_tree(), &"lead", (sorted[0] as Kart).global_position, sorted[0], _leader)
+		_leader = sorted[0]
 	standings_changed.emit()
 
 
@@ -347,6 +470,8 @@ func on_lap(k: Kart) -> void:
 	if k.lap >= laps:
 		_finish(k)
 		return
+	if k.lap == laps - 1:
+		CrowdDirector.notify(get_tree(), &"final_lap", k.global_position, k)
 	if k == player and hud:
 		if k.lap == laps - 1:
 			hud.big_text("FINAL LAP", 2.0)
@@ -364,6 +489,7 @@ func _finish(k: Kart) -> void:
 	k.finish_time = race_time
 	finished_count += 1
 	k.state = Kart.State.FINISHED
+	CrowdDirector.notify(get_tree(), &"finish", k.global_position, k, null, finished_count)
 	if online:
 		Net.send_event("finish", [k.net_slot, k.finish_time])
 	if k.controller is PlayerController:
@@ -392,7 +518,27 @@ func _show_results() -> void:
 	hud.show_results(karts)
 
 
+## Branch passes per kart: kart -> {branch index: Vector2i(passes, completed)}.
+var branch_log := {}
+
+
+## A kart left branch `b` of the track (Kart._leave_branch); `done`: it got through to the merge.
+## A jump or ledge shortcut the player completes without falling off earns a cheer.
+func on_branch(k: Kart, b: int, done: bool) -> void:
+	var rec: Dictionary = branch_log.get_or_add(k, {})
+	rec[b] = rec.get(b, Vector2i.ZERO) + Vector2i(1, 1 if done else 0)
+	# online every peer logs the passes as the kart's owner saw them (the SHORTCUTS column)
+	if online and not k.remote:
+		Net.send_event("branch", [k.net_slot, b, done])
+	var br := track.path.branches[b]
+	if done and k == player and k.is_player and hud and br.kind in ["jump", "ledge"] \
+			and int(k._branch_fails.get(b, 0)) == 0:
+		hud.big_text("SHORTCUT!", 1.0)
+		Game.play_ui("res://assets/sound/buttons/button9.wav", -6.0)
+
+
 func _on_kart_hit(k: Kart, by: Kart) -> void:
+	CrowdDirector.notify(get_tree(), &"hit", k.global_position, k, by if is_instance_valid(by) else null)
 	if by and is_instance_valid(by) and by != k:
 		by.audio.say("hit")
 

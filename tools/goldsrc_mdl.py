@@ -54,6 +54,8 @@ BIPED_RENAME = {
 
 def rename_bone(n):
     """Old Character Studio names via the table, newer biped names map 1:1 onto ValveBiped."""
+    if n.startswith("Bip02"):
+        n = "Bip01" + n[5:]  # the SD scientist's (and scientistu's) biped is the second one in its scene
     if n in BIPED_RENAME:
         return BIPED_RENAME[n]
     if n.startswith("Bip01 "):

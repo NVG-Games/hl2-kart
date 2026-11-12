@@ -4,7 +4,7 @@
 //   godot --headless --path . -- --dedicated
 // Command-line flags override this file:
 //   --name "My server" --port 27015 --max 8 --bots on --grid 8 --laps 3
-//   --difficulty normal --weather "coastal storm" --password secret
+//   --track xen --difficulty normal --hazards on --weather "coastal storm" --password secret
 //   --lan --master master.example.net:27010 --config path/to/server.cfg
 
 hostname "City 17 Grand Prix"
@@ -13,7 +13,9 @@ maxplayers 8        // people allowed on the server (1-8)
 bot_fill 1          // 1 = bots fill empty grid slots, 0 = people only
 bot_grid 8          // field size the bots fill up to (2-8)
 mp_laps 3
+mp_track city17_circuit   // or ct17, black_mesa, xen, surface_tension
 mp_difficulty normal   // easy / normal / hard
+mp_hazards 1           // 1 = track hazards (turrets, trains, strikes...), 0 = off
 mp_weather sky_day01_01   // or: "highway 17 day", "coastal storm", "dusk", "evening"
 sv_password ""      // empty = anyone can join
 sv_lan 0            // 1 = do not register with the master server

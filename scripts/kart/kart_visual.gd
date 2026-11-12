@@ -40,6 +40,9 @@ var _dust: Array[CPUParticles3D] = []
 var _flame: CPUParticles3D
 var _flame_light: OmniLight3D
 var _star_glow: OmniLight3D
+var _wet := 0.0  # 1 = just fished out of a liquid, dries off over a few seconds
+var _wet_col := Color.WHITE
+var _wet_glow := 0.0
 var _head_bone := -1
 # Dog
 var _gait := 0.0
@@ -345,6 +348,13 @@ func spin() -> void:
 	_spin_anim = TAU * 2.0
 
 
+## Fished out of a liquid: darker, glossy, slime glows a little; dries off over 6 s.
+func wet(kind: int) -> void:
+	_wet = 1.0
+	_wet_col = Color(0.5, 1.0, 0.3) if kind == Effects.SLIME else Color(0.62, 0.72, 0.78)
+	_wet_glow = 0.35 if kind == Effects.SLIME else 0.0
+
+
 func _process(delta: float) -> void:
 	if kart == null:
 		return
@@ -424,6 +434,27 @@ func _process(delta: float) -> void:
 		flash = 0.25 + 0.25 * sin(Time.get_ticks_msec() * 0.025)
 	elif kart.state == Kart.State.SPIN or kart.state == Kart.State.TUMBLE:
 		flash = 0.3 if int(Time.get_ticks_msec() / 80) % 2 == 0 else 0.0
+	var soak := _wet > 0.0
+	if soak:
+		_wet = maxf(0.0, _wet - delta / 6.0)
 	for m in _materials:
 		m.set_shader_parameter("flash", flash)
-	visible = kart.state != Kart.State.RESPAWN or kart.state_time < 0.6 or kart.state_time > 2.0
+		if soak:
+			m.set_shader_parameter("wet", Color(_wet_col.r, _wet_col.g, _wet_col.b, _wet * 0.7))
+			m.set_shader_parameter("wet_glow", _wet_glow * _wet)
+	visible = _shown()
+
+
+## Hidden while a scanner "takes" it: SCAN between the photo and the drop, FALL from the
+## moment it is out of sight until the scanner has it over the road; SINK stays visible
+## (the liquid hides it, then it is hauled out).
+func _shown() -> bool:
+	if kart.state != Kart.State.RESPAWN:
+		return true
+	var t := kart.state_time
+	match kart.rescue:
+		Kart.Rescue.SINK:
+			return true
+		Kart.Rescue.FALL:
+			return t < Kart.FALL_T or t > Kart.FALL_T + 0.75
+	return t < 0.6 or t > 2.0

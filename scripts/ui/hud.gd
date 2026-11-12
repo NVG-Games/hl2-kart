@@ -5,6 +5,14 @@ extends CanvasLayer
 ## for drift charge, weapon-selection box for the held item.
 
 const U := Hl2Style.UNIT
+# HudHealth / HudSuit geometry (layout units): the label, the big digits and the small "/N"
+# sit on one baseline; digits and "/N" are right-aligned on the box's inner edge, and the boxes
+# are wide enough for the longest label, a gap and "8/8"
+const PAD := 8.0  # text_xpos: label inset, and the space kept right of the "/N"
+const BASELINE := 30.0  # from the box top: 30 U digits come out centred in the 38 U box
+const LABEL_GAP := 7.0  # between the longest label and the digit column
+const OF_GAP := 1.5  # between the digits and the small "/N"
+const WRONG_RED := Color8(255, 48, 32)
 
 var race
 var root: Control
@@ -36,6 +44,21 @@ var chat_feed: VBoxContainer
 var chat_input: LineEdit
 var _results_left := -1.0
 var _results_note: Label
+var _counter_w := 118.0  # POSITION / LAP / AUX POWER box width, fitted to the label + "8/8"
+var _tint: ColorRect  # a splash of water / slime over the screen when the player goes in
+var _lock_ui: Control  # a hazard's gun locked on the player: a chevron pointing at it
+var _lock_beep := 0.0
+# under the item box: WRONG WAY, or the first time the player nears a fork, where the shortcut goes
+var _notice: Panel
+var _notice_lbl: Label
+var _wrong_t := 0.0  # seconds the player's kart has been driving against its road
+var _wrong_back := 0.0  # metres of road it went back meanwhile
+var _wrong_beep := 0.0
+var _wrong_route := -2
+var _wrong_pos := 0.0
+var _hinted := {}  # branch index -> its fork was shown
+var _hint := ""
+var _hint_t := 0.0
 
 
 func setup(r) -> void:
@@ -46,12 +69,20 @@ func setup(r) -> void:
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
+	# under every panel: a wash of colour when the player's kart goes into water / slime
+	_tint = ColorRect.new()
+	_tint.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tint.color = Color(0, 0, 0, 0)
+	root.add_child(_tint)
 	_build_counters()
 	_build_aux()
 	_build_item()
 	_build_time()
 	_build_standings()
 	_build_minimap()
+	_build_lock_warning()
+	_build_notice()
 	big = Hl2Style.number("", 120, Hl2Style.BRIGHT)
 	big.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	big.set_anchors_preset(Control.PRESET_CENTER)
@@ -74,6 +105,9 @@ func setup(r) -> void:
 	_build_pause()
 	if race.online:
 		_build_chat()
+	# what effects, items and hazards first draw mid-race is drawn once now, while the race loads
+	Effects.prewarm(race.camera, race.track)
+	_prewarm_items()
 
 
 func _box(x: float, y: float, w: float, h: float, anchor_right := false, anchor_bottom := true) -> Panel:
@@ -99,42 +133,71 @@ func _box(x: float, y: float, w: float, h: float, anchor_right := false, anchor_
 	return p
 
 
-func _counter(x: float, title: String, anchor_right := false) -> Array:
-	var p := _box(x, 12, 118, 38, anchor_right)
+## Width of `text` in layout units, in the font and pixel size a Hl2Style label would use.
+static func _w(font: Font, text: String, size_px: float) -> float:
+	return font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, int(size_px)).x / U
+
+
+## Puts a label's first baseline at `base` (a Label draws it at its top + the font ascent).
+static func _on_baseline(l: Label, x: float, base: float) -> void:
+	var ls := l.label_settings
+	l.position = Vector2(x, base - ls.font.get_ascent(ls.font_size))
+
+
+func _counter(x: float, w: float, title: String, digit_x: float, anchor_right := false) -> Array:
+	var p := _box(x, 12, w, 38, anchor_right)
 	var t := Hl2Style.label(title, 8.5 * U)
-	t.position = Vector2(8, 22) * U
+	_on_baseline(t, PAD * U, BASELINE * U)
 	p.add_child(t)
 	var n := Hl2Style.number("0", 30 * U)
-	n.position = Vector2(54, -3) * U
+	_on_baseline(n, digit_x * U, BASELINE * U)
 	p.add_child(n)
 	var of := Hl2Style.label("", 10 * U)
-	of.position = Vector2(86, 16) * U
+	_on_baseline(of, digit_x * U, BASELINE * U)
 	p.add_child(of)
 	return [n, of]
 
 
 func _build_counters() -> void:
-	var a := _counter(16, "POSITION")
+	# POSITION and LAP boxes alike, just wide enough for the longer label and "8/8" with the
+	# same inset on both sides
+	var tf := Hl2Style.text_font(true)
+	var col := maxf(54.0, PAD + _w(tf, "POSITION", 8.5 * U) + LABEL_GAP)
+	_counter_w = ceilf(col + _w(Hl2Style.numbers_font(), "8", 30 * U) + OF_GAP + _w(tf, "/8", 10 * U) + PAD)
+	var a := _counter(16, _counter_w, "POSITION", col)
 	pos_num = a[0]
 	pos_of = a[1]
-	var b := _counter(146, "LAP")
+	var b := _counter(16 + _counter_w + 12, _counter_w, "LAP", col)
 	lap_num = b[0]
 	lap_of = b[1]
-	var c := _counter(16, "MPH", true)
+	var c := _counter(16, 118, "MPH", maxf(54.0, PAD + _w(tf, "MPH", 8.5 * U) + LABEL_GAP), true)
 	speed_num = c[0]
 	(c[1] as Label).text = ""
 
 
+## Digits and their small "/N", right-aligned on the box's inner edge: "1/3" ends where "8/8"
+## does, in both boxes, whatever the label and the digits' widths.
+func _set_counter(n: Label, of: Label, value: String, total: String) -> void:
+	if n.text == value and of.text == total:
+		return
+	n.text = value
+	of.text = total
+	of.position.x = (_counter_w - PAD - _w(of.label_settings.font, total, of.label_settings.font_size)) * U
+	n.position.x = of.position.x - (_w(n.label_settings.font, value, n.label_settings.font_size) + OF_GAP) * U
+
+
 func _build_aux() -> void:
-	var p := _box(16, 56, 118, 26)
+	var p := _box(16, 56, _counter_w, 26)
 	aux_label = Hl2Style.label("AUX POWER", 7.5 * U)
 	aux_label.position = Vector2(8, 3) * U
 	p.add_child(aux_label)
+	# ten HL2 chunks (6 U) spread so the bar has the same 8 U inset on both sides
+	var pitch := (_counter_w - 2.0 * PAD - 6.0) / 9.0
 	for i in 10:
 		var r := ColorRect.new()
 		r.color = Hl2Style.FG
-		r.position = Vector2(8 + i * 10.2, 15) * U
-		r.size = Vector2(7, 5) * U
+		r.position = Vector2(PAD + i * pitch, 15) * U
+		r.size = Vector2(6, 5) * U
 		p.add_child(r)
 		aux_bar.append(r)
 
@@ -227,6 +290,147 @@ func _build_minimap() -> void:
 	minimap.visible = Game.settings.get("show_minimap", true)
 
 
+## A box under the item box for one line of warning or advice (WRONG WAY, a shortcut ahead).
+func _build_notice() -> void:
+	_notice = Panel.new()
+	_notice.add_theme_stylebox_override("panel", Hl2Style.panel_style())
+	_notice.anchor_left = 0.5
+	_notice.anchor_right = 0.5
+	_notice.offset_left = -95 * U
+	_notice.offset_right = 95 * U
+	_notice.offset_top = 98 * U
+	_notice.offset_bottom = 124 * U
+	_notice.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_notice.visible = false
+	root.add_child(_notice)
+	_notice_lbl = Hl2Style.label("", 14 * U, Hl2Style.BRIGHT)
+	_notice_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_notice_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_notice_lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_notice.add_child(_notice_lbl)
+
+
+## WRONG WAY: the player's kart has been driving against the road it is on (the branch, or the
+## main loop) for over a second, facing that way, and has gone 8 m of it back. Spins, tumbles,
+## rescues, the air, slow turning and reversing never count; the warning flashes, beeps every
+## 1.6 s and clears as soon as the kart runs along its road again. Returns whether it shows.
+func _update_wrong_way(k: Kart, delta: float) -> bool:
+	if get_tree().paused:
+		return _wrong_t > 1.0 and _wrong_back > 8.0
+	var g := k.geo()
+	var f := g.fwd[k.route_index]
+	var v := k.linear_velocity
+	var sp := v.length()
+	var at := k.route_pos()
+	var moved := at - _wrong_pos
+	if k.route < 0:
+		moved = wrapf(moved, -g.length * 0.5, g.length * 0.5)
+	# the same road and no jump (a rescue, a portal): its metres compare
+	var same := k.route == _wrong_route and absf(moved) < 30.0
+	_wrong_route = k.route
+	_wrong_pos = at
+	var back := k.state == Kart.State.NORMAL and k.wheels_on_ground >= 2 and sp > 5.0 \
+		and v.dot(f) < -0.5 * sp and (-k.global_basis.z).dot(f) < -0.3
+	if not race.racing or k.finished or not k.is_player or k.state == Kart.State.RESPAWN \
+			or (sp > 3.0 and v.dot(f) > 0.3 * sp):
+		_wrong_t = 0.0
+		_wrong_back = 0.0
+	elif back:
+		_wrong_t += delta
+		if same:
+			_wrong_back += maxf(-moved, 0.0)
+	var on := _wrong_t > 1.0 and _wrong_back > 8.0
+	if not on:
+		_wrong_beep = 0.0
+		return false
+	_wrong_beep -= delta
+	if _wrong_beep <= 0.0:
+		_wrong_beep = 1.6
+		Game.play_ui("res://assets/sound/" + ("buttons/button19.wav" if Game.stream("buttons/button19.wav") \
+			else "hl1/fvox/beep.wav"), -4.0)
+	return true
+
+
+## The first time the player nears a fork on the main road (30-160 m before it): the shortcut's
+## name with an arrow on the side it leaves, for three seconds.
+func _update_fork_hint(k: Kart, delta: float) -> void:
+	var p: TrackPath = race.track.path
+	if race.racing and k.is_player and k.route < 0 and k.state == Kart.State.NORMAL and not k.finished:
+		for br in p.branches:
+			var d := fposmod(br.fork_s - k.lap_progress, p.length)
+			if d > 30.0 and d < 160.0 and not _hinted.has(br.index):
+				_hinted[br.index] = true
+				var what := "%s: %s" % ["SHORTCUT" if br.saves > 0.0 else "OTHER ROUTE", br.title.to_upper()]
+				_hint = ("%s  »" if br.side > 0 else "«  %s") % what
+				_hint_t = 3.0
+				Game.play_ui("res://assets/sound/buttons/blip1.wav", -8.0)
+	_hint_t = maxf(_hint_t - delta, 0.0)
+
+
+func _update_notice(k: Kart, delta: float) -> void:
+	_update_fork_hint(k, delta)
+	var ls := _notice_lbl.label_settings
+	if _update_wrong_way(k, delta):
+		_notice.visible = true
+		_notice_lbl.text = "WRONG WAY"
+		ls.font_color = WRONG_RED
+		ls.font_size = int(14 * U)
+		_notice.modulate.a = 1.0 if fmod(Time.get_ticks_msec() * 0.001, 0.5) < 0.32 else 0.3
+	elif _hint_t > 0.0:
+		_notice.visible = true
+		_notice_lbl.text = _hint
+		ls.font_color = Hl2Style.BRIGHT
+		ls.font_size = int(10.5 * U)
+		_notice.modulate.a = clampf(_hint_t * 2.0, 0.0, 1.0)
+	else:
+		_notice.visible = false
+
+
+## A track hazard's gun has locked on the player: a red chevron at the edge of the view
+## points at it, pulsing and beeping faster as the shot nears.
+func _build_lock_warning() -> void:
+	_lock_ui = Control.new()
+	_lock_ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_lock_ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_lock_ui.visible = false
+	_lock_ui.draw.connect(_draw_lock)
+	root.add_child(_lock_ui)
+
+
+func _update_lock(k: Kart, delta: float) -> void:
+	var on: bool = k.hazard_lock > 0.0 and race.camera != null and not get_tree().paused
+	_lock_ui.visible = on
+	if not on:
+		_lock_beep = 0.0
+		return
+	_lock_ui.queue_redraw()
+	_lock_beep -= delta
+	if _lock_beep <= 0.0:
+		_lock_beep = 0.1 + k.hazard_lock * 0.25
+		var ping := "npc/turret_floor/ping.wav" if Game.stream("npc/turret_floor/ping.wav") else "buttons/blip1.wav"
+		Game.play_ui("res://assets/sound/" + ping, -6.0)
+
+
+func _draw_lock() -> void:
+	var k: Kart = race.player
+	var cam: Camera3D = race.camera
+	var c := _lock_ui.size * 0.5
+	var at := cam.unproject_position(k.hazard_lock_from)
+	if cam.is_position_behind(k.hazard_lock_from):
+		at = c - (at - c) * 100.0  # behind: towards the other side, out at the edge
+	var m := 46.0 * U
+	var p := at.clamp(Vector2(m, m), _lock_ui.size - Vector2(m, m))
+	var dir := (at - c).normalized() if at.distance_to(c) > 1.0 else Vector2.UP
+	var n := Vector2(-dir.y, dir.x)
+	var pulse := 0.55 + 0.45 * sin(Time.get_ticks_msec() * 0.001 * TAU * (2.0 + 4.0 / maxf(k.hazard_lock, 0.12)))
+	var col := Color(1.0, 0.15, 0.1, pulse)
+	var sz := 16.0 * U
+	for j in 2:
+		var tip := p - dir * sz * 0.7 * j
+		_lock_ui.draw_polyline(PackedVector2Array([tip - dir * sz + n * sz * 0.8, tip, tip - dir * sz - n * sz * 0.8]),
+			col, 3.0 * U, true)
+
+
 func _build_pause() -> void:
 	# HL2 in-game menu: dimmed scene, logo-less title, the same flat menu entries
 	pause_panel = Control.new()
@@ -315,6 +519,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		_toggle_pause()
 
 
+## The player's kart went into water / slime: a quick wash of colour over the view.
+func liquid_flash(kind: int) -> void:
+	_tint.color = Color(0.45, 1.0, 0.2, 0.45) if kind == Effects.SLIME else Color(0.35, 0.55, 0.62, 0.4)
+	var tw := _tint.create_tween()
+	tw.tween_property(_tint, "color:a", 0.0, 0.9).set_ease(Tween.EASE_IN)
+
+
 func big_text(t: String, seconds: float) -> void:
 	big.text = t
 	big_t = seconds
@@ -327,12 +538,10 @@ func _process(delta: float) -> void:
 		return
 	var k: Kart = race.player
 	var total: int = race.karts.size()
-	pos_num.text = str(k.place)
-	pos_of.text = "/%d" % total
-	var lp := clampi(k.lap + 1, 1, race.laps)
-	lap_num.text = str(lp)
-	lap_of.text = "/%d" % race.laps
-	speed_num.text = str(int(absf(k.fwd_speed) * 2.237))
+	_set_counter(pos_num, pos_of, str(k.place), "/%d" % total)
+	_set_counter(lap_num, lap_of, str(clampi(k.lap + 1, 1, race.laps)), "/%d" % race.laps)
+	# a kart being rescued (sinking, falling, under the scanner) is not moving, whatever it last did
+	speed_num.text = "0" if k.state == Kart.State.RESPAWN or k.freeze else str(int(absf(k.fwd_speed) * 2.237))
 	var t: float = race.race_time if race.racing or race._phase == "done" else 0.0
 	if k.finished:
 		t = k.finish_time
@@ -353,6 +562,8 @@ func _process(delta: float) -> void:
 		aux_bar[i].color = col if float(i) / aux_bar.size() < fill else Color(col.r, col.g, col.b, 0.12)
 	aux_label.text = "AUX POWER" if not k.drifting else ("DRIFT" if k.drift_level == 0 else ("MINI-TURBO" if k.drift_level == 1 else "SUPER TURBO"))
 	_update_item(k, delta)
+	_update_lock(k, delta)
+	_update_notice(k, delta)
 	# offer the scanner rescue when the player is slow off the tarmac or wedged
 	var struggling: bool = race.racing and k.state == Kart.State.NORMAL and 		((k.offroad and k.speed < 9.0) or (k.speed < 2.0 and k.in_throttle > 0.5))
 	_rescue_t = _rescue_t + delta if struggling else 0.0
@@ -376,7 +587,9 @@ func _update_item(k: Kart, delta: float) -> void:
 		_roulette_t -= delta
 		if _roulette_t <= 0.0:
 			_roulette_t = 0.09
-			shown = Items.INFO.keys()[randi() % Items.INFO.size()]
+			# flick through what this place could really get now, not all sixteen alike (no
+			# headcrab while one is held or after one was just used)
+			shown = Items.roll(k.place, race.karts.size(), race.karts)
 			if k.is_player:
 				Game.play_ui("res://assets/sound/buttons/blip1.wav", -14.0)
 			_set_item_model(shown)
@@ -385,11 +598,29 @@ func _update_item(k: Kart, delta: float) -> void:
 		_set_item_model(shown)
 		if shown != "" and k.is_player:
 			Game.play_ui("res://assets/sound/items/ammo_pickup.wav", -6.0)
-	var count_txt := ""
-	if k.item_count > 1:
-		count_txt = "  x%d" % k.item_count
-	item_name.text = (Items.INFO[shown]["name"] + count_txt) if shown != "" else ""
+	var title := ""
+	if shown != "":
+		# a triple counts down on its plain name: "MANHACK  x3", "x2", then "MANHACK"
+		title = str(Items.INFO[shown]["name"]).trim_prefix("3x ")
+		if k.item_count > 1:
+			title += "  x%d" % k.item_count
+	item_name.text = title
 	item_box.visible = shown != ""
+
+
+## Every item's model in the item view (a world of its own) for half a second while the race
+## loads, so the roulette never stalls on a model it shows for the first time.
+func _prewarm_items() -> void:
+	for id in Items.INFO:
+		var m := Game.spawn_model(Items.INFO[id]["model"])
+		m.scale = Vector3.ONE * 0.01
+		item_holder.add_child(m)
+	var tw := create_tween()
+	tw.tween_interval(0.5)
+	tw.tween_callback(func():
+		if _shown_item == "":
+			for c in item_holder.get_children():
+				c.queue_free())
 
 
 func _set_item_model(id: String) -> void:
@@ -463,6 +694,8 @@ func show_results(karts: Array) -> void:
 		var d := Hl2Style.label(tt, 24, c)
 		d.custom_minimum_size.x = 200
 		row.add_child(d)
+		if _add_shortcuts(row, k, c):
+			b.custom_minimum_size.x = 250
 		row.add_child(Hl2Style.label("+%d" % pts[k.place - 1], 24, c))
 		v.add_child(row)
 	var sp := Control.new()
@@ -475,6 +708,23 @@ func show_results(karts: Array) -> void:
 	menu.pressed.connect(func(): race.to_menu())
 	v.add_child(menu)
 	again.grab_focus()
+
+
+## On a circuit with branches: a racer's "SHORTCUTS 2/3" (branches it got through to their
+## merge, of those it turned into; Race.branch_log) as a small column of its results row.
+## Returns false, adding nothing, on a circuit without branches.
+func _add_shortcuts(row: HBoxContainer, k: Kart, color: Color) -> bool:
+	if race.track.path.branches.is_empty():
+		return false
+	var sum := Vector2i.ZERO
+	if k:
+		for v: Vector2i in (race.branch_log.get(k, {}) as Dictionary).values():
+			sum += v
+	var l := Hl2Style.label("SHORTCUTS %d/%d" % [sum.y, sum.x], 16, color)
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.custom_minimum_size.x = 150
+	row.add_child(l)
+	return true
 
 
 # ---------------------------------------------------------------- online
@@ -594,6 +844,8 @@ func show_net_results(order: Array, seconds: float) -> void:
 		var d := Hl2Style.label("%d:%05.2f" % [int(t / 60.0), fmod(t, 60.0)] if t >= 0.0 else "--:--.--", 24, c)
 		d.custom_minimum_size.x = 200
 		row.add_child(d)
+		if _add_shortcuts(row, race.kart_by_slot(int(e["slot"])), c):
+			who.custom_minimum_size.x = 290
 		row.add_child(Hl2Style.label("+%d" % pts[mini(i, pts.size() - 1)], 24, c))
 		v.add_child(row)
 	var sp := Control.new()

@@ -345,7 +345,11 @@ def convert(fs, matlib, mdl_path, out_root, bodygroups=None, skin=0, force=False
     out_json = os.path.join(out_root, base + ".json")
     if not force and os.path.exists(out_gltf) and os.path.exists(out_json):
         with open(out_json) as f:
-            return json.load(f)
+            meta = json.load(f)
+        # the glTF is kept; its materials are resolved again (cheap) so VMT fixes reach materials.json
+        for name in sorted(set(meta.get("materials", [])) | {n for row in meta.get("skins", []) for n in row}):
+            matlib.material(name)
+        return meta
     data = fs.read(mdl_path)
     if data is None:
         raise FileNotFoundError(mdl_path)

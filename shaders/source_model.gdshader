@@ -25,12 +25,15 @@ uniform float env_amount = 0.0;
 uniform int env_mask_mode = 0; // 0 none, 1 base alpha, 2 normal alpha, 3 mask texture
 uniform sampler2D env_mask_tex : hint_default_white, filter_linear_mipmap, repeat_enable;
 uniform float flash = 0.0; // hit / invincibility flash
+uniform vec4 wet = vec4(0.0); // fished out of water / slime: rgb tint, a = how soaked
+uniform float wet_glow = 0.0; // slime glows a little
 
 varying float v_phong;
 
 void fragment() {
 	vec4 base = texture(albedo_tex, UV) * albedo_color;
 	vec3 col = mix(base.rgb, base.rgb * tint.rgb * 1.6, tint_amount);
+	col = mix(col, col * wet.rgb, wet.a);
 	ALBEDO = col;
 	if (has_normal) {
 		NORMAL_MAP = texture(normal_tex, UV).rgb;
@@ -50,15 +53,15 @@ void fragment() {
 		em *= texture(env_mask_tex, UV).r;
 	}
 	em = clamp(em, 0.0, 1.0);
-	ROUGHNESS = mix(0.9, 0.2, em);
-	SPECULAR = mix(0.12, 0.65, em);
+	ROUGHNESS = mix(mix(0.9, 0.2, em), 0.12, wet.a);
+	SPECULAR = mix(mix(0.12, 0.65, em), 0.6, wet.a);
 	METALLIC = 0.0;
 	vec3 emit = vec3(0.0);
 	if (selfillum > 0.0) {
 		float m = has_selfillum_mask ? texture(selfillum_mask, UV).r : base.a;
 		emit = col * m * selfillum;
 	}
-	EMISSION = emit + vec3(flash);
+	EMISSION = emit + vec3(flash) + wet.rgb * wet_glow;
 	if (alpha_cut > 0.0) {
 		ALPHA = base.a;
 		ALPHA_SCISSOR_THRESHOLD = alpha_cut;

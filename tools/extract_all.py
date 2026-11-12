@@ -1,6 +1,10 @@
 """Extract everything HL2 Kart needs from the Half-Life 2 install into hl2kart/assets.
 
 python -I extract_all.py [--force]
+
+A run only adds what is missing: HL2 models, textures and sounds already in assets/ are kept
+(model materials are still looked up again, so VMT fixes reach materials.json). HL1 models are
+always converted again (about a second). --force converts the HL2 models again too.
 """
 import json
 import os
@@ -45,6 +49,24 @@ HL1_SOUNDS = ["hgrunt/c2a2_hg_chat1a.wav", "hgrunt/c2a2_hg_chat2a.wav", "hgrunt/
               "hgrunt/c2a2_hg_chat4a.wav", "hgrunt/c2a2_hg_chat5a.wav", "hgrunt/c2a5_hg_abandon.wav",
               "hgrunt/c2a5_hg_lebuz.wav"]
 HL1_SOUNDS += sorted({"vox/%s.wav" % w for line in VOX_SENTENCES for w in line.split()})
+# hazards: turrets and the sentry's gun, houndeyes, vortigaunt bolts, the tentacle, the Apache, tripmines,
+# mortars; spares for later hazards: barnacles, slime arcs, falling rocks
+HL1_SOUNDS += [
+    "turret/tu_ping.wav", "turret/tu_alert.wav", "turret/tu_deploy.wav", "turret/tu_spinup.wav",
+    "turret/tu_spindown.wav", "turret/tu_fire1.wav", "turret/tu_retract.wav",
+    "weapons/hks1.wav", "weapons/hks2.wav", "weapons/hks3.wav",
+    "houndeye/he_alert1.wav", "houndeye/he_alert2.wav", "houndeye/he_attack1.wav", "houndeye/he_blast1.wav",
+    "houndeye/he_blast2.wav", "houndeye/he_blast3.wav", "houndeye/he_idle1.wav", "houndeye/he_pain1.wav",
+    "aslave/slv_alert1.wav", "aslave/slv_alert3.wav", "debris/zap1.wav", "debris/zap4.wav",
+    "weapons/electro4.wav", "weapons/electro5.wav",
+    "tentacle/te_alert1.wav", "tentacle/te_roar1.wav", "tentacle/te_sing1.wav", "tentacle/te_swing1.wav",
+    "tentacle/te_strike1.wav", "tentacle/te_strike2.wav", "tentacle/te_move1.wav",
+    "apache/ap_rotor2.wav", "apache/ap_whine1.wav", "weapons/rocketfire1.wav", "weapons/rocket1.wav",
+    "weapons/mine_deploy.wav", "weapons/mine_charge.wav", "weapons/mine_activate.wav",
+    "ambience/distantmortar1.wav", "ambience/distantmortar2.wav",
+    "barnacle/bcl_tongue1.wav", "barnacle/bcl_bite3.wav", "barnacle/bcl_chew1.wav", "barnacle/bcl_chew2.wav",
+    "barnacle/bcl_chew3.wav", "ambience/zapmachine.wav", "debris/bustconcrete1.wav",
+]
 
 # HL1 set dressing for the Black Mesa, Xen and Surface Tension circuits (valve/models/<name>.mdl)
 HL1_PROPS = [
@@ -52,6 +74,33 @@ HL1_PROPS = [
     "light", "tree", "fungus", "fungus(large)", "fungus(small)", "hair", "uplant1", "uplant2", "uplant3",
     "crystal", "big_rock", "floater", "islave", "houndeye", "controller", "nihilanth", "protozoa",
     "dead_osprey", "osprey", "apache", "hgrunt", "tentacle2", "garg",
+    # hazards: the Apache's rockets, tripmines (the mine alone, no hands), barnacles
+    "rpgrocket", "p_tripmine", "barnacle",
+]
+
+# Spectators (scripts/crowd): City 17 residents, refugees and rebels, a one-material background
+# citizen for the back tiers, the metrocops' stun baton (bonemerged on ValveBiped.Bip01_R_Hand) and Lamarr
+CROWD_MODELS = (["humans/group01/male_%02d" % i for i in (1, 2, 3, 4, 5, 6, 7, 8, 9)] +
+                ["humans/group01/female_%02d" % i for i in (1, 2, 3, 4, 6, 7)] +  # there is no female_05
+                ["humans/group02/male_%02d" % i for i in (1, 3, 5, 7, 9)] +
+                ["humans/group02/female_%02d" % i for i in (2, 4, 6)] +
+                ["humans/group03/male_%02d" % i for i in (1, 2, 4, 6, 8)] +
+                ["humans/group03/female_%02d" % i for i in (1, 3, 7)] +
+                ["humans/group01/male_cheaple", "weapons/w_stunbaton", "lamarr"])
+# HL1 spectators: key, candidates under HL1_ROOT (HD first), bodygroups (always applied)
+HL1_CROWD = [
+    ("hl1/sci_glasses", ["valve_hd/models/scientist.mdl", "valve/models/scientist.mdl"], {"heads": 0}),
+    ("hl1/sci_einstein", ["valve_hd/models/scientist.mdl", "valve/models/scientist.mdl"], {"heads": 1}),
+    ("hl1/sci_luther", ["valve_hd/models/scientist.mdl", "valve/models/scientist.mdl"], {"heads": 2}),
+    ("hl1/sci_slick", ["valve_hd/models/scientist.mdl", "valve/models/scientist.mdl"], {"heads": 3}),
+    ("hl1/guard", ["valve_hd/models/barney.mdl", "valve/models/barney.mdl"], {"gun": 0}),
+    ("hl1/gman", ["valve_hd/models/gman.mdl", "valve/models/gman.mdl"], {}),
+    ("hl1/islave_hd", ["valve_hd/models/islave.mdl", "valve/models/islave.mdl"], {}),
+    ("hl1/marine_mask", ["valve_hd/models/hgrunt.mdl"], {"heads": 0, "weapons": 0}),
+    ("hl1/marine_cmdr", ["valve_hd/models/hgrunt.mdl"], {"heads": 1, "weapons": 0}),
+    ("hl1/marine_shot", ["valve_hd/models/hgrunt.mdl"], {"heads": 2, "weapons": 1}),
+    ("hl1/zombie", ["valve/models/zombie.mdl"], {}),  # Black Mesa waste egg
+    ("hl1/boid", ["valve/models/boid.mdl"], {}),  # Surface Tension birds
 ]
 
 MODELS = [
@@ -135,6 +184,10 @@ MODELS = [
     "props_c17/lamppost03a_on", "props_trainstation/boxcar2", "props_trainstation/flatcar",
     "props_trainstation/lighttowercluster01", "props_trainstation/tanker", "props_trainstation/train002",
     "props_trainstation/trainstation_column001", "props_trainstation/benchoutdoor01a",
+    # hazards: the Combine floor turret, a second train car, rockets, the tripmine fallback; spares for
+    # later hazards: the big thumper, the Hunter-Chopper and its bombs
+    "combine_turrets/floor_turret", "props_combine/combine_train02b", "weapons/w_missile", "weapons/w_slam",
+    "props_combine/combinethumper001a", "combine_helicopter", "combine_helicopter/helicopter_bomb01",
 ]
 
 # chunk gibs for breakables
@@ -184,6 +237,9 @@ WORLD_MATERIALS = [
     "effects/bluelaser1", "effects/laser1", "sprites/laserbeam", "effects/muzzleflash1", "effects/combine_binocoverlay",
     "decals/scorch1", "decals/rollermine_crater", "effects/fleck_cement1", "particle/fire", "effects/water_highlight",
     "particle/particle_glow_04_additive", "effects/splash2", "effects/splashwake1",
+    # karts going into water / slime (Effects.splash / bubbles / drips)
+    "effects/splash3", "effects/splashwake3", "effects/bubble", "effects/slime1",
+    "particle/water/watersplash_001a", "particle/water/waterdrop_001a",
     # HUD / UI
     "vgui/hud/icon_locator", "console/background01", "console/background01_widescreen", "console/background02",
     "console/background03", "console/background04", "console/background05", "console/background06",
@@ -287,6 +343,39 @@ SOUNDS = [
     "npc/dog/dog_idlemode_loop1.wav", "npc/dog/dog_combatmode_loop1.wav", "npc/dog/dog_playfull1.wav",
     "npc/dog/dog_laugh1.wav", "npc/dog/dog_pneumatic1.wav", "npc/dog/dog_angry1.wav", "npc/dog/car_impact1.wav",
     "physics/metal/metal_box_scrape_rough_loop1.wav", "physics/metal/metal_box_scrape_smooth_loop1.wav",
+    # karts going into water / slime: splash, bubbles, the scanner fishing them out dripping
+    "vehicles/airboat/pontoon_splash1.wav", "vehicles/airboat/pontoon_splash2.wav",
+    "ambient/water/water_splash1.wav", "ambient/water/water_splash2.wav", "ambient/water/water_splash3.wav",
+    "physics/surfaces/underwater_impact_bullet1.wav", "physics/surfaces/underwater_impact_bullet2.wav",
+    "physics/surfaces/underwater_impact_bullet3.wav",
+    "ambient/levels/canals/toxic_slime_sizzle1.wav", "ambient/levels/canals/toxic_slime_sizzle2.wav",
+    "ambient/levels/canals/toxic_slime_sizzle3.wav", "ambient/levels/canals/toxic_slime_gurgle2.wav",
+    "ambient/levels/canals/toxic_slime_gurgle4.wav", "ambient/levels/canals/toxic_slime_gurgle6.wav",
+    "ambient/water/drip1.wav", "ambient/water/drip2.wav", "ambient/water/drip3.wav", "ambient/water/drip4.wav",
+    # hazards: turrets, trains, aircraft, strider, mortars, tripmines, fields, arcs
+    "npc/turret_floor/ping.wav", "npc/turret_floor/active.wav", "npc/turret_floor/deploy.wav",
+    "npc/turret_floor/retract.wav", "npc/turret_floor/shoot1.wav", "npc/turret_floor/shoot2.wav",
+    "npc/turret_floor/shoot3.wav",
+    "weapons/fx/rics/ric1.wav", "weapons/fx/rics/ric2.wav", "weapons/fx/rics/ric3.wav", "weapons/fx/rics/ric4.wav",
+    "weapons/fx/rics/ric5.wav", "weapons/fx/nearmiss/bulletltor03.wav", "weapons/fx/nearmiss/bulletltor05.wav",
+    "weapons/fx/nearmiss/bulletltor07.wav",
+    "ambient/alarms/train_crossing_bell_loop1.wav", "ambient/alarms/razortrain_horn1.wav",
+    "ambient/alarms/train_horn2.wav", "ambient/machines/razor_train_wheels_loop1.wav",
+    "ambient/machines/train_wheels_loop1.wav",
+    "npc/strider/striderx_alert4.wav", "npc/strider/strider_hunt1.wav", "npc/strider/strider_hunt2.wav",
+    "npc/strider/creak1.wav", "npc/strider/creak2.wav",
+    "npc/combine_gunship/see_enemy.wav", "npc/combine_gunship/attack_start2.wav",
+    "npc/combine_gunship/attack_stop2.wav", "npc/combine_gunship/gunship_fire_loop1.wav",
+    "weapons/mortar/mortar_fire1.wav", "weapons/mortar/mortar_shell_incomming1.wav",
+    "weapons/mortar/mortar_explode1.wav", "weapons/mortar/mortar_explode2.wav", "weapons/mortar/mortar_explode3.wav",
+    "ambient/machines/combine_shield_loop3.wav", "ambient/machines/combine_shield_touch_loop1.wav",
+    "ambient/energy/force_field_loop1.wav", "ambient/energy/zap2.wav", "ambient/energy/zap3.wav",
+    "ambient/energy/zap6.wav", "ambient/energy/zap7.wav", "ambient/energy/zap8.wav", "ambient/energy/zap9.wav",
+    "ambient/energy/newspark04.wav", "ambient/energy/newspark08.wav",
+    "ambient/levels/labs/electric_explosion2.wav", "ambient/levels/labs/electric_explosion4.wav",
+    # spares for later hazards: the Combine sniper, the Hunter-Chopper's bombs
+    "npc/sniper/sniper1.wav", "npc/sniper/echo1.wav", "npc/attack_helicopter/aheli_mine_drop1.wav",
+    "npc/attack_helicopter/aheli_megabomb_siren1.wav",
 ] + ["npc/dog/dog_footstep_run%02d.wav" % i for i in range(1, 10)] + ["vo/breencast/br_welcome%02d.wav" % i for i in range(1, 8)]   + ["vo/breencast/br_collaboration%02d.wav" % i for i in range(1, 12)]   + ["vo/breencast/br_instinct%02d.wav" % i for i in range(1, 12)]   + ["vo/breencast/br_overwatch%02d.wav" % i for i in range(1, 10)]
 
 # racer voice lines: hit = when they hit someone, hurt = when they get hit, win/lose/start
@@ -323,7 +412,9 @@ VOICES = {
              "hurt": ["vo/ravenholm/monk_pain01.wav", "vo/ravenholm/monk_pain02.wav", "vo/ravenholm/monk_pain03.wav"],
              "win": ["vo/ravenholm/monk_blocked01.wav", "vo/ravenholm/cartrap_better.wav"],
              "start": ["vo/ravenholm/firetrap_vigil.wav", "vo/ravenholm/monk_rant01.wav"]},
-    "breen": {"hit": ["vo/breencast/br_instinct01.wav", "vo/breencast/br_overwatch07.wav"],
+    # his Citadel taunts (2.6-4 s): the Breencasts run 15-48 s and kept the crowd silent after every hit
+    "breen": {"hit": ["vo/citadel/br_mock06.wav", "vo/citadel/br_mock09.wav", "vo/citadel/br_mock04.wav",
+                      "vo/citadel/br_mock07.wav"],
               "hurt": ["vo/citadel/br_ohshit.wav", "vo/citadel/br_no.wav", "vo/citadel/br_youfool.wav"],
               "win": ["vo/breencast/br_welcome01.wav", "vo/citadel/br_laugh01.wav"],
               "start": ["vo/breencast/br_welcome01.wav", "vo/breencast/br_collaboration01.wav"]},
@@ -338,11 +429,147 @@ VOICES = {
                "start": ["npc/metropolice/vo/readytoprosecute.wav", "npc/metropolice/vo/prosecute.wav"]},
 }
 
+
+def _seq(fmt, first, last):
+    return [fmt % i for i in range(first, last + 1)]
+
+
+def _in(folder, *names):
+    return ["%s/%s.wav" % (folder, n) for n in names]
+
+
+def _cit(*names):
+    """The same line from the male and the female citizen."""
+    return [p for n in names for p in _in("vo/npc/male01", n) + _in("vo/npc/female01", n)]
+
+
+# spectators' lines and loops, indexed as voices.json "_crowd": {role: {category: [res paths]}};
+# "hl1:" paths come from Half-Life's valve/sound
+_ODESSA = ("vo/coast/odessa/male01", "vo/coast/odessa/female01")
+_MP, _VORT, _SCI, _BAR, _HOLO = "npc/metropolice/vo", "vo/npc/vortigaunt", "hl1:scientist", "hl1:barney", "hl1:holo"
+CROWD_VOICES = {
+    "citizen": {
+        "cheer": (_seq(_ODESSA[0] + "/nlo_cheer%02d.wav", 1, 4) + _seq(_ODESSA[1] + "/nlo_cheer%02d.wav", 1, 3) +
+                  _cit("yeah02", "fantastic01", "fantastic02", "likethat", "gotone01", "gotone02") +
+                  _in("vo/npc/male01", "nice", "oneforme") + _in("vo/npc/female01", "nice01", "nice02")),
+        "gordon": _cit("ahgordon01", "ahgordon02", "docfreeman01", "docfreeman02", "freeman", "hellodrfm01",
+                       "hellodrfm02", "heydoc01", "hi01", "hi02"),
+        "gordon_lead": _cit("finally", "abouttime01", "abouttime02"),
+        "gordon_lose": _cit("notthemanithought01", "notthemanithought02", "wetrustedyou01", "wetrustedyou02"),
+        "gordon_warn": _cit("lookoutfm01", "lookoutfm02"),
+        "scared": _cit("ohno", "goodgod", "uhoh", "startle01", "startle02"),
+        "fall": _cit("whoops01", "uhoh", "ohno"),
+        "dodge": _cit("watchout", "excuseme01", "gethellout", "startle01", "startle02"),
+        "headcrab": _cit("headcrabs01", "headcrabs02"),
+        "zombie": _cit("zombies01", "zombies02", "runforyourlife01", "runforyourlife02"),
+        "combine": _cit("civilprotection01", "cps01", "combine01"),
+        "dog": _seq("vo/outland_11/dogfight/reb1_str_dogcheers%02d.wav", 1, 4),
+        "start": ([p for d in _ODESSA for p in _in(d, "nlo_citizen_drivesafe")] +
+                  [p for d in _ODESSA for p in _seq(d + "/nlo_citizen_greet%02d.wav", 1, 4)] +
+                  _cit("letsgo01", "letsgo02")),
+    },
+    "metrocop": {
+        "boo_rebel": _in(_MP, "anticitizen", "prepareforjudgement", "firstwarningmove", "secondwarning",
+                         "finalwarning", "youwantamalcomplianceverdict", "lookingfortrouble", "getoutofhere",
+                         "isaidmovealong", "malcompliant10107my1020", "criminaltrespass63"),
+        "freeman": _in(_MP, "freeman", "thereheis", "allunitscloseonsuspect", "matchonapblikeness"),
+        "speed": _in(_MP, "subjectisnowhighspeed", "hesrunning"),
+        "salute": _in(_MP, "affirmative", "copy", "readytoprosecute", "sentencedelivered"),
+        "knock": _in(_MP, "pickupthecan1", "pickupthecan2", "pickupthecan3", "putitinthetrash1", "putitinthetrash2",
+                     "youknockeditover"),
+        "scared": _in(_MP, "takecover", "lookout", "watchit", "holdit", "dontmove"),
+        "chuckle": _in(_MP, "chuckle", "movealong"),
+        "gear": _seq("npc/metropolice/gear%d.wav", 1, 6),
+        "baton": (_seq("weapons/stunstick/spark%d.wav", 1, 3) + _seq("weapons/stunstick/stunstick_impact%d.wav", 1, 2) +
+                  _seq("weapons/stunstick/stunstick_swing%d.wav", 1, 2)),
+    },
+    "scientist": {
+        "freeman": _in(_SCI, "freeman", "ahfreeman", "hellofreeman", "c1a0_sci_itsyou", "goodtoseeyou", "greetings",
+                       "hello", "newhevsuit"),
+        "alive": _in(_SCI, "freemanalive", "c1a3_sci_atlast", "c1a3_sci_thankgod"),
+        "cheer": _in(_SCI, "excellentteam", "fascinating", "stimulating", "absolutely", "yes", "yees", "perfectday"),
+        "scream": (_seq(_SCI + "/scream%02d.wav", 1, 10) + _seq(_SCI + "/sci_fear%d.wav", 1, 7) +
+                   _seq(_SCI + "/startle%d.wav", 1, 5) + _in(_SCI, "nooo", "noplease")),
+        "headcrab": _in(_SCI, "headcrab", "seeheadcrab"),
+        "fall": _in(_SCI, "ridiculous", "youinsane", "madness"),
+        "idle": _in(_SCI, "cough", "sneeze"),
+    },
+    "guard": {"freeman": _in(_BAR, "mrfreeman", "hellonicesuit", "howdy", "heybuddy"),
+              "cheer": _in(_BAR, "yougotit", "youbet", "ba_gotone"), "beer": _in(_BAR, "beertopside"),
+              "bye": _in(_BAR, "ba_later")},
+    "vort": {
+        "freeman": _in(_VORT, "itisthefm", "isitthefm", "thefreeman", "greetingsfm", "fmhonorsus", "fmdoesushonor",
+                       "forthefm"),
+        "revere": (_seq(_VORT + "/vort_grp_agree%02d.wav", 1, 7) +
+                   _in(_VORT, "ourhonor", "wehonored", "salute", "vort_grp_greetings04", "weknowyou", "wellmet")),
+        "cheer": _in(_VORT, "vort_excellent", "vort_exceptional", "gloriousend", "prevail", "satisfaction",
+                     "forfreedom"),
+        "scared": _in(_VORT, "caution", "cautionfm", "standclear", "movingtarget"),
+        "boo": _in(_VORT, "worthless", "undeserving", "regrettable"),
+        "chant": _seq("npc/vort/ol02singlechant%02d.wav", 1, 3) + ["npc/vort/ol02dblchant02.wav"],
+    },
+    "islave": {"chant": _seq("hl1:aslave/slv_word%d.wav", 1, 8),
+               "alert": _in("hl1:aslave", "slv_alert1", "slv_alert3", "slv_alert4")},
+    "hecu": {"freeman": _in("hl1:hgrunt", "freeman!"), "salute": _in("hl1:hgrunt", "yessir!"),
+             "laugh": _in("hl1:hgrunt", "c2a3_hg_laugh"), "scared": _in("hl1:hgrunt", "god!", "shit!"),
+             "cheer": _in("hl1:hgrunt", "go!", "move!"), "alien": _in("hl1:hgrunt", "alien!")},
+    "zombie": {"idle": ["npc/zombie/zombie_voice_idle%d.wav" % i for i in (1, 2, 3, 5, 7, 9)],
+               "moan": _seq("npc/zombie/moan_loop%d.wav", 1, 2), "foot": _seq("npc/zombie/foot%d.wav", 1, 3)},
+    "gman": {"hl2": _in("vo/gman_misc", "gman_02", "gman_03", "gman_04"),
+             "hl1": (_in("hl1:gman", "gman_choose1", "gman_choose2", "gman_wise", "gman_potential") +
+                     _seq("hl1:gman/gman_mumble%d.wav", 1, 3))},
+    "holo": {"approach": _in(_HOLO, "tr_holo_jumpgap", "tr_holo_longjump"),
+             "fall": _in(_HOLO, "tr_holo_fallshort", "tr_holo_tryagain", "tr_holo_keeptrying"),
+             "good": _in(_HOLO, "tr_holo_nicejob", "tr_holo_greatwork", "tr_holo_fantastic"),
+             "win": _in(_HOLO, "tr_holo_congrats"), "start": _in(_HOLO, "tr_holo_commencing", "tr_holo_runstart")},
+    "breen": {"to_freeman": _seq("vo/breencast/br_tofreeman%02d.wav", 1, 12),
+              "disruptor": _seq("vo/breencast/br_disruptor%02d.wav", 1, 8),
+              "mock": _in("vo/citadel", "br_mock01", "br_mock04", "br_mock05", "br_mock06", "br_mock07", "br_mock09",
+                          "br_mock13"),
+              "rabble": _in("vo/citadel", "br_rabble_a", "br_rabble_b", "br_rabble_c", "br_rabble_d"),
+              "lose": _in("vo/citadel", "br_youfool", "br_failing11", "br_nopoint", "br_stubborn", "br_worthit"),
+              "at_last": _in("vo/citadel", "br_freemanatlast"), "laugh": _in("vo/citadel", "br_laugh01")},
+    "overwatch": {"freeman": _in("npc/overwatch/cityvoice", "fprison_freemanlocated"),
+                  "unrest": _in("npc/overwatch/cityvoice", "f_localunrest_spkr", "f_anticitizenreport_spkr",
+                                "f_evasionbehavior_2_spkr", "f_ceaseevasionlevelfive_spkr",
+                                "f_capitalmalcompliance_spkr")},
+    "nihilanth": {"laugh": _in("hl1:x", "x_laugh1", "x_laugh2")},
+    "lamarr": {"kleiner": _in("vo/k_lab", "kl_heremypet01", "kl_heremypet02"), "hop": ["npc/headcrab/idle3.wav"]},
+    "birds": {"crow": (_seq("npc/crow/alert%d.wav", 1, 3) + _in("npc/crow", "crow2", "crow3", "hop1", "hop2") +
+                       _seq("npc/crow/idle%d.wav", 1, 4)),
+              "pigeon": _seq("ambient/creatures/pigeon_idle%d.wav", 1, 4),
+              "seagull": _seq("ambient/creatures/seagull_idle%d.wav", 1, 3),
+              "boid": _in("hl1:boid", "boid_alert1", "boid_alert2") + _seq("hl1:boid/boid_idle%d.wav", 1, 3),
+              "flap": ["npc/crow/flap2.wav"]},
+    "beds": {"human": ["ambient/voices/appartments_crowd_loop1.wav"],
+             "riot": _in("ambient/levels/streetwar", "city_riot1", "city_riot2"),
+             "alien": _in("hl1:ambience", "alien_chatter", "alien_hollow")},
+    "loudspeaker": {"win": _in("vo/outland_12", "cit_loudspeaker_victory", "cit_loudspeaker_wedidit")},
+}
+
 FONTS = ["halflife2.ttf", "hl2ep2.ttf", "hl2crosshairs.ttf", "dejavusans.ttf"]
 
 
 def log(*a):
     print(*a, flush=True)
+
+
+def hl1_sound(rel):
+    """Copy Half-Life's valve/sound/<rel> to assets/sound/hl1src ("!" becomes "_x").
+    Returns the path under assets/, or None if this install lacks it."""
+    src = os.path.join(HL1_ROOT, "valve", "sound", rel)
+    if not os.path.exists(src):
+        log("  -- missing HL1 sound", rel)
+        return None
+    dst_rel = "sound/hl1src/" + rel.replace("!", "_x")
+    dst = os.path.join(ASSETS, dst_rel)
+    if not os.path.exists(dst):
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        with open(src, "rb") as fsrc:
+            wav, _ = sounds.convert_wav(fsrc.read())
+        with open(dst, "wb") as fdst:
+            fdst.write(wav)
+    return dst_rel
 
 
 def surface_props(fs):
@@ -404,6 +631,7 @@ def main():
     todo = [("drivers", "models/%s.mdl" % d) for d in DRIVERS] + [("props", "models/%s.mdl" % m) for m in MODELS]
     for parent, gibs in GIBS.items():
         todo += [("gibs", "models/%s.mdl" % g) for g in gibs]
+    todo += [("crowd", "models/%s.mdl" % m) for m in CROWD_MODELS]
     for kind, path in todo:
         if not fs.exists(path):
             log("  -- missing model", path)
@@ -419,16 +647,20 @@ def main():
         except Exception as e:  # noqa
             log("  !! model", path, repr(e))
     import goldsrc_mdl
-    for key, candidates, bg in HL1_MODELS:
+    hl1 = [(k, c, bg, "drivers") for k, c, bg in HL1_MODELS] + [(k, c, bg, "crowd") for k, c, bg in HL1_CROWD]
+    for key, candidates, bg, kind in hl1:
         src = next((os.path.join(HL1_ROOT, c) for c in candidates if os.path.exists(os.path.join(HL1_ROOT, c))), None)
         if src is None:
             log("  -- missing HL1 model", key)
             continue
-        meta, mats = goldsrc_mdl.convert(src, key, ASSETS, bg if "valve_hd" in src or "gordon" in src else {})
+        # racers' bodygroups are meant for the HD and HEV models (Opposing Force's Shephard has his own)
+        if kind == "drivers" and not ("valve_hd" in src or "gordon" in src):
+            bg = {}
+        meta, mats = goldsrc_mdl.convert(src, key, ASSETS, bg)
         lib.db.update(mats)
         model_index[key] = {"gltf": "res://assets/models/%s.gltf" % key, "meta": "res://assets/models/%s.json" % key,
                             "mass": 90.0, "surfaceprop": "flesh", "aabb_min": meta["aabb_min"],
-                            "aabb_max": meta["aabb_max"], "kind": "drivers"}
+                            "aabb_max": meta["aabb_max"], "kind": kind}
         log("hl1 model", key, src)
     for name in HL1_PROPS:
         src = os.path.join(HL1_ROOT, "valve", "models", name + ".mdl")
@@ -512,31 +744,17 @@ def main():
     for who, cats in hl1_voices.items():
         voice_index[who] = {}
         for cat, lst in cats.items():
-            got = []
-            for rel in lst:
-                src = os.path.join(HL1_ROOT, "valve", "sound", rel)
-                if not os.path.exists(src):
-                    continue
-                dst_rel = "sound/hl1src/" + rel.replace("!", "_x")
-                dst = os.path.join(ASSETS, dst_rel)
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                if not os.path.exists(dst):
-                    with open(src, "rb") as fsrc:
-                        wav, _ = sounds.convert_wav(fsrc.read())
-                    with open(dst, "wb") as fdst:
-                        fdst.write(wav)
-                got.append("res://assets/" + dst_rel)
-            voice_index[who][cat] = got
+            got = [hl1_sound(rel) for rel in lst]
+            voice_index[who][cat] = ["res://assets/" + g for g in got if g]
     for rel in HL1_SOUNDS:
-        src = os.path.join(HL1_ROOT, "valve", "sound", rel)
-        dst = os.path.join(ASSETS, "sound", "hl1src", rel)
-        if os.path.exists(src) and not os.path.exists(dst):
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            with open(src, "rb") as fsrc:
-                wav, _ = sounds.convert_wav(fsrc.read())
-            with open(dst, "wb") as fdst:
-                fdst.write(wav)
+        hl1_sound(rel)
     voice_index["_vox"] = [line.split() for line in VOX_SENTENCES]
+    voice_index["_crowd"] = {}
+    for role, cats in CROWD_VOICES.items():
+        voice_index["_crowd"][role] = {}
+        for cat, lst in cats.items():
+            got = [hl1_sound(s[4:]) if s.startswith("hl1:") else sounds.export(fs, s, ASSETS) for s in lst]
+            voice_index["_crowd"][role][cat] = ["res://assets/" + g for g in got if g]
     with open(os.path.join(data_dir, "voices.json"), "w") as f:
         json.dump(voice_index, f, indent=1)
     # the whole soundtrack (for the menu jukebox), stingers excluded

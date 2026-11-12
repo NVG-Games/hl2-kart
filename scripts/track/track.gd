@@ -12,12 +12,22 @@ const SKY_SHADER := preload("res://shaders/sky.gdshader")
 var data := {}
 var path: TrackPath
 var sea_level := -13.0
+## a water plane at sea_level (on a converted BSP map sea_level is only a floor)
+var has_sea := false
+var _lakes: Array = []  # [Rect2 on x/z, level]: lakes above the main water line
 var sun: DirectionalLight3D
 var env: Environment
 var item_boxes: Array[ItemBox] = []
 var _static_shapes := {}
 var bsp: BspWorld
 var is_bsp := false
+## the circuit's traps and shooters (scripts/hazards); none when the race's hazards rule is OFF
+var hazards: HazardDirector
+## the start arch (its Breencast; the spectators' remarks go through it)
+var gantry: StartGantry
+## the spectators (scripts/crowd): none on BSP maps, the dedicated server, headless runs, with
+## crowds OFF or without crowd data
+var crowd: CrowdDirector
 
 
 func build(track_name: String) -> void:
@@ -25,7 +35,7 @@ func build(track_name: String) -> void:
 	if not FileAccess.file_exists("res://assets/track/%s.json" % track_name):
 		track_name = "city17_circuit"
 	data = Game.load_json("res://assets/track/%s.json" % track_name)
-	path = TrackPath.new(data["path"])
+	path = make_path(data)
 	sea_level = data.get("sea_level", -13.0)
 	is_bsp = data.get("type", "") == "bsp"
 	if is_bsp:
@@ -40,20 +50,36 @@ func build(track_name: String) -> void:
 		_build_environment(sky)
 		if data.has("water") or sea_level > -500.0:
 			_build_water()
+			has_sea = true
 		for w in data.get("waters", []):
 			# lakes above the main water line (a reservoir behind a dam)
-			_build_water(float(w["level"]), Vector2(w["center"][0], w["center"][1]), Vector2(w["size"][0], w["size"][1]))
+			var c := Vector2(w["center"][0], w["center"][1])
+			var sz := Vector2(w["size"][0], w["size"][1])
+			_build_water(float(w["level"]), c, sz)
+			_lakes.append([Rect2(c - sz * 0.5, sz), float(w["level"])])
 		_spawn_props()
 		_spawn_lights()
 	_spawn_item_boxes()
 	_spawn_boost_pads()
+	# before the background: BackgroundLife leaves out its gunship when a hazard has one
+	hazards = HazardDirector.new()
+	add_child(hazards)
+	hazards.setup(self, data.get("hazards", []))
 	if not is_bsp:
 		_spawn_background()
-	var gantry := StartGantry.new()
+	gantry = StartGantry.new()
 	add_child(gantry)
 	gantry.setup(Transform3D(Basis.looking_at(path.fwd[0], Vector3.UP), path.center[0]), path.width[0],
-		str(data.get("gantry", "combine")))
+		str(data.get("gantry", "combine")), float(data.get("gantry_clear", 0.0)))
 	_spawn_screens(gantry.feed)
+	crowd = CrowdDirector.spawn_for(self)
+
+
+## The race paths of a track JSON: the main loop with its branches (TrackBranch).
+static func make_path(d: Dictionary) -> TrackPath:
+	var p := TrackPath.new(d["path"])
+	p.add_branches(d.get("branches", []))
+	return p
 
 
 # ---------------------------------------------------------------- BSP maps
@@ -141,11 +167,13 @@ func _build_geometry(track_name: String) -> void:
 			surface = "offroad"
 			_apply_terrain_material(mi)
 		else:
+			# light rings, lamp strips and glowing liquids shine whether or not their VMT says $selfillum
+			var lit := kind.begins_with("glow")
 			for i in mi.mesh.get_surface_count():
 				var src := mi.mesh.surface_get_material(i)
 				if src:
 					var uvs := Vector2.ONE
-					mi.set_surface_override_material(i, SourceMaterials.world_material(src.resource_name, uvs))
+					mi.set_surface_override_material(i, SourceMaterials.world_material(src.resource_name, uvs, lit))
 			if kind.begins_with("walls") or kind.begins_with("colonly") or kind.begins_with("ceil"):
 				surface = "wall"
 			elif kind.begins_with("verge"):
@@ -303,7 +331,9 @@ func _static_shape(key: String, model: Node3D, aabb: AABB) -> Shape3D:
 	if _static_shapes.has(key):
 		return _static_shapes[key]
 	var sh: Shape3D
-	if key.begins_with("props_buildings/") or key.begins_with("props_trainstation/train") or key.contains("boxcar") 			or key.contains("tanker") or key.contains("flatcar") or key.begins_with("props_combine/combine_bunker") 			or key.contains("combinetower") or key.contains("buttress"):
+	if key.begins_with("props_buildings/") or key.begins_with("props_trainstation/train") or key.contains("boxcar") \
+			or key.contains("tanker") or key.contains("flatcar") or key.begins_with("props_combine/combine_bunker") \
+			or key.contains("combinetower") or key.contains("buttress"):
 		# big irregular shapes collide with their real surface, never with an invisible box
 		sh = _mesh_shape(model)
 	elif key.begins_with("props_foliage/tree") or key.contains("lamppost") or key.contains("utilitypole") \
@@ -316,6 +346,12 @@ func _static_shape(key: String, model: Node3D, aabb: AABB) -> Shape3D:
 	elif key.contains("grass") or key.contains("fern") or key.contains("shrub") or key.contains("bush") \
 			or key.begins_with("hl1/hair") or key.begins_with("hl1/uplant") or key.begins_with("hl1/fungus_small"):
 		sh = null
+	elif key.begins_with("hl1/crystal") or key.begins_with("hl1/fungus"):
+		# a cluster of shards, a cap on legs: their hulls slope like a ramp a kart climbs and sticks
+		# on; upright faces send it back off (the small fungi have none, above)
+		var b := BoxShape3D.new()
+		b.size = aabb.size * Vector3(0.8, 1.0, 0.8)
+		sh = b
 	else:
 		sh = PhysProp.shape_for(key, model)
 	_static_shapes[key] = sh
@@ -386,12 +422,15 @@ func _spawn_props() -> void:
 		body.rotation.y = yaw
 		if p.get("tag", "") == "float":
 			body.global_position.y = sea_level - aabb.size.y * 0.25
-		# distant set dressing (floating rocks, the Nihilanth) is never reached
-		var sh: Shape3D = null if p.get("tag", "") == "far" else _static_shape(key + ("@%.2f" % sc if sc != 1.0 else ""), model, aabb)
+		# distant set dressing (floating rocks, the Nihilanth) is never reached, and decoration a
+		# circuit tags "deco" (crystals where knocked karts slide by) is seen, never hit
+		var sh: Shape3D = null if p.get("tag", "") in ["far", "deco"] \
+			else _static_shape(key + ("@%.2f" % sc if sc != 1.0 else ""), model, aabb)
 		if sh:
 			var cs := CollisionShape3D.new()
 			cs.shape = sh
-			if sh is ConcavePolygonShape3D:
+			# mesh and hull shapes are in the model's own units: they scale with it (uniform)
+			if sh is ConcavePolygonShape3D or sh is ConvexPolygonShape3D:
 				cs.scale = Vector3.ONE * sc
 			if sh is BoxShape3D:
 				cs.position = aabb.get_center()
@@ -408,29 +447,51 @@ func _spawn_props() -> void:
 ## Street furniture a kart can flatten (it turns into a prop_physics on impact).
 func _knockable(key: String) -> bool:
 	for k in ["lamppost", "signpole", "streetsign", "bench", "payphone", "trashcan", "trashbin", "traffic_light",
-			"wood_fence", "barricade00", "utilitypole", "cardboard", "dumpster", "furniture"]:
+			"wood_fence", "barricade00", "utilitypole", "cardboard", "dumpster", "furniture", "floodlight"]:
 		if key.contains(k):
 			return true
 	return false
 
 
+## Crates: [x, y, z] on level road; [x, y, z, ux, uy, uz] on tilted road (tubes, banking),
+## where u is the local surface up: the crate's offset, bob and spin then follow it.
 func _spawn_item_boxes() -> void:
 	for p in data.get("item_boxes", []):
 		var b := ItemBox.new()
 		b.index = item_boxes.size()
 		add_child(b)
-		b.global_position = Vector3(p[0], p[1], p[2])
+		var pos := Vector3(p[0], p[1], p[2])
+		if p.size() >= 6:
+			b.global_transform = Transform3D(basis_up(Vector3(p[3], p[4], p[5]).normalized()), pos)
+		else:
+			b.global_position = pos
 		item_boxes.append(b)
 
 
+## Pads: {"pos", "fwd", "up"} on the surface; inside a tube also "r" (the pipe radius) so the
+## pad bends onto the curved floor, and optionally "axis" (the pipe's direction) for a lane
+## that winds round it.
 func _spawn_boost_pads() -> void:
 	for p in data.get("boost_pads", []):
 		var pad := BoostPad.new()
-		add_child(pad)
+		pad.radius = float(p.get("r", 0.0))
 		var pos := Vector3(p["pos"][0], p["pos"][1], p["pos"][2])
 		var f := Vector3(p["fwd"][0], p["fwd"][1], p["fwd"][2])
 		var u := Vector3(p["up"][0], p["up"][1], p["up"][2])
-		pad.global_transform = Transform3D(Basis(f.cross(u).normalized(), u, -f), pos)
+		var xf := Transform3D(Basis(f.cross(u).normalized(), u, -f), pos)
+		if p.has("axis"):
+			pad.axis = xf.basis.inverse() * Vector3(p["axis"][0], p["axis"][1], p["axis"][2])
+		add_child(pad)
+		pad.global_transform = xf
+
+
+## A basis whose Y is the unit vector `up`, its X kept as close to world X as possible.
+static func basis_up(up: Vector3) -> Basis:
+	var x := Vector3.RIGHT - up * up.x
+	if x.length() < 0.1:
+		x = Vector3.BACK.cross(up)
+	x = x.normalized()
+	return Basis(x, up, x.cross(up))
 
 
 ## Big Breencast screens on buildings, showing the start arch's live feed.
@@ -495,6 +556,27 @@ func _spawn_background() -> void:
 
 
 # ---------------------------------------------------------------- queries
+## The liquid a kart at `p` (closest sample `i` of road `g`, the main loop by default) is over
+## or in: Vector2(surface y, kind), kind 0 none, 1 water, 2 slime. Water planes (sea, canal,
+## river, lakes), then the pits and pools a circuit exports per path sample (beside the road
+## or under it).
+func liquid_at(p: Vector3, i: int, g: TrackPath = null) -> Vector2:
+	if g == null:
+		g = path
+	var best := Vector2(-1e9, 0.0)
+	if has_sea:
+		best = Vector2(sea_level, 1.0)
+	for l in _lakes:
+		if float(l[1]) > best.x and (l[0] as Rect2).has_point(Vector2(p.x, p.z)):
+			best = Vector2(float(l[1]), 1.0)
+	if i >= 0 and i < g.liquid_kind.size() and g.liquid_kind[i] > 0:
+		var beside := absf(g.lateral(p, i)) > g.width[i] * 0.5
+		var y: float = g.liquid_side[i] if beside else g.liquid[i]
+		if y > best.x:
+			best = Vector2(y, float(g.liquid_kind[i]))
+	return best
+
+
 func spawn_transform(slot: int) -> Transform3D:
 	var g: Array = data["grid"]
 	var e: Dictionary = g[slot % g.size()]

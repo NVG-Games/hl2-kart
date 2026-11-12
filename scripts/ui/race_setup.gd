@@ -1,7 +1,7 @@
 class_name RaceSetup
 extends Control
 ## NEW RACE screen: pick a racer and a vehicle (card grids + live 3D preview),
-## then the race rules (difficulty, laps, track, weather) and start. One place, one START.
+## then the race rules (difficulty, track hazards, laps, track, weather) and start. One place, one START.
 
 signal back
 signal start
@@ -234,6 +234,9 @@ func _rules_row() -> Control:
 	for x in Game.DIFFICULTIES:
 		names.append(x["name"])
 	d.add_child(UiKit.segmented(names, int(Game.settings["difficulty"]), func(i: int): Game.settings["difficulty"] = i))
+	# turrets, trains, strikes and the like on the circuits (scripts/hazards)
+	d.add_child(UiKit.section("TRACK HAZARDS"))
+	d.add_child(UiKit.segmented(["OFF", "ON"], int(Game.settings.get("hazards", 1)), func(i: int): Game.settings["hazards"] = i))
 	d.add_child(UiKit.section("LAPS"))
 	d.add_child(UiKit.slider(1, 9, 1, int(Game.settings["laps"]), func(v: float): Game.settings["laps"] = int(v)))
 	h.add_child(d)

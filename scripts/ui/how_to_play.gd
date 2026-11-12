@@ -1,7 +1,7 @@
 class_name HowToPlay
 extends Dialog
-## HOW TO PLAY: four short illustrated pages (controls, driving & drifting,
-## items, the track). Tabs, PREV / NEXT, or left/right on a gamepad.
+## HOW TO PLAY: short illustrated pages (controls, driving & drifting, items, the track,
+## shortcuts, hazards, online). Tabs, PREV / NEXT, or left/right on a gamepad.
 
 const ITEM_TEXT := {
 	"battery": "Turbo boost from your HEV suit. Use it on straights or to cut across grass.",
@@ -18,7 +18,7 @@ const ITEM_TEXT := {
 	"melon3": "Three watermelons: drop them one after another.",
 	"hopper": "Dropped behind you, it arms in a second, then jumps at the first kart that comes close and goes off.",
 	"saw": "Ravenholm's sawblade, flung straight ahead. It cuts through every kart in the way and sticks in the first wall.",
-	"headcrab": "Headcrabs leap onto the face of everyone ahead of you. They can't see a thing for a few seconds.",
+	"headcrab": "Headcrabs leap onto the faces of up to three racers just ahead of you. For a couple of seconds they can't see a thing.",
 	"xenport": "A Xen portal: you come out 140 metres further down the road, at full speed.",
 }
 
@@ -36,7 +36,7 @@ func _init() -> void:
 
 func _ready() -> void:
 	tabs = TabBar.new()
-	for t in ["CONTROLS", "DRIVING", "ITEMS", "MORE ITEMS", "THE TRACK", "ONLINE"]:
+	for t in ["CONTROLS", "DRIVING", "ITEMS", "MORE ITEMS", "THE TRACK", "SHORTCUTS", "HAZARDS", "ONLINE"]:
 		tabs.add_tab(t)
 	tabs.focus_mode = Control.FOCUS_ALL
 	body.add_child(tabs)
@@ -46,7 +46,7 @@ func _ready() -> void:
 	body.add_child(holder)
 	pages = [_controls(), _driving(), _items(["battery", "manhack", "rollermine", "barrel", "gravgun", "canister", "hev",
 		"battery3", "manhack3"]), _items(["cball", "saw", "headcrab", "melon", "hopper", "xenport", "melon3"]),
-		_track(), _online()]
+		_track(), _shortcuts(), _hazards(), _online()]
 	for p in pages:
 		holder.add_child(p)
 	tabs.tab_changed.connect(_show)
@@ -204,10 +204,10 @@ func _track() -> Control:
 	v.add_theme_constant_override("separation", 20)
 	v.add_child(_track_card("res://assets/ui/items/crate.png", "Supply crates",
 		"Drive through a row of HL2 supply crates to get a random item. The further back you are, the stronger the items."))
-	v.add_child(_track_card("res://assets/ui/items/scanner.png", "Fell off or stuck?",
-		"Drop into the sea or get wedged and a Combine scanner lifts you back onto the road. Press R to call it yourself."))
 	v.add_child(_track_card("res://assets/ui/portraits/breen.png", "Five tracks",
-		"Highway 17 starts under Dr. Breen's broadcast, leaves City 17 through the Combine checkpoint, jumps the inlet on the coast road and comes back down the canal. CT17, Black Mesa, Xen and Surface Tension rebuild those places from the games' own textures, models, signs and music."))
+		"Highway 17, CT17, Black Mesa, Xen and Surface Tension rebuild City 17, the Research Facility, the border world and the desert from the games' own textures, models, signs and music."))
+	v.add_child(_track_card("res://assets/ui/portraits/police.png", "Spectators",
+		"Citizens, metrocops, scientists, marines and vortigaunts cheer, flinch at explosions and hop out of your way. Some know your racer; the G-Man may be watching. OPTIONS > VIDEO > Spectators."))
 	v.add_child(_track_card("res://assets/ui/items/barrel.png", "Physics everywhere",
 		"Cones, drums, crates and melons are real props: knock them over. Red barrels explode, and some lie right on the road."))
 	v.add_child(_track_card("res://assets/ui/items/xenport.png", "Tubes and open edges",
@@ -215,13 +215,42 @@ func _track() -> Control:
 	return v
 
 
+func _shortcuts() -> Control:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 20)
+	v.add_child(_track_card("res://assets/ui/vehicles/buggy.png", "Two shortcuts on every track",
+		"Chevron boards stand before each fork, the HUD names the shortcut the first time you come up to it, and the minimap draws shortcuts as dashes. The results count the ones you got through."))
+	v.add_child(_track_card("res://assets/ui/items/battery.png", "Jumps take speed",
+		"Most shortcuts end in a jump: come at it flat out. Some have a boost pad on the run-up, and the CT17 rooftops need a battery or HEV boost. A DANGER sign stands before the risky ones. Land it and you get SHORTCUT!"))
+	v.add_child(_track_card("res://assets/ui/items/scanner.png", "Fell off or stuck?",
+		"In water or slime you splash and sink, and a Combine scanner hauls you out. Off an edge, wedged or behind a wall, it lifts you back onto the road. Miss a shortcut's jump and you get one more go from its run-up if it can still be made, else the main road. R calls the scanner."))
+	v.add_child(_track_card("res://assets/ui/vehicles/jalopy.png", "Wrong way",
+		"Drive back along the road and a red WRONG WAY flashes under the item box, with a beep, until you turn round."))
+	return v
+
+
+func _hazards() -> Control:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 20)
+	v.add_child(_track_card("res://assets/ui/items/hopper.png", "Track hazards",
+		"Every track has its own: a force field, turrets, a Combine train, a strider, a gunship, hopper mines, laser tripmines, houndeyes, alien slaves, a tentacle, an Apache, mortars. Each one warns before it strikes: a flicker, a bell, a beam, a charge, red marks where the shots land."))
+	v.add_child(_track_card("res://assets/ui/items/manhack.png", "Locked on",
+		"A red chevron at the edge of the screen points at a turret or an alien slave that has locked on you, beeping faster as the shot nears. Hold your line and it hits: brake, boost or change lane."))
+	v.add_child(_track_card("res://assets/ui/items/hev.png", "One hit per gauntlet",
+		"Once a hazard has hit you, the others in its group leave you alone until you are through. On EASY they warn longer and fire less often."))
+	v.add_child(_track_card("res://assets/ui/items/gravgun.png", "On the minimap, or off",
+		"The minimap marks each hazard with a small triangle that blinks red while it fires. Set TRACK HAZARDS to OFF in NEW RACE to race without them. Online the host decides for everyone, in CREATE SERVER or in the lobby."))
+	return v
+
+
 func _online() -> Control:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 16)
-	v.add_child(_step(1, "Host", "CREATE SERVER: name it, set max players, laps, track and weather. Bots can fill the empty grid slots or stay off for a pure 1 on 1. You race too."))
+	v.add_child(_step(1, "Host", "CREATE SERVER: name it, set max players, laps, track, weather and track hazards (your choice counts for everyone). Bots can fill the empty grid slots or stay off for a pure 1 on 1. You race too."))
 	v.add_child(_step(2, "Join", "FIND SERVERS: friends on your network see you under LAN. Over the internet they type your address into Connect to address (open UDP 27015-27016 on the router; UPnP tries it for you)."))
-	v.add_child(_step(3, "Lobby", "Everyone picks a racer and a vehicle and presses READY: the race starts 5 seconds after the last one. The host can also START RACE at once, change the rules and KICK."))
-	v.add_child(_step(4, "Racing online", "The race never pauses. Press Y to chat. If someone leaves, a bot takes over their kart. Results go to everyone, then back to the lobby."))
+	v.add_child(_step(3, "Same version", "Everyone needs the same version of the game. A server running another version shows as (different version) in the list and can't be joined."))
+	v.add_child(_step(4, "Lobby", "Everyone picks a racer and a vehicle and presses READY: the race starts 5 seconds after the last one. The host can also START RACE at once, change the rules and KICK."))
+	v.add_child(_step(5, "Racing online", "The race never pauses. Press Y to chat. The server waits up to 45 seconds for a slow PC to load, then starts; a late player joins the race under way. If someone leaves, a bot takes over their kart. Results go to everyone, then back to the lobby."))
 	return v
 
 

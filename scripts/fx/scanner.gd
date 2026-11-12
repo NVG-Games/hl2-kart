@@ -37,7 +37,11 @@ func _process(delta: float) -> void:
 	if not is_instance_valid(kart):
 		queue_free()
 		return
-	var hover := kart.global_position + Vector3(0, 3.2, 0)
+	# over a liquid it hovers above the surface (the kart sinks below it, then is hauled up)
+	var kp := kart.global_position
+	if kart.rescue == Kart.Rescue.SINK:
+		kp.y = maxf(kp.y, kart.liquid.x)
+	var hover := kp + Vector3(0, 3.2, 0)
 	if t < 0.7:
 		global_position = _start.lerp(hover, t / 0.7)
 	elif t < 2.2:
@@ -47,9 +51,9 @@ func _process(delta: float) -> void:
 			_light.light_energy = 16.0
 	else:
 		global_position += Vector3(0, 8, 0) * delta
-	_light.light_energy = lerpf(_light.light_energy, 0.0, delta * 6.0)
-	if global_position.distance_to(kart.global_position) > 0.5:
-		_light.look_at(kart.global_position, Vector3.FORWARD)
+	_light.light_energy = lerpf(_light.light_energy, 0.0, minf(1.0, delta * 6.0))
+	if global_position.distance_to(kp) > 0.5:
+		_light.look_at(kp, Vector3.FORWARD)
 	model.rotation.y += delta * 0.8
 	if t > 4.0:
 		queue_free()

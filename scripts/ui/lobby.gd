@@ -266,8 +266,9 @@ func _on_cfg() -> void:
 	var diff: String = Game.DIFFICULTIES[clampi(int(cfg.get("difficulty", 1)), 0, 2)]["name"]
 	var tr := Game.track(str(cfg.get("track", "")))
 	var sky: String = Game.SKIES[Game.sky_index(str(cfg.get("sky", "")))][1] if tr.get("weather", false) else "map sky"
-	sub_label.text = "%s  ·  %d laps  ·  %s  ·  %s  ·  %s%s" % [tr["name"], int(cfg.get("laps", 3)), diff, sky,
+	sub_label.text = "%s  ·  %d laps  ·  %s  ·  %s  ·  %s%s%s" % [tr["name"], int(cfg.get("laps", 3)), diff, sky,
 		"bots fill the grid to %d" % int(cfg.get("grid", 8)) if cfg.get("bots", false) else "no bots",
+		"  ·  hazards off" if int(cfg.get("hazards", 1)) == 0 else "",
 		"  ·  password" if cfg.get("locked", false) else ""]
 	if Net.is_server:
 		var addrs := []
@@ -299,6 +300,8 @@ func _build_rules() -> void:
 	var names: Array = Game.DIFFICULTIES.map(func(d: Dictionary) -> String: return d["name"])
 	var diff := UiKit.segmented(names, int(cfg.get("difficulty", 1)), func(i: int): Net.set_rule("difficulty", i))
 	rules_box.add_child(UiKit.row("Difficulty", diff, w))
+	var hazards := UiKit.segmented(["OFF", "ON"], int(cfg.get("hazards", 1)), func(i: int): Net.set_rule("hazards", i))
+	rules_box.add_child(UiKit.row("Track hazards", hazards, w))
 	var sky := UiKit.dropdown(Game.sky_names(), Game.sky_index(str(cfg.get("sky", ""))), func(i: int): Net.set_rule("sky", Game.SKIES[i][0]))
 	sky.disabled = not Game.track(str(cfg.get("track", ""))).get("weather", false)
 	var track_names: Array = Game.TRACKS.map(func(t: Dictionary) -> String: return t["name"])
@@ -314,7 +317,7 @@ func _build_rules() -> void:
 		bots.disabled = true
 		sky.disabled = true
 		track.disabled = true
-		for b in diff.get_children():
+		for b in diff.get_children() + hazards.get_children():
 			(b as Button).disabled = true
 
 

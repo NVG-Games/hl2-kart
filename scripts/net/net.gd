@@ -18,13 +18,20 @@ signal joined
 signal left(reason: String)
 signal countdown_changed(seconds: float)
 
-const PROTOCOL := 1
+## 2: _s_begin carries the server clock (the hazard clock). 3: a kart's state also carries its
+## road, hits and held item and is stamped from the race's epoch; snapshots carry the start
+const PROTOCOL := 3
 const DEFAULT_PORT := 27015
 const MASTER_PORT := 27010
 const MAX_RACERS := 8
 const SNAP_INTERVAL := 1.0 / 20.0
 const STATE_INTERVAL := 1.0 / 30.0
-const LOAD_TIMEOUT := 30.0
+const LOAD_TIMEOUT := 45.0
+## ENet drops a peer that acknowledges nothing for this long (ms; its own defaults are 5 s / 30 s):
+## no packets are answered while a race scene loads, which takes half a minute on a slow PC with
+## a cold shader cache
+const PEER_TIMEOUT_MIN := 60000
+const PEER_TIMEOUT_MAX := 120000
 const FINISH_GRACE := 40.0  # seconds the field gets after the first player finishes
 const RESULTS_TIME := 12.0
 const HEARTBEAT := 20.0
@@ -46,6 +53,7 @@ var cfg := {}  # shared server rules (never the password)
 var grid: Array = []  # race roster: [{slot, peer, bot, nick, character, vehicle, skill}]
 var my_slot := -1
 var race: Node = null
+var begin_t0 := -1.0  # the server's clock when it started this race (_begin), -1 until then
 var results: Array = []
 var external_ip := ""
 var autostart_left := -1.0
@@ -79,6 +87,7 @@ var _offset := 0.0
 var _offset_ok := false
 var _samples: Array = []  # [rtt, offset]
 var _finish_times := {}  # slot -> race time
+var _epoch := 0.0  # the server's clock when this race was set up (kart states are stamped from it)
 
 
 func _ready() -> void:
@@ -113,6 +122,17 @@ func now() -> float:
 	return t if is_server or not active else t + _offset
 
 
+## True once now() follows the server's clock (at once on the server and offline).
+func clock_synced() -> bool:
+	return is_server or not active or _offset_ok
+
+
+## now() counted from this race's set-up: small enough for the float32 stamp of a kart state
+## (Kart.pack_state) however long the server has been up.
+func stamp() -> float:
+	return now() - _epoch
+
+
 func my_id() -> int:
 	return multiplayer.get_unique_id() if active else 1
 
@@ -128,6 +148,9 @@ func host(options: Dictionary, as_dedicated := false) -> Error:
 		last_error = "Port %d is busy (UDP). Is another server running?" % _port
 		_peer = null
 		return err
+	# clients only ever talk to the server: no relaying between them (it also tells every client
+	# of each peer that leaves, writing to one ENet may be dropping in the same frame)
+	(multiplayer as SceneMultiplayer).server_relay = false
 	multiplayer.multiplayer_peer = _peer
 	_query = PacketPeerUDP.new()
 	if _query.bind(_port + 1) != OK:
@@ -147,6 +170,7 @@ func host(options: Dictionary, as_dedicated := false) -> Error:
 		"difficulty": clampi(int(options.get("difficulty", 1)), 0, 2),
 		"sky": str(options.get("sky", "sky_day01_01")),
 		"track": str(options.get("track", "city17_circuit")),
+		"hazards": clampi(int(options.get("hazards", 1)), 0, 1),
 		"locked": _password != "",
 		"lan_only": bool(options.get("lan_only", false)),
 		"port": _port,
@@ -177,7 +201,7 @@ func set_rule(key: String, value: Variant) -> void:
 		_password = str(value)
 		cfg.erase("password")
 		cfg["locked"] = _password != ""
-	_s_cfg.rpc(cfg)
+	_to_clients(&"_s_cfg", [cfg])
 	cfg_changed.emit()
 
 
@@ -224,7 +248,15 @@ func _remember_history(addr: String) -> void:
 
 
 func _on_connected() -> void:
+	_patient(1)
 	_c_hello.rpc_id(1, _join_info)
+
+
+## Gives ENet peer `id` the long timeouts (PEER_TIMEOUT_MIN / _MAX).
+func _patient(id: int) -> void:
+	var pp := _peer.get_peer(id) if _peer else null
+	if pp:
+		pp.set_timeout(32, PEER_TIMEOUT_MIN, PEER_TIMEOUT_MAX)
 
 
 func _on_connection_failed() -> void:
@@ -258,8 +290,9 @@ func leave(reason := "") -> void:
 func _shutdown() -> void:
 	_close_upnp()
 	if _peer:
-		# let the goodbye packets (kick / shutdown reasons) leave before closing
-		if _peer.host:
+		# let the goodbye packets (kick / shutdown reasons) leave before closing (a client the
+		# server dropped has no host left to flush)
+		if _peer.get_connection_status() != MultiplayerPeer.CONNECTION_DISCONNECTED and _peer.host:
 			_peer.host.flush()
 		_peer.close()
 	_peer = null
@@ -275,6 +308,7 @@ func _shutdown() -> void:
 	_latest.clear()
 	my_slot = -1
 	race = null
+	begin_t0 = -1.0
 	Game.session.clear()
 	autostart_left = -1.0
 	_samples.clear()
@@ -338,7 +372,7 @@ func _c_hello(info: Dictionary) -> void:
 	players[id] = {"nick": nick, "character": _valid_char(str(info.get("character", "alyx"))),
 		"vehicle": _valid_vehicle(str(info.get("vehicle", "buggy"))), "ready": false, "ping": 0, "host": false}
 	_s_welcome.rpc_id(id, id, cfg, players, state)
-	_s_roster.rpc(players)
+	_to_clients(&"_s_roster", [players])
 	roster_changed.emit()
 	_info("%s joined the game" % nick)
 	if state == "race":
@@ -385,7 +419,7 @@ func _apply_profile(id: int, info: Dictionary) -> void:
 	p["character"] = _valid_char(str(info.get("character", p["character"])))
 	p["vehicle"] = _valid_vehicle(str(info.get("vehicle", p["vehicle"])))
 	p["ready"] = bool(info.get("ready", false))
-	_s_roster.rpc(players)
+	_to_clients(&"_s_roster", [players])
 	roster_changed.emit()
 
 
@@ -399,7 +433,7 @@ func _c_chat(text: String) -> void:
 
 
 func _broadcast_chat(nick: String, text: String, kind: String) -> void:
-	_s_chat.rpc(nick, text, kind)
+	_to_clients(&"_s_chat", [nick, text, kind])
 	chat_received.emit(nick, text, kind)
 	if dedicated:
 		print("%s%s" % ["" if nick == "" else nick + ": ", text])
@@ -459,8 +493,26 @@ func _set_state(s: String) -> void:
 	state_changed.emit(s)
 
 
-func _on_peer_connected(_id: int) -> void:
-	pass
+## The clients still connected (a plain broadcast also reaches a peer ENet is dropping this frame:
+## "Unable to send packet").
+func _clients() -> Array[int]:
+	var out: Array[int] = []
+	for id in multiplayer.get_peers():
+		var pp := _peer.get_peer(id) if _peer else null
+		if pp and pp.get_state() == ENetPacketPeer.STATE_CONNECTED:
+			out.append(id)
+	return out
+
+
+## Calls rpc `method` with `args` on every connected client (server only).
+func _to_clients(method: StringName, args: Array = []) -> void:
+	for id in _clients():
+		callv(&"rpc_id", [id, method] + args)
+
+
+func _on_peer_connected(id: int) -> void:
+	if is_server:
+		_patient(id)
 
 
 func _on_peer_disconnected(id: int) -> void:
@@ -474,7 +526,7 @@ func _handle_disconnect(id: int) -> void:
 	var nick: String = players[id]["nick"]
 	players.erase(id)
 	_loaded.erase(id)
-	_s_roster.rpc(players)
+	_to_clients(&"_s_roster", [players])
 	roster_changed.emit()
 	if state == "race":
 		for e in grid:
@@ -483,6 +535,7 @@ func _handle_disconnect(id: int) -> void:
 				e["bot"] = true
 				_send_event_from_server("bot", [int(e["slot"])])
 				_info("%s left the game (a bot takes over)" % nick)
+				_check_all_loaded()  # the start may have been waiting for them
 				return
 	_info("%s left the game" % nick)
 
@@ -490,13 +543,14 @@ func _handle_disconnect(id: int) -> void:
 # ================================================================ race start
 func _start_race() -> void:
 	autostart_left = -1.0
-	_s_countdown.rpc(-1.0)
+	_to_clients(&"_s_countdown", [-1.0])
 	countdown_changed.emit(-1.0)
 	grid = _build_grid()
-	var rules := {"laps": cfg["laps"], "difficulty": cfg["difficulty"], "sky": cfg["sky"], "track": cfg["track"]}
+	var rules := {"laps": cfg["laps"], "difficulty": cfg["difficulty"], "sky": cfg["sky"], "track": cfg["track"],
+		"hazards": cfg.get("hazards", 1), "epoch": now()}
 	for id in players:
 		players[id]["ready"] = false
-	_s_roster.rpc(players)
+	_to_clients(&"_s_roster", [players])
 	_loaded.clear()
 	_load_t = 0.0
 	_begun = false
@@ -504,7 +558,7 @@ func _start_race() -> void:
 	_results_t = -1.0
 	_finish_times.clear()
 	results.clear()
-	_s_start_race.rpc(grid, rules)
+	_to_clients(&"_s_start_race", [grid, rules])
 	_s_start_race(grid, rules)
 
 
@@ -548,12 +602,14 @@ func _build_grid() -> Array:
 func _s_start_race(g: Array, rules: Dictionary) -> void:
 	grid = g
 	Game.session = rules
+	_epoch = float(rules.get("epoch", 0.0))
 	my_slot = -1
 	for e in grid:
 		if int(e["peer"]) == my_id() and not e["bot"]:
 			my_slot = int(e["slot"])
 	_latest.clear()
 	race = null
+	begin_t0 = -1.0
 	results.clear()
 	_set_state("race")
 	Game.stop_music()
@@ -561,7 +617,8 @@ func _s_start_race(g: Array, rules: Dictionary) -> void:
 	get_tree().change_scene_to_file("res://scenes/race.tscn")
 
 
-## Called by the race scene once it has built the track and karts.
+## Called by the race scene once it has built the track and karts and drawn its first frames
+## (it takes the snapshots and events from the moment it is built: Race._ready sets `race`).
 func race_ready(r: Node) -> void:
 	race = r
 	if is_server:
@@ -578,8 +635,9 @@ func _c_loaded() -> void:
 		_check_all_loaded()
 
 
+## The race starts once every human racer has loaded, the host's own race too.
 func _check_all_loaded() -> void:
-	if _begun or race == null:
+	if _begun or race == null or not _loaded.has(1):
 		return
 	for e in grid:
 		var p := int(e["peer"])
@@ -590,14 +648,18 @@ func _check_all_loaded() -> void:
 
 func _begin() -> void:
 	_begun = true
-	_s_begin.rpc()
-	_s_begin()
+	var t0 := now()
+	_to_clients(&"_s_begin", [t0])
+	_s_begin(t0)
 
 
+## Everyone has loaded: the race starts, GO a fixed time after the server's clock `t0` (the
+## snapshots carry it too, for a peer that loses this or hears it before its race is up).
 @rpc("authority", "call_remote", "reliable")
-func _s_begin() -> void:
-	if race:
-		race.net_begin()
+func _s_begin(t0: float) -> void:
+	begin_t0 = t0
+	if race and is_instance_valid(race):
+		race.net_begin(t0)
 
 
 # ================================================================ race state streaming
@@ -615,24 +677,29 @@ func _physics_process(delta: float) -> void:
 			_state_t = STATE_INTERVAL
 			var k: Kart = race.kart_by_slot(my_slot)
 			if k:
-				var st := k.pack_state(now())
+				var st := k.pack_state(stamp())
 				_lagged(func(): _c_state.rpc_id(1, st))
 
 
+## Every kart's latest state to the clients that have loaded the race (one still loading would
+## only pile them up in its socket, and lose the reliable messages behind them).
 func _broadcast_snapshot() -> void:
 	var out := PackedFloat32Array()
 	for k: Kart in race.karts:
 		var data: PackedFloat32Array
 		if not k.remote:
-			data = k.pack_state(now())
+			data = k.pack_state(stamp())
 		elif _latest.has(k.net_slot):
 			data = _latest[k.net_slot]
 		else:
 			continue
 		out.append(float(k.net_slot))
 		out.append_array(data)
-	if not out.is_empty() and multiplayer.get_peers().size() > 0:
-		_s_snap.rpc(out)
+	if out.is_empty():
+		return
+	for id in _clients():
+		if _loaded.has(id):
+			_s_snap.rpc_id(id, begin_t0, out)
 
 
 @rpc("any_peer", "call_remote", "unreliable_ordered", 1)
@@ -650,12 +717,13 @@ func _c_state(data: PackedFloat32Array) -> void:
 			return
 
 
+## `t0`: the server's clock at the start (Net.begin_t0), -1 before it.
 @rpc("authority", "call_remote", "unreliable_ordered", 1)
-func _s_snap(data: PackedFloat32Array) -> void:
+func _s_snap(t0: float, data: PackedFloat32Array) -> void:
 	if fake_lag > 0.0:
-		_lagged(func(): _apply_snap(data))
+		_lagged(func(): _apply_snap(t0, data))
 	else:
-		_apply_snap(data)
+		_apply_snap(t0, data)
 
 
 ## Run now, or after the simulated latency.
@@ -666,9 +734,11 @@ func _lagged(cb: Callable) -> void:
 		get_tree().create_timer(fake_lag, true, true).timeout.connect(cb)
 
 
-func _apply_snap(data: PackedFloat32Array) -> void:
+func _apply_snap(t0: float, data: PackedFloat32Array) -> void:
 	if race == null or not is_instance_valid(race):
 		return
+	if t0 > _epoch and begin_t0 < 0.0:
+		_s_begin(t0)
 	var stride := Kart.NET_FLOATS + 1
 	var i := 0
 	while i + stride <= data.size():
@@ -693,7 +763,7 @@ func send_event(kind: String, args: Array) -> void:
 
 func _send_event_from_server(kind: String, args: Array, except := 0) -> void:
 	_server_note_event(kind, args)
-	for id in multiplayer.get_peers():
+	for id in _clients():
 		if id != except:
 			_s_event.rpc_id(id, kind, args)
 	if except != 0 and race:
@@ -767,7 +837,7 @@ func _end_race() -> void:
 		if fa:
 			return a["time"] < b["time"]
 		return a["progress"] > b["progress"])
-	_s_race_over.rpc(order)
+	_to_clients(&"_s_race_over", [order])
 	_s_race_over(order)
 	if dedicated:
 		for i in order.size():
@@ -786,13 +856,14 @@ func _s_race_over(order: Array) -> void:
 func back_to_lobby() -> void:
 	if not is_server:
 		return
-	_s_to_lobby.rpc()
+	_to_clients(&"_s_to_lobby")
 	_s_to_lobby()
 
 
 @rpc("authority", "call_remote", "reliable")
 func _s_to_lobby() -> void:
 	race = null
+	begin_t0 = -1.0
 	grid.clear()
 	_latest.clear()
 	my_slot = -1
@@ -833,7 +904,7 @@ func _process(delta: float) -> void:
 						players[id]["ping"] = rtt
 						changed = true
 			if changed:
-				_s_roster.rpc(players)
+				_to_clients(&"_s_roster", [players])
 				roster_changed.emit()
 	elif state != "connecting":
 		_ping_t -= delta
@@ -847,7 +918,7 @@ func _lobby_tick(delta: float) -> void:
 	if state != "lobby" or players.is_empty():
 		if autostart_left >= 0.0:
 			autostart_left = -1.0
-			_s_countdown.rpc(-1.0)
+			_to_clients(&"_s_countdown", [-1.0])
 			countdown_changed.emit(-1.0)
 		return
 	var all_ready := true
@@ -856,11 +927,11 @@ func _lobby_tick(delta: float) -> void:
 			all_ready = false
 	if all_ready and autostart_left < 0.0:
 		autostart_left = AUTOSTART
-		_s_countdown.rpc(autostart_left)
+		_to_clients(&"_s_countdown", [autostart_left])
 		countdown_changed.emit(autostart_left)
 	elif not all_ready and autostart_left >= 0.0:
 		autostart_left = -1.0
-		_s_countdown.rpc(-1.0)
+		_to_clients(&"_s_countdown", [-1.0])
 		countdown_changed.emit(-1.0)
 	if autostart_left >= 0.0:
 		autostart_left -= delta

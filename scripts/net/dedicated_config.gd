@@ -5,20 +5,20 @@ class_name DedicatedConfig
 ## server.cfg cvar -> option key
 const CVARS := {
 	"hostname": "name", "port": "port", "maxplayers": "max_players", "bot_fill": "bots",
-	"bot_grid": "grid", "mp_laps": "laps", "mp_difficulty": "difficulty", "mp_weather": "sky",
+	"bot_grid": "grid", "mp_laps": "laps", "mp_difficulty": "difficulty", "mp_hazards": "hazards", "mp_weather": "sky",
 	"sv_password": "password", "sv_lan": "lan_only", "sv_master": "master", "sv_upnp": "upnp", "mp_track": "track", "map": "track",
 }
 ## command-line flag -> option key
 const FLAGS := {
 	"--name": "name", "--port": "port", "--max": "max_players", "--bots": "bots", "--grid": "grid",
-	"--laps": "laps", "--difficulty": "difficulty", "--weather": "sky", "--sky": "sky",
+	"--laps": "laps", "--difficulty": "difficulty", "--hazards": "hazards", "--weather": "sky", "--sky": "sky",
 	"--password": "password", "--master": "master", "--config": "config", "--track": "track", "--map": "track",
 }
 
 
 static func defaults() -> Dictionary:
 	return {"name": "Half-Life 2: Kart server", "port": 27015, "max_players": 8, "bots": true, "grid": 8,
-		"laps": 3, "difficulty": 1, "sky": "sky_day01_01", "password": "", "lan_only": false,
+		"laps": 3, "difficulty": 1, "hazards": 1, "sky": "sky_day01_01", "password": "", "lan_only": false,
 		"master": "", "upnp": false, "track": "city17_circuit"}
 
 
@@ -85,6 +85,14 @@ static func set_option(o: Dictionary, key: String, value: String) -> bool:
 				o[key] = names.find(value.to_lower())
 			elif value.is_valid_int():
 				o[key] = clampi(int(value), 0, 2)
+			else:
+				return false
+		"hazards":
+			var v := value.to_lower()
+			if v in ["0", "off", "no", "false"]:
+				o[key] = 0
+			elif v in ["1", "on", "yes", "true"]:
+				o[key] = 1
 			else:
 				return false
 		"sky":

@@ -14,6 +14,9 @@ var life := 7.0
 var bounces := 0
 var _arm := 0.6
 var _loop: AudioStreamPlayer3D
+## the core's and the halo's materials, shared by every ball: a launch never waits for their
+## shaders (a material made afresh after the last one was freed compiles again)
+static var _mats := {}
 
 
 func launch(k: Kart) -> void:
@@ -24,8 +27,8 @@ func launch(k: Kart) -> void:
 	global_position = k.global_position + fwd * 3.2 + up * HOVER
 	speed = maxf(speed, k.fwd_speed + 12.0)
 	vel = fwd * speed
-	add_child(_sphere(0.45, Color(0.9, 0.97, 1.0), 1.0, 5.0))
-	add_child(_sphere(0.9, Color(0.45, 0.75, 1.0), 0.35, 2.0))
+	for m in ball_meshes():
+		add_child(m)
 	var l := OmniLight3D.new()
 	l.light_color = Color(0.6, 0.85, 1.0)
 	l.omni_range = 8.0
@@ -48,18 +51,26 @@ static func _sphere(r: float, col: Color, alpha: float, glow: float) -> MeshInst
 	sph.radial_segments = 16
 	sph.rings = 8
 	mi.mesh = sph
-	var m := StandardMaterial3D.new()
-	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	m.albedo_color = Color(col.r, col.g, col.b, alpha)
-	if alpha < 1.0:
-		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	m.emission_enabled = true
-	m.emission = col
-	m.emission_energy_multiplier = glow
-	mi.material_override = m
+	var key := "%s %s %s" % [col, alpha, glow]
+	if not _mats.has(key):
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.albedo_color = Color(col.r, col.g, col.b, alpha)
+		if alpha < 1.0:
+			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		m.emission_enabled = true
+		m.emission = col
+		m.emission_energy_multiplier = glow
+		_mats[key] = m
+	mi.material_override = _mats[key]
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return mi
+
+
+## The ball: its white core and blue halo (Effects.prewarm shows them once while the race loads).
+static func ball_meshes() -> Array[MeshInstance3D]:
+	return [_sphere(0.45, Color(0.9, 0.97, 1.0), 1.0, 5.0), _sphere(0.9, Color(0.45, 0.75, 1.0), 0.35, 2.0)]
 
 
 func _physics_process(delta: float) -> void:

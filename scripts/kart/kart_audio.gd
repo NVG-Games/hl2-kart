@@ -97,7 +97,7 @@ func _process(delta: float) -> void:
 			g = i + 1
 	g = mini(g, 3)
 	if kart.state == Kart.State.RESPAWN:
-		engine.volume_db = lerpf(engine.volume_db, -40.0, delta * 3.0)
+		_ease_db(engine, -40.0, delta * 3.0)
 	elif throttle and frac > 0.04:
 		var gears: Array = snd["gears"]
 		if g != _gear or (_mode != "gear" and _mode != "cruise"):
@@ -116,7 +116,7 @@ func _process(delta: float) -> void:
 		elif _mode == "gear" and not engine.playing:
 			_set_loop(engine, snd["cruise"], "cruise")
 		engine.pitch_scale = maxf(0.05, lerpf(engine.pitch_scale, 0.9 + frac * 0.25 + (0.12 if kart.boost_time > 0.0 else 0.0), minf(1.0, delta * 4.0)))
-		engine.volume_db = lerpf(engine.volume_db, 0.0, delta * 6.0)
+		_ease_db(engine, 0.0, delta * 6.0)
 	else:
 		_gear = -1
 		if frac > 0.45:
@@ -126,12 +126,12 @@ func _process(delta: float) -> void:
 		else:
 			_set_loop(engine, snd["idle"], "idle")
 		engine.pitch_scale = maxf(0.05, lerpf(engine.pitch_scale, 0.95 + frac * 0.2, minf(1.0, delta * 3.0)))
-		engine.volume_db = lerpf(engine.volume_db, -3.0, delta * 4.0)
+		_ease_db(engine, -3.0, delta * 4.0)
 	# skid while drifting or sliding sideways
 	var sliding := kart.drifting and kart.grounded
 	if sliding and not skid.playing:
 		skid.play()
-	skid.volume_db = lerpf(skid.volume_db, -4.0 if sliding else -60.0, delta * 8.0)
+	_ease_db(skid, -4.0 if sliding else -60.0, delta * 8.0)
 	if not sliding and skid.volume_db < -50.0 and skid.playing:
 		skid.stop()
 	# landing thump (jeep rollover / suspension slam)
@@ -141,6 +141,13 @@ func _process(delta: float) -> void:
 		_was_air = 0.0
 	else:
 		_was_air = kart.air_time
+
+
+## Eases a loop's volume towards `db`: the weight is capped at 1, so a long frame (a load
+## hitch, a time-scaled test) lands on the target instead of overshooting into a blast or
+## diverging to NaN; a volume that is not a number any more is put right.
+static func _ease_db(p: AudioStreamPlayer3D, db: float, w: float) -> void:
+	p.volume_db = lerpf(p.volume_db, db, minf(1.0, w)) if is_finite(p.volume_db) else db
 
 
 func turbo() -> void:

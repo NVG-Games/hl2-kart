@@ -59,15 +59,15 @@ const VEHICLES := [
 ## Highway 17 by tools/build_track.py, the others by tools/track_gen.py.
 const TRACKS := [
 	{"id": "city17_circuit", "name": "Highway 17", "short": "HIGHWAY 17", "weather": true,
-		"desc": "City 17 streets, the Combine checkpoint, the coast road and the canal. Built from HL2 parts."},
+		"desc": "City 17, the Combine checkpoint, the coast road round the headland and the canal. Shortcuts: the headland trail and the quarry jump."},
 	{"id": "ct17", "name": "CT17", "short": "CT17", "weather": false,
-		"desc": "Combine-held City 17: the station plaza under the Breencasts, the old town, two jumps, a Combine pipe up the wall and an overpass with no barriers."},
+		"desc": "Combine-held City 17: the plaza, a pipe up the wall, the rail yard, the checkpoint and the old-town hairpins. Shortcuts: the canal jump and the rooftops."},
 	{"id": "xen", "name": "Xen", "short": "XEN", "weather": false,
-		"desc": "Floating islands in the border world: a bridge with no railings, two jumps over the void and a living tube that rolls you all the way round."},
+		"desc": "Floating islands over the void: a cave that rolls you round, a chasm jump and a ledge with no railings. Shortcuts: the high root and the island hop."},
 	{"id": "black_mesa", "name": "Black Mesa", "short": "BLACK MESA", "weather": false,
-		"desc": "Indoors through the Research Facility: labs, the accelerator tube, jumps over the storage hall and a slime pit, and an open spiral around the Lambda core."},
+		"desc": "Indoors at Black Mesa: twice across the reactor room, the accelerator tube and two slime jumps. Shortcuts: the crane gantry and the coolant jump."},
 	{"id": "surface_tension", "name": "Surface Tension", "short": "SURFACE TENSION", "weather": false,
-		"desc": "The desert outside Black Mesa: canyons, the gorge bridge, a jump through the HECU camp, twice round the dam's water main and a cliff road with no barrier."},
+		"desc": "The desert outside Black Mesa: the canyon, the gorge bridge, the HECU camp, the dam's water main and a cliff road. Shortcuts: the rim drop and the washout."},
 ]
 
 const DIFFICULTIES := [
@@ -106,6 +106,7 @@ var settings := {
 	"vehicle": "buggy",
 	"difficulty": 1,
 	"laps": 3,
+	"hazards": 1,  # track hazards (scripts/hazards): 0 off, 1 on
 	"track": "city17_circuit",
 	"sky": "sky_day01_01",
 	"master_volume": 1.0,
@@ -115,6 +116,7 @@ var settings := {
 	"fullscreen": false,
 	"vsync": true,
 	"quality": 2,
+	"crowds": 2,  # spectators: 0 off, 1 few, 2 full
 	"race_music": "random",
 	"menu_music": "random",
 	"show_minimap": true,
@@ -331,7 +333,9 @@ func pick(list: Array) -> Variant:
 func play_3d(path_or_list, pos: Vector3, volume_db := 0.0, pitch := 1.0, unit_size := 12.0, parent: Node = null) -> AudioStreamPlayer3D:
 	var path: String = pick(path_or_list) if path_or_list is Array else path_or_list
 	var s := stream(path)
-	if s == null:
+	# no scene to play in (a test's main loop): nothing is made, so nothing is left over
+	var host: Node = parent if parent else get_tree().current_scene
+	if s == null or host == null:
 		return null
 	var p := AudioStreamPlayer3D.new()
 	p.stream = s
@@ -341,9 +345,6 @@ func play_3d(path_or_list, pos: Vector3, volume_db := 0.0, pitch := 1.0, unit_si
 	p.max_distance = unit_size * 25.0
 	p.bus = "SFX"
 	p.attenuation_filter_cutoff_hz = 9000.0
-	var host: Node = parent if parent else get_tree().current_scene
-	if host == null:
-		return null
 	host.add_child(p)
 	if parent == null:
 		p.global_position = pos
@@ -433,6 +434,13 @@ func _on_music_finished() -> void:
 func voice_line(char_id: String, category: String) -> String:
 	var v: Dictionary = voices.get(char_id, {})
 	var l: Array = v.get(category, [])
+	return pick(l) if not l.is_empty() else ""
+
+
+## A spectator line (voices.json "_crowd": role -> category -> files), "" if there is none.
+func crowd_line(role: String, category: String) -> String:
+	var c: Dictionary = voices.get("_crowd", {}).get(role, {})
+	var l: Array = c.get(category, [])
 	return pick(l) if not l.is_empty() else ""
 
 
