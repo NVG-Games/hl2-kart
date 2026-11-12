@@ -26,6 +26,24 @@
 > builds every model, texture, sound and track from them on your own computer.
 > See [LEGAL.md](LEGAL.md).
 
+## New in 0.2.0
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/media/shortcut.webp" alt="Xen: the island hop shortcut"></td>
+    <td width="33%"><img src="docs/media/hazards.webp" alt="Surface Tension: mortars on the dam"></td>
+    <td width="33%"><img src="docs/media/tube.webp" alt="Surface Tension: the dam's water main"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Shortcuts</b>: two on every circuit</td>
+    <td align="center"><b>Track hazards</b> that warn before they strike</td>
+    <td align="center"><b>Tubes</b> that roll you round the pipe</td>
+  </tr>
+</table>
+
+All five circuits are rebuilt, spectators line the roads, and seven new items are in the
+crates. Every change is in [CHANGELOG.md](CHANGELOG.md).
+
 ## The circuits
 
 Every lap is 2.1 to 2.5 km, with two shortcuts off it, hazards along it and spectators

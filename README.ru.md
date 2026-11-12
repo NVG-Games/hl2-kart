@@ -26,6 +26,24 @@
 > собирает из них все модели, текстуры, звуки и трассы у вас на компьютере.
 > Подробности в [LEGAL.md](LEGAL.md).
 
+## Новое в 0.2.0
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/media/shortcut.webp" alt="Xen: срезка по островам"></td>
+    <td width="33%"><img src="docs/media/hazards.webp" alt="Surface Tension: миномёты на плотине"></td>
+    <td width="33%"><img src="docs/media/tube.webp" alt="Surface Tension: водовод плотины"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Срезки</b>: по две на каждой трассе</td>
+    <td align="center"><b>Ловушки</b>, которые предупреждают перед ударом</td>
+    <td align="center"><b>Трубы</b>, где дорога идёт по кругу</td>
+  </tr>
+</table>
+
+Все пять трасс построены заново, вдоль дорог стоят зрители, а в ящиках семь новых
+предметов. Все изменения перечислены в [CHANGELOG.md](CHANGELOG.md).
+
 ## Трассы
 
 Круг от 2,1 до 2,5 км, на каждом две срезки, ловушки и зрители вдоль дороги. Дорогу,
