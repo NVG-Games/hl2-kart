@@ -141,10 +141,9 @@ speed, acceleration, weight, handling and engine sound.
 ## Play
 
 1. Have **Half-Life 2** and **Half-Life** installed on Steam (Windows 10 or 11).
-2. Download **HL2Kart-v…-windows.exe** from the [latest release](https://github.com/NVG-Games/hl2-kart/releases/latest)
-   and run it: it is the whole game in one file, unpacked to `%LOCALAPPDATA%\HL2Kart` on
-   its first run.
-3. Or take the **.zip** instead, unzip it anywhere and run **Play HL2 Kart.bat**.
+2. Download **HL2Kart-v…-windows.zip** from the [latest release](https://github.com/NVG-Games/hl2-kart/releases/latest)
+   and unzip it anywhere.
+3. Run **Play HL2 Kart.bat**.
 
 The first start finds your two games and builds the game from them: 3 to 6 minutes and
 about 2 GB. After that it starts straight into the menu. The download carries Godot and

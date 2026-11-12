@@ -6,8 +6,9 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
 ## [0.2.0] - 2026-11-12
 
 Shortcuts, track hazards and spectators on five redesigned circuits. This release also
-brings 0.1.1's changes, which never had a download of their own: the one-file `.exe` and a
-first start that begins building by itself. Online, everyone needs 0.2.0.
+brings 0.1.1's first start that begins building by itself (0.1.1 never had a download of its
+own). The download is the `.zip` only: 0.1.1's one-file `.exe` is gone again. Online,
+everyone needs 0.2.0.
 
 ### Added
 - Two shortcuts on every circuit, most of them ending in a jump that takes speed:

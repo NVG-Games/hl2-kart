@@ -20,9 +20,8 @@ def main():
 ## Install
 
 1. You need **Half-Life 2** and **Half-Life** on Steam (Windows).
-2. Either download **`HL2Kart-v%s-windows.exe`** below and run it (one file: the first
-   run unpacks the game to `%%LOCALAPPDATA%%\HL2Kart`), or download the `.zip`, unzip it
-   anywhere and run **Play HL2 Kart.bat**.
+2. Download **`HL2Kart-v%s-windows.zip`** below, unzip it anywhere and run
+   **Play HL2 Kart.bat**.
 3. The first start builds the game from your two games (3-6 minutes, about 2 GB);
    after that it starts straight into the menu.
 
