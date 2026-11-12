@@ -19,8 +19,9 @@ signal left(reason: String)
 signal countdown_changed(seconds: float)
 
 ## 2: _s_begin carries the server clock (the hazard clock). 3: a kart's state also carries its
-## road, hits and held item and is stamped from the race's epoch; snapshots carry the start
-const PROTOCOL := 3
+## road, hits and held item and is stamped from the race's epoch; snapshots carry the start.
+## 4: the gravity gun pulls (its target travels with the item) and a supercharged one is new
+const PROTOCOL := 4
 const DEFAULT_PORT := 27015
 const MASTER_PORT := 27010
 const MAX_RACERS := 8

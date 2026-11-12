@@ -612,7 +612,7 @@ func _update_item(k: Kart, delta: float) -> void:
 ## loads, so the roulette never stalls on a model it shows for the first time.
 func _prewarm_items() -> void:
 	for id in Items.INFO:
-		var m := Game.spawn_model(Items.INFO[id]["model"])
+		var m := Game.spawn_model(Items.INFO[id]["model"], "", int(Items.INFO[id].get("skin", 0)))
 		m.scale = Vector3.ONE * 0.01
 		item_holder.add_child(m)
 	var tw := create_tween()
@@ -630,7 +630,7 @@ func _set_item_model(id: String) -> void:
 	if id == "":
 		return
 	var key: String = Items.INFO[id]["model"]
-	var m := Game.spawn_model(key)
+	var m := Game.spawn_model(key, "", int(Items.INFO[id].get("skin", 0)))
 	var aabb := Game.model_aabb(key)
 	var s := 1.3 / maxf(aabb.size.length(), 0.01)
 	m.scale = Vector3.ONE * s

@@ -46,6 +46,15 @@ const RETRY_MARGIN := 1.5
 const TUMBLE_UP := 7.0
 const TUMBLE_FLAT := 9.0
 const TUMBLE_SIDE := 4.0
+## a gravity gun's beam (pulled) lifts a kart PULL_LIFT m over the gun's kart (its roof) and drops
+## it PULL_BEHIND m behind, going PULL_KEEP of that kart's speed, to spin for PULL_SPIN s (the two
+## swap places); a supercharged one's blast
+## (blasted) leaves it BLAST_KEEP of its own speed before the throw
+const PULL_LIFT := 2.2
+const PULL_BEHIND := 8.0
+const PULL_KEEP := 0.7
+const PULL_SPIN := 0.6  # seconds it spins once dropped
+const BLAST_KEEP := 0.3
 ## touching anything (a pile-up, a squeeze against a wall, the chassis caught on a kerb or driven up
 ## a steep bank) a kart leaves its road no faster than a tumble's hop (TUMBLE_UP), except this many
 ## metres either side of a jump's gap, where its kicker and landing are
@@ -120,6 +129,10 @@ var _sink_vel := Vector3.ZERO
 var _sink_glide := Vector3.ZERO  # SINK: how far it glides on under the surface (short of any wall)
 var _scanned := false
 var _back := false  # rescue: photographed and put back on the road, settling until let go
+var _held_by: Kart  # a gravity gun's beam has it (pulled): the kart that fired it
+var _held_t := 0.0
+var _held_len := 0.0
+var _held_from := Vector3.ZERO
 var _dripping := false
 var _branch_entry := 0.0  # route_u where it joined the branch it is on (_leave_branch credits from the fork)
 # round a pipe back to its lane (_tube_gravity): the way along the pipe and round it, the
@@ -279,6 +292,9 @@ func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
 	if remote:
 		return
 	var dt := st.step
+	if _held_by != null:
+		_hold_tick(st)
+		return
 	var xf := st.transform
 	var b := xf.basis
 	var up := b.y
@@ -1282,6 +1298,66 @@ func tumble(by: Kart = null, impulse := Vector3.ZERO) -> void:
 	_thrown += throw
 	apply_central_impulse(throw * mass)
 	apply_torque_impulse(global_basis.z * mass * 3.0 * (1.0 if _rng.randf() > 0.5 else -1.0))
+	visual.spin()
+	audio.hurt()
+	_drop_trailing()
+	got_hit.emit(self, by)
+
+
+## A GRAVITY GUN's beam has it (Items._pull): it spins out, is lifted and drawn back over the
+## gun's kart `by` and dropped behind it (_hold_tick). Only its owner decides (never on a proxy).
+func pulled(by: Kart) -> void:
+	if star_time > 0.0 or state == State.RESPAWN or remote or _held_by != null:
+		return
+	spin_out(by)
+	_held_by = by
+	_held_t = 0.0
+	_held_len = pull_time(global_position.distance_to(by.global_position))
+	_held_from = global_position
+
+
+## Seconds a gravity gun's beam holds a kart `dist` metres off (pulled).
+static func pull_time(dist: float) -> float:
+	return clampf(dist / 45.0, 0.55, 1.1)
+
+
+## Held in a gravity gun's beam: along a curve from where it was grabbed, up over the gun's kart and
+## down to PULL_BEHIND m behind it, turning; then dropped there going PULL_KEEP of that kart's
+## speed, spinning for PULL_SPIN s (its spin's clock stood still while it was held).
+func _hold_tick(st: PhysicsDirectBodyState3D) -> void:
+	var by := _held_by
+	_held_t += st.step
+	if not is_instance_valid(by) or _held_t >= _held_len:
+		_held_by = null
+		st.linear_velocity = (by.velocity() * PULL_KEEP if is_instance_valid(by) else Vector3.ZERO) - grav_up * 2.0
+		state = State.SPIN
+		state_time = 1.2 - PULL_SPIN  # (a spin lasts 1.2 s)
+		return
+	var s := _held_t / _held_len
+	s = s * s * (3.0 - 2.0 * s)
+	var up := by.grav_up
+	var fwd := -by.global_basis.z
+	fwd -= up * fwd.dot(up)
+	fwd = fwd.normalized() if fwd.length() > 0.01 else -global_basis.z
+	var over := by.global_position + up * (by.spec.height + PULL_LIFT)
+	var behind := by.global_position - fwd * PULL_BEHIND + up * 1.5
+	var p := _held_from.lerp(over, s).lerp(over.lerp(behind, s), s)
+	st.linear_velocity = ((p - st.transform.origin) / st.step).limit_length(120.0)
+	st.angular_velocity = up * 7.0
+
+
+## A SUPERCHARGED GRAVITY GUN's blast (Items._super_punt): most of its own speed gone and thrown
+## by `push`, well past a tumble's limits (it may come down off its road: the scanner then comes),
+## tumbling for a while. Only its owner decides.
+func blasted(by: Kart, push: Vector3) -> void:
+	if star_time > 0.0 or state == State.RESPAWN or remote:
+		return
+	state = State.TUMBLE
+	state_time = 0.0
+	drifting = false
+	boost_time = 0.0
+	linear_velocity = linear_velocity * BLAST_KEEP + push
+	apply_torque_impulse((global_basis.x * 1.5 + global_basis.z * (1.0 if _rng.randf() > 0.5 else -1.0)) * mass * 4.0)
 	visual.spin()
 	audio.hurt()
 	_drop_trailing()

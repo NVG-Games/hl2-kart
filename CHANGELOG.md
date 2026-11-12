@@ -5,13 +5,23 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
 
 ## [Unreleased]
 
+### Added
+- The supercharged gravity gun, the Citadel's blue one, is a new item, mostly for the back of
+  the race. It blasts every kart in a wide cone in front of you high into the air (they keep
+  little of their speed and can come down off the road), sets off barrels and bursts
+  watermelons.
+
 ### Changed
+- The gravity gun pulls now instead of punting. Its beam grabs the nearest kart ahead (up to
+  60 m), lifts it, carries it back over your head and drops it just behind you, spinning:
+  the two of you swap places. With nobody in reach it only clicks.
 - The scanner rescue is a photo now. The scanner flies in to hang in front of your kart, its eye
   blinking as it takes aim, and photographs you: the screen goes white, and as it fades you are
   back on the road with the scanner beside you, climbing away. Sinking, falling off an edge or
   calling it with R all end that way; other players see the flash of its camera. No more drop
   from under the scanner: you are put on your wheels and drive off as the white fades, a little
   sooner than before.
+- Online, everyone needs this version (network protocol 4).
 
 ## [0.2.0] - 2026-11-12
 

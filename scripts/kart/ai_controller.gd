@@ -593,7 +593,11 @@ func _want_item(k: Kart, delta: float) -> bool:
 		"rollermine":
 			use = _someone(k, 5.0, 60.0)
 		"gravgun":
-			use = _someone(k, 2.0, 18.0)
+			use = Items.pull_target(k) != null
+		"supergrav":
+			# best into a bunch: wait a little for a second kart in the cone
+			var n := Items.blast_targets(k).size()
+			use = n >= 2 or (n == 1 and _item_wait < -3.0) or (_item_wait < -12.0 and _someone(k, 3.0, 60.0))
 		"barrel", "melon", "melon3", "hopper":
 			use = _someone(k, -40.0, -3.0) or _item_wait < -6.0
 		"cball":

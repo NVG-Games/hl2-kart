@@ -93,7 +93,9 @@ speed, acceleration, weight, handling and engine sound.
 ## Features
 
 - **Items** from HL2 supply crates: a homing manhack, a rollermine, an explosive barrel,
-  a HEV battery boost, the gravity gun, a headcrab canister strike on the leader, a HEV
+  a HEV battery boost, the gravity gun (it pulls the kart ahead back over you), the
+  Citadel's supercharged gravity gun (it blasts everyone in front sky-high), a headcrab
+  canister strike on the leader, a HEV
   charger shield, the AR2's energy ball (bounces off walls), watermelons to slip on, a
   hopper mine, Ravenholm's sawblade, headcrabs on the faces of the racers just ahead and a
   Xen teleport down the road.

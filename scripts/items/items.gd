@@ -8,7 +8,7 @@ const INFO := {
 	"manhack3": {"name": "3x MANHACK", "model": "manhack", "desc": "Three hunters"},
 	"rollermine": {"name": "ROLLERMINE", "model": "roller", "desc": "Bounces and shocks vehicles"},
 	"barrel": {"name": "EXPLOSIVE BARREL", "model": "props_c17/oildrum001_explosive", "desc": "Drop it behind you"},
-	"gravgun": {"name": "GRAVITY GUN", "model": "weapons/w_physics", "desc": "Punt everything in front"},
+	"gravgun": {"name": "GRAVITY GUN", "model": "weapons/w_physics", "desc": "Pulls the kart ahead back over you"},
 	"canister": {"name": "HEADCRAB CANISTER", "model": "props_combine/headcrabcannister01a", "desc": "Strikes the leader"},
 	"hev": {"name": "HEV OVERCHARGE", "model": "items/hevsuit", "desc": "Invulnerable and fast"},
 	"cball": {"name": "ENERGY BALL", "model": "items/combine_rifle_ammo01", "desc": "Bounces off walls"},
@@ -18,6 +18,9 @@ const INFO := {
 	"saw": {"name": "SAWBLADE", "model": "props_junk/sawblade001a", "desc": "Cuts through everyone in front"},
 	"headcrab": {"name": "HEADCRAB", "model": "headcrabclassic", "desc": "Jumps on the next racers ahead"},
 	"xenport": {"name": "XEN TELEPORT", "model": "props_lab/teleportring", "desc": "Warps you down the road"},
+	# (new items go last: online a held item travels as its place in this list)
+	"supergrav": {"name": "SUPERCHARGED GRAVITY GUN", "model": "weapons/w_physics", "skin": 1,
+		"desc": "Blasts everything in front sky-high"},
 }
 
 const MELON := "props_junk/watermelon01"
@@ -27,16 +30,23 @@ const SPAWNS := ["manhack", "roller", "props_junk/sawblade001a", "props_combine/
 	"props_combine/headcrabcannister01a", "headcrabclassic", "props_c17/oildrum001_explosive", MELON]
 
 # weights per race position bucket: front, middle, back (each sums to 100). The nine
-# original items keep their old proportions and 80 % of every bucket; the seven newer
-# ones share the other 20 %, so they turn up now and then instead of half the time
+# original items keep most of every bucket; the newer ones turn up now and then. The
+# supercharged gravity gun is for the back of the race (a little in the middle)
 const TABLE := {
 	"front": {"barrel": 24, "rollermine": 24, "battery": 16, "manhack": 8, "gravgun": 8,
 		"melon": 9, "hopper": 5, "cball": 4, "melon3": 2},
-	"middle": {"manhack": 20, "battery": 16, "rollermine": 12, "gravgun": 12, "barrel": 8, "battery3": 6, "manhack3": 6,
-		"cball": 6, "saw": 5, "melon3": 3, "hopper": 3, "headcrab": 3},
-	"back": {"battery3": 18, "manhack3": 14, "hev": 14, "manhack": 12, "gravgun": 12, "canister": 10,
-		"xenport": 8, "saw": 6, "cball": 3, "headcrab": 3},
+	"middle": {"manhack": 20, "battery": 16, "rollermine": 12, "gravgun": 10, "barrel": 8, "battery3": 6, "manhack3": 6,
+		"cball": 6, "saw": 5, "melon3": 3, "hopper": 3, "headcrab": 3, "supergrav": 2},
+	"back": {"battery3": 18, "manhack3": 14, "hev": 14, "manhack": 10, "gravgun": 8, "canister": 10,
+		"xenport": 8, "saw": 6, "supergrav": 6, "cball": 3, "headcrab": 3},
 }
+
+# GRAVITY GUN: the nearest kart ahead in its cone is yanked back (Kart.pulled)
+const PULL_RANGE := 60.0
+const PULL_CONE := 0.5  # cos of the half-angle from the kart's nose
+# SUPERCHARGED GRAVITY GUN: every kart in its cone is blasted (Kart.blasted), props fly or go off
+const BLAST_RANGE := 40.0
+const BLAST_CONE := 0.35
 
 # HEADCRAB: a short blindfold for the next few racers ahead, one crab item in play at a time
 const CRAB_HOLD := 2.5  # seconds on a face (was 3.6)
@@ -89,6 +99,39 @@ static func crab_targets(k: Kart) -> Array:
 	return ahead.slice(0, CRAB_MAX)
 
 
+static var _icons := {}
+
+
+## An item's picture (How to play): its icon from the content build; for one newer than the
+## content on this machine, made from another (the supercharged gravity gun: the gravity gun's,
+## its orange turned Citadel blue).
+static func icon(id: String) -> Texture2D:
+	if _icons.has(id):
+		return _icons[id]
+	var path := "res://assets/ui/items/%s.png" % id
+	var tex: Texture2D = null
+	if ResourceLoader.exists(path):
+		tex = load(path)
+	elif id == "supergrav" and ResourceLoader.exists("res://assets/ui/items/gravgun.png"):
+		var img := (load("res://assets/ui/items/gravgun.png") as Texture2D).get_image()
+		if img:
+			img = img.duplicate()
+			if img.is_compressed():
+				img.decompress()
+			img.convert(Image.FORMAT_RGBA8)
+			img.resize(256, 256, Image.INTERPOLATE_BILINEAR)
+			for y in img.get_height():
+				for x in img.get_width():
+					var c := img.get_pixel(x, y)
+					# warm, saturated parts (the glow, the core) to cyan
+					if c.a > 0.05 and c.s > 0.3 and (c.h < 0.17 or c.h > 0.95):
+						c = Color.from_hsv(0.52, c.s, minf(1.0, c.v * 1.1), c.a)
+						img.set_pixel(x, y, c)
+			tex = ImageTexture.create_from_image(img)
+	_icons[id] = tex
+	return tex
+
+
 static var _net_seq := 0
 
 
@@ -108,6 +151,9 @@ static func use(k: Kart) -> void:
 		"canister":
 			var t2 := CanisterStrike.leader_for(k)
 			extra["target"] = t2.net_slot if t2 else -1
+		"gravgun":
+			var t3 := pull_target(k)
+			extra["target"] = t3.net_slot if t3 else -1
 	_spawn(k, id, extra)
 	k.item_count -= 1
 	if id.ends_with("3"):
@@ -116,7 +162,7 @@ static func use(k: Kart) -> void:
 	if k.item_count <= 0:
 		k.item = ""
 	k.item_changed.emit(k)
-	if id in ["manhack", "manhack3", "rollermine", "canister", "gravgun", "cball", "saw", "headcrab"]:
+	if id in ["manhack", "manhack3", "rollermine", "canister", "gravgun", "supergrav", "cball", "saw", "headcrab"]:
 		k.audio.say("hit")
 	if Net.active:
 		Net.send_event("item", [k.net_slot, id, k.global_transform, k.linear_velocity, extra])
@@ -154,7 +200,11 @@ static func _spawn(k: Kart, id: String, extra: Dictionary) -> void:
 		"barrel":
 			_tag(_drop_barrel(k), nid)
 		"gravgun":
-			_punt(k)
+			# online the user's peer names the target (net slots); offline there are none
+			var grab := _kart_slot(k, int(extra.get("target", -1)))
+			_pull(k, grab if grab or Net.active else pull_target(k))
+		"supergrav":
+			_super_punt(k)
 		"canister":
 			var c := CanisterStrike.new()
 			k.get_parent().add_child(c)
@@ -265,22 +315,96 @@ static func _xen_teleport(k: Kart) -> void:
 	Game.play_3d("res://assets/sound/weapons/physcannon/energy_sing_explosion2.wav", k.global_position, 0.0, 1.2, 18.0)
 
 
-static func _punt(k: Kart) -> void:
-	var origin := k.global_position + Vector3.UP
+## Where a gravity gun is fired from and which way: the kart's nose, level with its roof.
+static func _muzzle(k: Kart) -> Transform3D:
 	var fwd := -k.global_basis.z
-	Game.play_3d(["res://assets/sound/weapons/physcannon/superphys_launch1.wav",
-		"res://assets/sound/weapons/physcannon/superphys_launch2.wav"], origin, 2.0, 1.0, 16.0)
-	Effects.punt_flash(k.get_parent(), origin + fwd * 3.0, fwd)
+	return Transform3D(k.global_basis, k.global_position + k.global_basis.y * 1.1 + fwd * 1.6)
+
+
+## The kart a GRAVITY GUN used by `k` now would grab: the nearest one ahead within PULL_RANGE in
+## its PULL_CONE that can be hit (not charged, not being rescued); null if none.
+static func pull_target(k: Kart) -> Kart:
+	var m := _muzzle(k)
+	var fwd := -m.basis.z
+	var best: Kart = null
+	var best_d := PULL_RANGE
+	for n in k.get_tree().get_nodes_in_group("karts"):
+		var o := n as Kart
+		if o == k or o.finished or o.star_time > 0.0 or o.state == Kart.State.RESPAWN:
+			continue
+		var d := o.global_position - m.origin
+		var dist := d.length()
+		if dist < best_d and dist > 0.5 and d.normalized().dot(fwd) > PULL_CONE:
+			best = o
+			best_d = dist
+	return best
+
+
+## The karts a SUPERCHARGED GRAVITY GUN used by `k` now would blast: every one within BLAST_RANGE
+## in its BLAST_CONE.
+static func blast_targets(k: Kart) -> Array:
+	var m := _muzzle(k)
+	var fwd := -m.basis.z
+	var out: Array = []
 	for n in k.get_tree().get_nodes_in_group("karts"):
 		var o := n as Kart
 		if o == k:
 			continue
-		var d := o.global_position - origin
-		if d.length() < 22.0 and d.normalized().dot(fwd) > 0.55:
-			o.tumble(k, fwd * o.mass * 14.0)
+		var d := o.global_position - m.origin
+		if d.length() < BLAST_RANGE and d.normalized().dot(fwd) > BLAST_CONE:
+			out.append(o)
+	return out
+
+
+## GRAVITY GUN: its beam takes the kart ahead (picked on the user's peer: `target`), lifts it and
+## pulls it back over the gun's kart to drop it behind (Kart.pulled); with nobody in reach it only
+## clicks.
+static func _pull(k: Kart, target: Kart) -> void:
+	var m := _muzzle(k)
+	if target == null or not is_instance_valid(target):
+		Game.play_3d("res://assets/sound/weapons/physcannon/physcannon_dryfire.wav", m.origin, 0.0, 1.0, 12.0, k)
+		return
+	var orange := Color(1.0, 0.62, 0.2)
+	Game.play_3d("res://assets/sound/weapons/physcannon/physcannon_pickup.wav", m.origin, 4.0, 1.0, 16.0, k)
+	Game.play_3d("res://assets/sound/weapons/physcannon/hold_loop.wav", target.global_position, 0.0, 1.3, 14.0, target)
+	GravBeam.between(k, target, orange, Kart.pull_time(target.global_position.distance_to(k.global_position)))
+	Effects.sparks(k.get_parent(), target.global_position + target.global_basis.y * 0.6, 1.2, orange)
+	target.pulled(k)
+
+
+## SUPERCHARGED GRAVITY GUN (the Citadel's blue one): every kart in its cone is thrown high and
+## far (Kart.blasted, on its owner's peer), barrels go off, watermelons burst, other props fly.
+static func _super_punt(k: Kart) -> void:
+	var m := _muzzle(k)
+	var fwd := -m.basis.z
+	var blue := Color(0.55, 0.85, 1.0)
+	Game.play_3d(["res://assets/sound/weapons/physcannon/superphys_launch1.wav",
+		"res://assets/sound/weapons/physcannon/superphys_launch2.wav"], m.origin, 8.0, 0.8, 24.0)
+	Game.play_3d("res://assets/sound/weapons/physcannon/energy_sing_explosion2.wav", m.origin + fwd * 4.0, 4.0, 0.9, 20.0)
+	Effects.punt_flash(k.get_parent(), m.origin + fwd * 3.0, fwd)
+	Effects.punt_flash(k.get_parent(), m.origin + fwd * 9.0, fwd)
+	Effects.shock_ring(k.get_parent(), m.origin + fwd * 2.0, fwd, 9.0, blue, 0.45)
+	var cam = k.race.get("camera") if k.race else null
+	if cam is RaceCamera and (cam as RaceCamera).target == k:
+		(cam as RaceCamera).shake(0.7)
+	for o in blast_targets(k):
+		var kart := o as Kart
+		var d := kart.global_position - m.origin
+		var side := d - fwd * d.dot(fwd)
+		side -= kart.grav_up * side.dot(kart.grav_up)
+		var near := 1.0 - clampf(d.length() / BLAST_RANGE, 0.0, 1.0) * 0.5  # full force close in, half at the far end
+		var push := (fwd * 15.0 + kart.grav_up * 14.0 + side.limit_length(1.0) * 5.0) * near
+		Effects.lightning(k.get_parent(), m.origin, kart.global_position + kart.grav_up * 0.6, blue, 0.25)
+		kart.blasted(k, push)
 	for n in k.get_parent().find_children("*", "PhysProp", true, false):
 		var p := n as PhysProp
-		var d := p.global_position - origin
-		if d.length() < 22.0 and d.normalized().dot(fwd) > 0.4:
+		var d2 := p.global_position - m.origin
+		if d2.length() > BLAST_RANGE or d2.normalized().dot(fwd) < BLAST_CONE:
+			continue
+		if p.model_key == MELON:
+			p.smash(fwd * 20.0)
+		elif p.model_key.contains("explosive"):
+			p.explode()
+		else:
 			p.sleeping = false
-			p.hit((fwd * 18.0 + Vector3.UP * 6.0) * p.mass)
+			p.hit((fwd * 40.0 + Vector3.UP * 14.0) * p.mass)

@@ -10,7 +10,8 @@ const ITEM_TEXT := {
 	"manhack3": "Three manhacks: fire them one after another.",
 	"rollermine": "Rolls straight ahead, bounces off walls and shocks the first kart it touches. Hold BRAKE to roll it backwards.",
 	"barrel": "Dropped behind you. Whoever drives into it gets blown into the air.",
-	"gravgun": "Punts every kart and prop in a cone in front of you.",
+	"gravgun": "Its beam grabs the nearest kart ahead, lifts it and pulls it back over your head: it drops behind you and spins out.",
+	"supergrav": "The Citadel's supercharged gravity gun. Blasts every kart in front of you high into the air, sets off barrels and bursts watermelons.",
 	"canister": "A Combine shell aimed at the race leader. Watch the blue beam and swerve.",
 	"hev": "Seven seconds of overcharge: faster, invulnerable, and anyone you touch goes flying.",
 	"cball": "The AR2's energy ball. Skims along the road, ricochets off walls and flattens the first kart it touches. Careful: it can come back for you.",
@@ -45,7 +46,7 @@ func _ready() -> void:
 	holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	body.add_child(holder)
 	pages = [_controls(), _driving(), _items(["battery", "manhack", "rollermine", "barrel", "gravgun", "canister", "hev",
-		"battery3", "manhack3"]), _items(["cball", "saw", "headcrab", "melon", "hopper", "xenport", "melon3"]),
+		"battery3", "manhack3"]), _items(["cball", "saw", "headcrab", "melon", "hopper", "xenport", "melon3", "supergrav"]),
 		_track(), _shortcuts(), _hazards(), _online()]
 	for p in pages:
 		holder.add_child(p)
@@ -163,7 +164,7 @@ func _items(ids: Array) -> Control:
 		card.add_theme_constant_override("separation", 10)
 		card.custom_minimum_size = Vector2(360, 120)
 		var icon := TextureRect.new()
-		icon.texture = load("res://assets/ui/items/%s.png" % id)
+		icon.texture = Items.icon(id)
 		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		icon.custom_minimum_size = Vector2(96, 96)

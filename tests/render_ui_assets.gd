@@ -109,7 +109,7 @@ func _icons() -> void:
 	icons["scanner"] = "combine_scanner"
 	for id in icons:
 		var key: String = icons[id]
-		var m := Game.spawn_model(key)
+		var m := Game.spawn_model(key, "", int(Items.INFO[id].get("skin", 0)) if Items.INFO.has(id) else 0)
 		vp.add_child(m)
 		var box := Game.model_aabb(key)
 		var r := box.size.length() * 0.5
