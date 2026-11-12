@@ -237,8 +237,9 @@ godot --headless --path . -- --master-server --port 27010
   `hazard_test.tscn`, `crowd_check.tscn`), сетевые прогоны и проверка компиляции всех
   скриптов.
 
-Новая трасса: один модуль Python в `tools/circuits/` и запись в `TRACKS` в
-`scripts/core/game.gd`. `tools/package_release.py` собирает архив для Windows; workflow
+Новая трасса: один модуль Python в `tools/circuits/` и записи в `TRACKS` в
+`scripts/core/game.gd` и в `CIRCUITS` в `tools/setup_assets.py` (подробнее в
+[CONTRIBUTING.md](CONTRIBUTING.md)). `tools/package_release.py` собирает архив для Windows; workflow
 *Release build* запускает его и готовит черновик релиза на GitHub, когда в `main` меняется
 `version.json`.
 

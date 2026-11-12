@@ -30,9 +30,18 @@ then tells players about it.
 2. Keep pull requests focused on one thing.
 3. Test what you touched. Useful headless checks:
    - every script compiles: `godot --headless --path . res://tests/check_scripts.tscn`
-   - an AI race on a track, with stats:
+   - an AI race on a track, with stats (lap times, rescues, shortcuts taken, hazard hits):
      `godot --headless --path . res://tests/race_stats.tscn -- 200 4 2 1 <track>`
+   - shortcuts and lap counting: `godot --headless --path . res://tests/branch_check.tscn -- <track>`
+   - track hazards: `godot --headless --path . res://tests/hazard_test.tscn -- rules <track>`
+     and `... -- determinism <track>` (online every PC must see the same hazards)
+   - spectators: `godot --headless --path . res://tests/crowd_check.tscn -- <track>`
+   - items: `godot --headless --path . res://tests/item_test.tscn -- <track>`
    - menus fit the window: `godot --path . --resolution 1280x720 res://tests/ui_fit.tscn -- out`
+
+   After changing a circuit in `tools/`, rebuild its track and import it before testing:
+   `python tools/track_gen.py <circuit>` (Highway 17: `python tools/build_track.py`), then
+   `godot --headless --path . --import`.
 4. Open the pull request against **`dev`** and describe what changed and how you tested it.
 
 ## Rules about Valve content
@@ -45,8 +54,11 @@ then tells players about it.
 ## Ideas for a first contribution
 
 - **A new circuit**: one Python module in `tools/circuits/` (see `ct17.py` or `xen.py`)
-  plus an entry in `TRACKS` in `scripts/core/game.gd`. Ravenholm, the Coast, Nova Prospekt,
-  White Forest or the Citadel would all be great.
+  plus an entry in `TRACKS` in `scripts/core/game.gd` and in `CIRCUITS` in
+  `tools/setup_assets.py` (so the first start builds it). The module gives the road as a spline
+  of styled stretches (`CTRL`), its shortcuts (`BRANCHES`), its hazards (`TRACK["hazards"]`)
+  and its spectators (`crowds()`). Ravenholm, the Coast, Nova Prospekt, White Forest or the
+  Citadel would all be great.
 - **Linux support**: the tools already know Linux Steam paths; the release packaging and
   the first-start screen need a Linux path.
 - **Gamepad and accessibility**: rebinding controls, colour-blind friendly HUD.

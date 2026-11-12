@@ -240,7 +240,8 @@ moves for a release, and every release is listed in [CHANGELOG.md](CHANGELOG.md)
   every script.
 
 A new circuit is one Python module in `tools/circuits/` plus an entry in `TRACKS` in
-`scripts/core/game.gd`. `tools/package_release.py` builds the Windows download; the
+`scripts/core/game.gd` and in `CIRCUITS` in `tools/setup_assets.py` (see
+[CONTRIBUTING.md](CONTRIBUTING.md)). `tools/package_release.py` builds the Windows download; the
 *Release build* workflow runs it and drafts the GitHub release when `version.json`
 changes on `main`.
 
