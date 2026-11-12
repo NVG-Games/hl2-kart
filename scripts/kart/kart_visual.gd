@@ -44,9 +44,15 @@ var _wet := 0.0  # 1 = just fished out of a liquid, dries off over a few seconds
 var _wet_col := Color.WHITE
 var _wet_glow := 0.0
 var _head_bone := -1
-# Dog
+# Dog: HL2's own run, walk and idle (assets/models/dog.anims.json, tools/mdl_anim.py), or swinging
+# legs where the content was built before it
+const DOG_ANIMS := "res://assets/models/dog.anims.json"
+const DOG_RUN_HZ := 3.0  # strides a second at most: faster than that the feet slide, the legs never blur
 var _gait := 0.0
 var _dog := {}
+var _dog_anims := {}  # "run" / "walk" / "idle" -> {"frames": int, "move": m per cycle, "tracks": {bone: [rots, poss]}}
+var _dog_bones: Array = []  # every bone any of them moves
+var _cycle := 0.0  # through the run / walk, 0..1
 var _rider_pelvis := Vector3.ZERO
 
 
@@ -159,6 +165,29 @@ func _setup_dog() -> void:
 			var rest := skel.get_bone_global_rest(i)
 			_dog[n] = {"i": i, "axis": (rest.basis.inverse() * Vector3.RIGHT).normalized(),
 				"rot": skel.get_bone_rest(i).basis.get_rotation_quaternion(), "pos": skel.get_bone_rest(i).origin}
+	if not FileAccess.file_exists(DOG_ANIMS):
+		return
+	var data = Game.load_json(DOG_ANIMS)
+	if not data is Dictionary:
+		return
+	var seen := {}
+	for an in data:
+		var a: Dictionary = data[an]
+		var tracks := {}
+		for bn in a["bones"]:
+			var i := _bone(skel, bn)
+			if i < 0:
+				continue
+			var rots: Array[Quaternion] = []
+			var poss: Array[Vector3] = []
+			for r in a["bones"][bn]["r"]:
+				rots.append(Quaternion(r[0], r[1], r[2], r[3]))
+			for v in a["bones"][bn]["p"]:
+				poss.append(Vector3(v[0], v[1], v[2]))
+			tracks[i] = [rots, poss]
+			seen[i] = true
+		_dog_anims[an] = {"frames": int(a["frames"]), "move": float(a["move"]), "tracks": tracks}
+	_dog_bones = seen.keys()
 
 
 func _dog_rot(n: String, angle: float) -> void:
@@ -169,10 +198,73 @@ func _dog_rot(n: String, angle: float) -> void:
 
 
 func _animate_dog(delta: float) -> void:
+	if _dog_anims.has("run"):
+		_dog_cycle(delta)
+	else:
+		_dog_swing(delta)
+	# keep the rider on the shoulders as the body bobs
+	if driver and _dog.has("Spine3"):
+		var sh := buggy.transform * skel.get_bone_global_pose(_dog["Spine3"]["i"]).origin
+		driver.position = sh + Vector3(0, 0.05, 0.05) - driver.basis * (_rider_pelvis * driver.scale.x)
+
+
+## HL2's run, walk and idle, blended by speed (idle to a standstill, walk up to ~3 m/s, run from
+## ~7 m/s). The walk keeps its feet on the ground; the run strides with the road up to DOG_RUN_HZ
+## strides a second, then its feet slide. In the air the legs slow to a reach; backwards it runs
+## backwards. A footfall at each half stride.
+func _dog_cycle(delta: float) -> void:
+	var sp := absf(kart.fwd_speed)
+	var run: Dictionary = _dog_anims["run"]
+	var walk: Dictionary = _dog_anims.get("walk", run)
+	var w_run := smoothstep(3.0, 7.0, sp)
+	var w_idle := 1.0 - smoothstep(0.2, 1.2, sp) if _dog_anims.has("idle") else 0.0
+	var stride_run := maxf(float(run["move"]) * spec.scale, 0.5)
+	var stride_walk := maxf(float(walk["move"]) * spec.scale, 0.3)
+	var hz := lerpf(sp / stride_walk, minf(sp / stride_run, DOG_RUN_HZ), w_run)
+	if not kart.grounded and kart.air_time > 0.15:
+		hz *= 0.35
+	var prev := _cycle
+	_cycle = fposmod(_cycle + hz * delta * (-1.0 if kart.fwd_speed < -0.05 else 1.0), 1.0)
+	for bi in _dog_bones:
+		var r := skel.get_bone_rest(bi)
+		var q: Quaternion = _dog_sample(walk, bi, r, true)
+		var p: Vector3 = _dog_sample(walk, bi, r, false)
+		if w_run > 0.0:
+			q = q.slerp(_dog_sample(run, bi, r, true), w_run)
+			p = p.lerp(_dog_sample(run, bi, r, false), w_run)
+		if w_idle > 0.0:
+			q = q.slerp(_dog_sample(_dog_anims["idle"], bi, r, true), w_idle)
+			p = p.lerp(_dog_sample(_dog_anims["idle"], bi, r, false), w_idle)
+		skel.set_bone_pose_rotation(bi, q)
+		skel.set_bone_pose_position(bi, p)
+	if sp > 1.0 and kart.grounded and kart.audio and floor(prev * 2.0) != floor(_cycle * 2.0):
+		kart.audio.footstep()
+
+
+## Bone `bi`'s rotation (or position) in animation `a` at the current cycle, between its two
+## nearest frames; its rest `r` where the animation leaves it alone. A looping animation's last
+## frame is its first again.
+func _dog_sample(a: Dictionary, bi: int, r: Transform3D, rot: bool) -> Variant:
+	var tr = a["tracks"].get(bi)
+	if tr == null:
+		return r.basis.get_rotation_quaternion() if rot else r.origin
+	var n: int = a["frames"]
+	if n <= 1:
+		return tr[0][0] if rot else tr[1][0]
+	var f := _cycle * float(n - 1)
+	var i := mini(int(f), n - 2)
+	var t := f - float(i)
+	if rot:
+		return (tr[0][i] as Quaternion).slerp(tr[0][i + 1], t)
+	return (tr[1][i] as Vector3).lerp(tr[1][i + 1], t)
+
+
+## Swinging legs, for content built before Dog's animations were extracted.
+func _dog_swing(delta: float) -> void:
 	var sp := absf(kart.fwd_speed)
 	var a := clampf(sp / 14.0, 0.0, 1.0)
 	var prev := _gait
-	_gait += kart.fwd_speed * delta / 3.2 * TAU
+	_gait += clampf(kart.fwd_speed / 3.2, -DOG_RUN_HZ, DOG_RUN_HZ) * delta * TAU
 	var s := sin(_gait)
 	var c := cos(_gait)
 	_dog_rot("Leg1_L", -s * 0.7 * a)
@@ -190,10 +282,6 @@ func _animate_dog(delta: float) -> void:
 	# footfalls
 	if a > 0.1 and floor(prev / PI) != floor(_gait / PI) and kart.grounded and kart.audio:
 		kart.audio.footstep()
-	# keep the rider on the shoulders as the body bobs
-	if driver and _dog.has("Spine3"):
-		var sh := buggy.transform * skel.get_bone_global_pose(_dog["Spine3"]["i"]).origin
-		driver.position = sh + Vector3(0, 0.05, 0.05) - driver.basis * (_rider_pelvis * driver.scale.x)
 
 
 # ---------------------------------------------------------------- driver

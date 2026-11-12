@@ -21,6 +21,11 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
   calling it with R all end that way; other players see the flash of its camera. No more drop
   from under the scanner: you are put on your wheels and drive off as the white fades, a little
   sooner than before.
+- Dog runs with Half-Life 2's own animations now: it stands with its idle pose, walks off
+  with its walk and gallops on its knuckles with its run, blended by speed. At kart speeds the
+  stride tops out at three a second and the feet slide, instead of the legs blurring. The
+  animations are read from your Half-Life 2 when the content is built (tools/mdl_anim.py):
+  content built before this keeps the old swinging legs, which no longer blur either.
 - Online, everyone needs this version (network protocol 4).
 
 ## [0.2.0] - 2026-11-12

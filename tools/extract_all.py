@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import keyvalues  # noqa: E402
 import materials  # noqa: E402
 import mdl  # noqa: E402
+import mdl_anim  # noqa: E402
 import sounds  # noqa: E402
 import srcfs  # noqa: E402
 
@@ -102,6 +103,13 @@ HL1_CROWD = [
     ("hl1/zombie", ["valve/models/zombie.mdl"], {}),  # Black Mesa waste egg
     ("hl1/boid", ["valve/models/boid.mdl"], {}),  # Surface Tension birds
 ]
+
+# Animations the game plays on a converted model (<key>.anims.json next to its glTF): the model key,
+# the model that holds them, and our name -> its animation. Dog's run and walk are the forward ("N")
+# pieces of HL2's run_all / walk_all.
+ANIMS = {
+    "dog": ("models/dog_animations.mdl", {"run": "a_run_N", "walk": "a_walk_N", "idle": "idle01"}),
+}
 
 MODELS = [
     "buggy", "vehicle", "combine_apc", "props_vehicles/apc001", "props_vehicles/apc_tire001",
@@ -618,6 +626,23 @@ def surface_props(fs):
     return resolved, gs
 
 
+def write_anims(fs):
+    """assets/models/<key>.anims.json for each ANIMS entry (tools/mdl_anim.py)."""
+    for key, (src, names) in ANIMS.items():
+        if not fs.exists(src):
+            log("  -- missing animations", src)
+            continue
+        try:
+            got = mdl_anim.anims(fs, src, list(names.values()))
+        except Exception as e:  # noqa
+            log("  !! animations", src, repr(e))
+            continue
+        out = {ours: got[theirs] for ours, theirs in names.items() if theirs in got}
+        with open(os.path.join(ASSETS, "models", key + ".anims.json"), "w") as f:
+            json.dump(out, f, separators=(",", ":"))
+        log("animations", key, ", ".join("%s %d frames" % (k, v["frames"]) for k, v in out.items()))
+
+
 def main():
     t0 = time.time()
     fs = srcfs.GameFS()
@@ -680,6 +705,7 @@ def main():
         log("hl1 prop", key)
     with open(os.path.join(data_dir, "models.json"), "w") as f:
         json.dump(model_index, f, indent=1)
+    write_anims(fs)
 
     # ---- world materials ----
     for m in WORLD_MATERIALS:

@@ -59,6 +59,9 @@ then tells players about it.
   of styled stretches (`CTRL`), its shortcuts (`BRANCHES`), its hazards (`TRACK["hazards"]`)
   and its spectators (`crowds()`). Ravenholm, the Coast, Nova Prospekt, White Forest or the
   Citadel would all be great.
+- **More animation**: `tools/mdl_anim.py` reads a model's animations (Dog's run, walk and
+  idle are listed in `ANIMS` in `tools/extract_all.py`); the scanner, the strider or the
+  spectators could play theirs too.
 - **Linux support**: the tools already know Linux Steam paths; the release packaging and
   the first-start screen need a Linux path.
 - **Gamepad and accessibility**: rebinding controls, colour-blind friendly HUD.
