@@ -19,6 +19,9 @@ var _edge_fwd := Vector3.FORWARD
 var _dropped := false  # the last frame was a drop view (_drop_view)
 var _seen_from := Vector3.ZERO  # drop view: where round the kart it is seen from (_spot), ZERO while the wanted spot sees it
 var _look_t := 0.0  # drop view: seconds until that spot is looked for again
+var _cut_t := 0.0  # seconds the chase view cuts straight to its place (under a photo flash)
+var _flash: ColorRect  # photo_flash: white over the view, under the HUD
+var _flash_tw: Tween
 
 
 func _ready() -> void:
@@ -31,6 +34,28 @@ func _ready() -> void:
 
 func shake(amount: float) -> void:
 	_shake = maxf(_shake, amount)
+
+
+## The scanner photographs this camera's kart (Scanner._shoot): the view goes white and fades back
+## in on the road it was put back on; under the white the chase view cuts there instead of sweeping.
+## Over the view, under the HUD (its panels and the pause menu stay readable), so it shows with the
+## HUD hidden too.
+func photo_flash() -> void:
+	if _flash == null:
+		var layer := CanvasLayer.new()
+		layer.layer = 4
+		add_child(layer)
+		_flash = ColorRect.new()
+		_flash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		layer.add_child(_flash)
+	if _flash_tw:
+		_flash_tw.kill()
+	_flash.color = Color(0.95, 0.98, 1.0, 1.0)
+	_flash_tw = _flash.create_tween()
+	_flash_tw.tween_interval(0.1)
+	_flash_tw.tween_property(_flash, "color:a", 0.0, 0.9).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_cut_t = 0.3
 
 
 func _physics_process(delta: float) -> void:
@@ -55,6 +80,7 @@ func _physics_process(delta: float) -> void:
 			var p2 := kp + Vector3(cos(_orbit) * 9.0, 3.5, sin(_orbit) * 9.0)
 			global_position = global_position.lerp(p2, minf(1.0, delta * 3.0))
 			look_at(kp + Vector3.UP * 1.3, Vector3.UP)
+	_cut_t = maxf(0.0, _cut_t - delta)
 	if _shake > 0.0:
 		_shake = maxf(0.0, _shake - delta * 1.8)
 		h_offset = randf_range(-1, 1) * _shake * 0.35
@@ -86,8 +112,10 @@ func _chase(delta: float) -> void:
 		kfwd = _fwd
 	kfwd = kfwd.normalized()
 	var turn_rate := 4.5 if k.state == Kart.State.NORMAL else 1.0
-	# back from a drop view (cut to the road the scanner put it on): straight in behind it
-	_fwd = kfwd if _dropped else _fwd.slerp(kfwd, minf(1.0, delta * turn_rate)).normalized()
+	# back from a drop view, or under a photo flash (cut to the road the scanner put it on):
+	# straight in behind it
+	var cut := _dropped or _cut_t > 0.0
+	_fwd = kfwd if cut else _fwd.slerp(kfwd, minf(1.0, delta * turn_rate)).normalized()
 	var back := k.in_look_back
 	var dir := -_fwd if back else _fwd
 	# frame bigger vehicles (APCs) from further back and higher, relative to the jeep
@@ -105,7 +133,7 @@ func _chase(delta: float) -> void:
 		desired = hit["position"] + (from - desired).normalized() * 0.6
 	# never sweep through a wall or a deck: a move that would (back from a drop view onto the
 	# road the scanner put the kart on, say) is a cut
-	if _dropped or not _clear(space, _pos, desired):
+	if cut or not _clear(space, _pos, desired):
 		_pos = desired
 	else:
 		_pos = _pos.lerp(desired, minf(1.0, delta * 18.0))
@@ -126,9 +154,11 @@ func _drop_floor(k: Kart) -> float:
 	var g := k.geo()
 	var road_y := g.center[k.route_index].y
 	if k.state == Kart.State.RESPAWN:
+		if k.placed():
+			return -INF  # photographed and back on the road: behind it there
 		if k.rescue == Kart.Rescue.SINK:
 			return maxf(k.liquid.x + 2.2, road_y + 2.5)
-		if k.rescue == Kart.Rescue.FALL and not k.freeze:
+		if k.rescue == Kart.Rescue.FALL:
 			return k.fall_floor + 2.5
 		return -INF
 	if not k.grounded and k.air_time > 0.35 and g.mag[k.route_index] <= 0.0 and k.global_position.y < road_y - 3.0:

@@ -3,6 +3,16 @@
 All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](https://semver.org):
 `MAJOR.MINOR.PATCH` (while in 0.x, MINOR is a feature release and PATCH a fix).
 
+## [Unreleased]
+
+### Changed
+- The scanner rescue is a photo now. The scanner flies in to hang in front of your kart, its eye
+  blinking as it takes aim, and photographs you: the screen goes white, and as it fades you are
+  back on the road with the scanner beside you, climbing away. Sinking, falling off an edge or
+  calling it with R all end that way; other players see the flash of its camera. No more drop
+  from under the scanner: you are put on your wheels and drive off as the white fades, a little
+  sooner than before.
+
 ## [0.2.0] - 2026-11-12
 
 Shortcuts, track hazards and spectators on five redesigned circuits. This release also

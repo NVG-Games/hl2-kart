@@ -116,8 +116,9 @@ speed, acceleration, weight, handling and engine sound.
 - **Drifting:** hold jump in a turn, let AUX POWER charge and release for a mini or
   super turbo. Hold the throttle on "one" for a rocket start.
 - **Rescue:** drive into water or slime and you splash and sink before a Combine scanner
-  hauls you out; fall off, get wedged or end up behind a wall and it lifts you back onto
-  the road. WRONG WAY flashes when you drive back along the road.
+  hauls you out; fall off, get wedged or end up behind a wall and it flies to you. Either
+  way it takes your photo, and in the white flash you're back on the road. WRONG WAY
+  flashes when you drive back along the road.
 - **Multiplayer:** LAN and internet, a Half-Life style server browser, a lobby with chat,
   bots for the empty grid slots, a dedicated server and a master server.
 - **Source look and feel:** VertexLitGeneric / LightmappedGeneric style shaders, HL2 and

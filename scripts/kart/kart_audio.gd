@@ -96,7 +96,7 @@ func _process(delta: float) -> void:
 		if frac > GEAR_SPEEDS[i]:
 			g = i + 1
 	g = mini(g, 3)
-	if kart.state == Kart.State.RESPAWN:
+	if kart.state == Kart.State.RESPAWN and not kart.placed():
 		_ease_db(engine, -40.0, delta * 3.0)
 	elif throttle and frac > 0.04:
 		var gears: Array = snd["gears"]

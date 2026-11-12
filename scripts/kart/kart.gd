@@ -16,9 +16,14 @@ enum Rescue { SCAN, SINK, FALL }
 enum Unstick { NONE, TRYING, GAVE_UP }
 const SINK_T := 1.5  # under the surface before the scanner hauls it out
 const HAUL_T := 1.0  # pulled up out of the liquid
-const SINK_DONE := 3.0  # back on the road
-const FALL_T := 1.1  # dropping out of sight before the scanner brings it back
-const DROP_DONE := 2.6  # hanging under the scanner over the road, then let go
+const FALL_SCANNER := 0.15  # dropping away before a scanner dives after it
+## The scanner's photo (photo_time): in its flash the kart is back on the road, where it settles on
+## its wheels for SETTLE seconds, engine off, before it is let go
+const SCAN_PHOTO := 1.8  # flown in, its light on the kart, the shot
+const SINK_PHOTO := 2.9  # sunk, hauled out, dripping under the scanner, the shot
+const FALL_PHOTO := 2.0  # dropping away with the scanner after it, the shot
+const SETTLE := 0.6
+const PUT_LIFT := 0.6  # metres over the road it is put back at, to drop onto its wheels
 const CRAB_IMMUNE := 6.0  # seconds after a headcrab lets go before another can land
 ## Tube exits: from TUBE_EXIT metres before a tube ends (and anywhere in one while spun or
 ## tumbling) a kart further round the pipe than its lane comes back down to it, closing in at up
@@ -114,6 +119,7 @@ var _sink_from := Transform3D.IDENTITY
 var _sink_vel := Vector3.ZERO
 var _sink_glide := Vector3.ZERO  # SINK: how far it glides on under the surface (short of any wall)
 var _scanned := false
+var _back := false  # rescue: photographed and put back on the road, settling until let go
 var _dripping := false
 var _branch_entry := 0.0  # route_u where it joined the branch it is on (_leave_branch credits from the fork)
 # round a pipe back to its lane (_tube_gravity): the way along the pipe and round it, the
@@ -371,11 +377,17 @@ func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
 			if state_time > lim:
 				state = State.NORMAL
 		State.RESPAWN:
-			if rescue == Rescue.FALL:
+			if _back:
+				# back on the road under the photo flash: on its wheels, engine off until let go
+				throttle = 0.0
+				brake = 0.0
+				steer = 0.0
+			elif rescue == Rescue.FALL:
 				return  # only gravity: no engine, grip or air control while it drops away
-			st.linear_velocity = Vector3.ZERO
-			st.angular_velocity = Vector3.ZERO
-			return
+			else:
+				st.linear_velocity = Vector3.ZERO
+				st.angular_velocity = Vector3.ZERO
+				return
 		State.FINISHED:
 			pass
 
@@ -775,9 +787,10 @@ func _behind_wall(g: TrackPath, i: int) -> bool:
 	return not hit.is_empty() and hit["collider"] is Node and (hit["collider"] as Node).get_meta("surface", "road") == "wall"
 
 
-## Combine scanner fishes the kart out (Lakitu, City 17 style). SCAN: photographed where it
-## stopped and put back; SINK: splash, sink, hauled out dripping; FALL: drops out of sight,
-## then a scanner lowers it back onto the road. `liq` is the liquid for SINK (Track.liquid_at).
+## Combine scanner fishes the kart out (Lakitu, City 17 style) and photographs it (Scanner): in
+## the flash it is back on the road. SCAN: flown to where it stopped; SINK: splash, sink, hauled
+## out dripping; FALL: it drops away with the scanner diving after it. `liq` is the liquid for
+## SINK (Track.liquid_at).
 func start_respawn(mode := Rescue.SCAN, liq := Vector2(-1e9, 0.0)) -> void:
 	if state == State.RESPAWN or remote:
 		return
@@ -788,6 +801,7 @@ func start_respawn(mode := Rescue.SCAN, liq := Vector2(-1e9, 0.0)) -> void:
 	rescue = mode
 	unstick = Unstick.NONE
 	_scanned = false
+	_back = false
 	_dripping = false
 	drifting = false
 	boost_time = 0.0
@@ -814,29 +828,43 @@ func start_respawn(mode := Rescue.SCAN, liq := Vector2(-1e9, 0.0)) -> void:
 
 
 func _respawn_tick(_delta: float) -> void:
+	if _back:
+		if state_time > photo_time() + SETTLE:
+			state = State.NORMAL
+			state_time = 0.0
+			star_time = maxf(star_time, 1.2)
+		return
 	match rescue:
 		Rescue.SINK:
 			if state_time > 0.25 and not _scanned:
 				_scanned = true
 				Scanner.rescue(self)
 			_sink_tick()
-			if state_time > SINK_DONE:
-				_put_back(1.2)
 		Rescue.FALL:
-			if not freeze and state_time > FALL_T:
-				# out of sight: hang it under a scanner above the road, then let go
-				freeze = true
-				_put_back(2.6, false)
+			if state_time > FALL_SCANNER and not _scanned:
 				_scanned = true
 				Scanner.rescue(self)
-			elif freeze and state_time > DROP_DONE:
-				freeze = false
-				state = State.NORMAL
-				state_time = 0.0
-				star_time = maxf(star_time, 1.2)
-		_:
-			if state_time > 2.2:
-				_put_back(1.2)
+	if state_time >= photo_time():
+		# the scanner's flash: back on the road, a little over it to drop onto its wheels
+		_back = true
+		_put_back(PUT_LIFT, false)
+		freeze = false
+
+
+## When, into its rescue, the scanner photographs it (and in that flash it is back on the road).
+func photo_time() -> float:
+	match rescue:
+		Rescue.SINK:
+			return SINK_PHOTO
+		Rescue.FALL:
+			return FALL_PHOTO
+	return SCAN_PHOTO
+
+
+## Photographed and back on the road, not yet let go (from the kart's own clock, so a proxy, whose
+## new place arrives a little later, agrees with its owner).
+func placed() -> bool:
+	return state == State.RESPAWN and state_time >= photo_time()
 
 
 ## SINK: under the surface the kart glides on a little, noses down and sinks slowly
@@ -890,7 +918,7 @@ func _clear_glide(glide: Vector3) -> Vector3:
 
 ## Back on the road a bit behind where it left (never into a jump gap, nor so close in front of
 ## one that it could not get up to speed: past_gap), `lift` metres up. `release` drops it straight
-## away; FALL keeps it hanging under the scanner first. On a branch its respawn policy decides:
+## away; a rescue lets it settle first (_respawn_tick). On a branch its respawn policy decides:
 ## "before" retries the jump it missed with a run-up when that run-up is winnable from a
 ## standstill (retry_winnable), "after" lands it past the gap, "main" (also for an unwinnable
 ## retry, and any second fall on one pass) gives up on it.
@@ -1504,7 +1532,7 @@ func _net_rescue(flags: int) -> void:
 					Scanner.rescue(self))
 		Rescue.FALL:
 			fall_floor = geo().center[route_index].y
-			get_tree().create_timer(FALL_T).timeout.connect(func():
+			get_tree().create_timer(FALL_SCANNER).timeout.connect(func():
 				if is_instance_valid(self) and state == State.RESPAWN:
 					Scanner.rescue(self))
 		_:

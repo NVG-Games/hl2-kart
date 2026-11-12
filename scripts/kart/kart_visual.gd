@@ -445,16 +445,10 @@ func _process(delta: float) -> void:
 	visible = _shown()
 
 
-## Hidden while a scanner "takes" it: SCAN between the photo and the drop, FALL from the
-## moment it is out of sight until the scanner has it over the road; SINK stays visible
-## (the liquid hides it, then it is hauled out).
+## Gone for a moment in the flash of the scanner's photo (Kart.photo_time) as it is taken back
+## to the road (that also hides a proxy until its new place arrives from its owner).
 func _shown() -> bool:
 	if kart.state != Kart.State.RESPAWN:
 		return true
-	var t := kart.state_time
-	match kart.rescue:
-		Kart.Rescue.SINK:
-			return true
-		Kart.Rescue.FALL:
-			return t < Kart.FALL_T or t > Kart.FALL_T + 0.75
-	return t < 0.6 or t > 2.0
+	var t := kart.state_time - kart.photo_time()
+	return t < 0.0 or t > 0.25
