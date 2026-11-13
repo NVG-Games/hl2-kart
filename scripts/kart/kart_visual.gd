@@ -38,6 +38,7 @@ var _lean := 0.0
 var _sparks: Array[CPUParticles3D] = []
 var _dust: Array[CPUParticles3D] = []
 var _flame: CPUParticles3D
+var _thrusters := false  # its own jets show the boost (Thrusters)
 var _flame_light: OmniLight3D
 var _star_glow: OmniLight3D
 var _wet := 0.0  # 1 = just fished out of a liquid, dries off over a few seconds
@@ -87,6 +88,11 @@ func setup(k: Kart) -> void:
 			_setup_dog()
 	_setup_driver()
 	_setup_effects()
+	if spec.def.has("thrusters"):
+		var th := Thrusters.new()
+		add_child(th)
+		th.setup(k, spec.def["thrusters"])
+		_thrusters = true
 
 
 func _find_skeleton(n: Node) -> Skeleton3D:
@@ -513,8 +519,8 @@ func _process(delta: float) -> void:
 	for d in _dust:
 		d.emitting = kart.offroad and kart.grounded and absf(kart.fwd_speed) > 6.0
 	var boosting := kart.boost_time > 0.0
-	_flame.emitting = boosting
-	_flame_light.light_energy = lerpf(_flame_light.light_energy, 2.5 if boosting else 0.0, minf(1.0, delta * 10.0))
+	_flame.emitting = boosting and not _thrusters
+	_flame_light.light_energy = lerpf(_flame_light.light_energy, 2.5 if boosting and not _thrusters else 0.0, minf(1.0, delta * 10.0))
 	var star := kart.star_time > 0.0
 	_star_glow.light_energy = (1.5 + sin(Time.get_ticks_msec() * 0.03) * 0.8) if star else 0.0
 	var flash := 0.0

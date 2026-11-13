@@ -56,7 +56,7 @@ dressed with the games' own textures, models, skies, signs and music.
     <td width="50%"><img src="docs/media/ct17.webp" alt="CT17"></td>
   </tr>
   <tr>
-    <td><b>Highway 17</b><br>Out of City 17 through the Combine checkpoint and its force-field gate, round the headland on the coast road under a strafing gunship, a jump over the inlet, out round a flooded quarry, through the hopper mines on the dirt road and back up the canal. Pick the weather.<br><i>Shortcuts:</i> the <b>headland trail</b>, a dirt track over two crests (any speed, a boost pad on it), and the <b>quarry jump</b> straight across the flooded pit (flat out, a boost pad on the run-up; fall in and the scanner puts you down past the gap).</td>
+    <td><b>Highway 17</b><br>Out of City 17 through the Combine checkpoint and its force-field gate, round the headland on the coast road under a strafing gunship, a jump over the inlet, out round a flooded quarry, through the hopper mines on the dirt road and back up the canal.<br><i>Shortcuts:</i> the <b>headland trail</b>, a dirt track over two crests (any speed, a boost pad on it), and the <b>quarry jump</b> straight across the flooded pit (flat out, a boost pad on the run-up; fall in and the scanner puts you down past the gap).</td>
     <td><b>CT17</b><br>Combine-held City 17 as a figure-8: the station plaza under the Breencasts, a cutting and an underpass, a Combine pipe whose road climbs the wall nearly to the roof, the rail yard with its jump and a Combine train at the level crossing, the canal corner watched by a strider, the checkpoint's floor turrets, the old-town hairpins, the flyover and the boulevard toward the Citadel.<br><i>Shortcuts:</i> the <b>canal jump</b> straight over the canal instead of round the corner (flat out; short of the far bank you swim), and the <b>rooftops</b>, a ramp onto the old town's roofs and a jump over the street (it needs a suit battery or HEV boost; short of the far roof you land in the street below).</td>
   </tr>
   <tr>
@@ -87,7 +87,8 @@ from Half-Life. Each one talks with their own lines from the games.
 <p align="center"><img src="docs/media/vehicles.jpg" alt="Vehicles"></p>
 
 The scout car, Gordon's muscle car from Episode Two, the Combine APC, a military APC,
-Dog (carrying the racer on his shoulders) and a bathtub on wheels, each with its own
+Dog (carrying the racer on his shoulders) and a bathtub on wheels with two propane-tank
+thrusters, Garry's Mod style, each with its own
 speed, acceleration, weight, handling and engine sound.
 
 ## Features
@@ -196,7 +197,7 @@ browser and LAN discovery, and optionally a master server on UDP 27010 for the I
 tab.
 
 - **Host:** CREATE SERVER, set the name, password, player limit, bots, laps, difficulty,
-  track hazards, track and weather. The host races too.
+  track hazards and track. The host races too.
 - **Join:** FIND SERVERS. On the same network the server shows up under LAN; over the
   internet type the host's address. Without UPnP on the host's router, forward UDP
   27015–27016 or play over a virtual LAN (Radmin VPN, ZeroTier, Tailscale).

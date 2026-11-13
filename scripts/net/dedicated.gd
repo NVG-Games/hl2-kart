@@ -51,7 +51,7 @@ func _command(line: String) -> void:
 	match cmd:
 		"help":
 			print("status | say <text> | kick <nick> | start | lobby | set <rule> <value> | rules | quit")
-			print("rules: hostname maxplayers bot_fill bot_grid mp_laps mp_difficulty mp_hazards mp_weather sv_password")
+			print("rules: hostname maxplayers bot_fill bot_grid mp_laps mp_difficulty mp_hazards sv_password")
 		"status":
 			var info := Net.server_info()
 			print("hostname: %s\nstate   : %s\nplayers : %d/%d" % [info["name"], info["state"], info["players"], info["max"]])

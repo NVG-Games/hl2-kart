@@ -6,6 +6,9 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
 ## [Unreleased]
 
 ### Added
+- The bathtub has thrusters now: two propane tanks along its sides at the back, Garry's Mod
+  style, with jets that follow the throttle, go long and blue-white on a boost and roar like
+  a rocket.
 - The supercharged gravity gun, the Citadel's blue one, is a new item, mostly for the back of
   the race. It blasts every kart in a wide cone in front of you high into the air (they keep
   little of their speed and can come down off the road), sets off barrels and bursts
@@ -27,6 +30,11 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
   animations are read from your Half-Life 2 when the content is built (tools/mdl_anim.py):
   content built before this keeps the old swinging legs, which no longer blur either.
 - Online, everyone needs this version (network protocol 4).
+
+### Removed
+- The weather choice. It only ever changed Highway 17's sky; every circuit keeps its own
+  sky now (Highway 17 the overcast City 17 one most races had anyway). The race setup, the
+  server screens and the dedicated server (`mp_weather`, `--weather`) no longer have it.
 
 ## [0.2.0] - 2026-11-12
 

@@ -43,11 +43,7 @@ func build(track_name: String) -> void:
 		_build_environment(_bsp_sky())
 	else:
 		_build_geometry(track_name)
-		# only Highway 17 takes the weather picked in the menu; the others have their own sky
-		var sky := str(data.get("sky", "sky_day01_01"))
-		if Game.track(track_name).get("weather", false) and Game.race_setting("sky"):
-			sky = str(Game.race_setting("sky"))
-		_build_environment(sky)
+		_build_environment(str(data.get("sky", "sky_day01_01")))
 		if data.has("water") or sea_level > -500.0:
 			_build_water()
 			has_sea = true

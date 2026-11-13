@@ -51,22 +51,25 @@ const VEHICLES := [
 		"yaw": 90.0, "wheel_model": "props_vehicles/carparts_wheel01a", "wheel_scale": 0.71, "radius": [0.3, 0.3],
 		"wheel_pos": [Vector3(-0.6, 0.0, 0.42), Vector3(-0.6, 0.0, -0.42), Vector3(0.6, 0.0, 0.42), Vector3(0.6, 0.0, -0.42)],
 		"hull_lift": 0.42, "eye_pos": Vector3(0.3, 0.43, 0.0),
+		# two propane tanks along its sides at the back, Garry's Mod style (Thrusters)
+		"thrusters": {"model": "props_junk/propane_tank001a", "scale": 1.25,
+			"pos": [Vector3(0.68, 0.95, 1.0), Vector3(-0.68, 0.95, 1.0)]},
 		"speed": 0.97, "accel": 1.12, "weight": 0.72, "handling": 1.16,
-		"desc": "A clawfoot bathtub on four wheels. Light, twitchy and very, very fast to turn."},
+		"desc": "A clawfoot bathtub on four wheels and two propane thrusters. Light, twitchy and very, very fast to turn."},
 ]
 
 ## Circuits, all built by the track tools from Half-Life / Half-Life 2 content:
 ## Highway 17 by tools/build_track.py, the others by tools/track_gen.py.
 const TRACKS := [
-	{"id": "city17_circuit", "name": "Highway 17", "short": "HIGHWAY 17", "weather": true,
+	{"id": "city17_circuit", "name": "Highway 17", "short": "HIGHWAY 17",
 		"desc": "City 17, the Combine checkpoint, the coast road round the headland and the canal. Shortcuts: the headland trail and the quarry jump."},
-	{"id": "ct17", "name": "CT17", "short": "CT17", "weather": false,
+	{"id": "ct17", "name": "CT17", "short": "CT17",
 		"desc": "Combine-held City 17: the plaza, a pipe up the wall, the rail yard, the checkpoint and the old-town hairpins. Shortcuts: the canal jump and the rooftops."},
-	{"id": "xen", "name": "Xen", "short": "XEN", "weather": false,
+	{"id": "xen", "name": "Xen", "short": "XEN",
 		"desc": "Floating islands over the void: a cave that rolls you round, a chasm jump and a ledge with no railings. Shortcuts: the high root and the island hop."},
-	{"id": "black_mesa", "name": "Black Mesa", "short": "BLACK MESA", "weather": false,
+	{"id": "black_mesa", "name": "Black Mesa", "short": "BLACK MESA",
 		"desc": "Indoors at Black Mesa: twice across the reactor room, the accelerator tube and two slime jumps. Shortcuts: the crane gantry and the coolant jump."},
-	{"id": "surface_tension", "name": "Surface Tension", "short": "SURFACE TENSION", "weather": false,
+	{"id": "surface_tension", "name": "Surface Tension", "short": "SURFACE TENSION",
 		"desc": "The desert outside Black Mesa: the canyon, the gorge bridge, the HECU camp, the dam's water main and a cliff road. Shortcuts: the rim drop and the washout."},
 ]
 
@@ -79,15 +82,6 @@ const DIFFICULTIES := [
 const RACE_MUSIC := ["hl2_song12_long", "hl2_song14", "hl2_song16", "hl2_song20_submix0", "hl2_song29",
 	"hl2_song31", "hl2_song3", "hl2_song4", "hl2_song15", "vlvx_song27", "vlvx_song28", "vlvx_song22"]
 const MENU_MUSIC := ["hl2_song2", "hl2_song25_teleporter", "hl2_song23_suitsong3", "hl2_song1"]
-
-## HL2 skyboxes offered as race "weather" (name shown in the menu).
-const SKIES := [
-	["sky_day01_01", "CITY 17 OVERCAST"],
-	["sky_day01_05", "HIGHWAY 17 DAY"],
-	["sky_day02_09", "COASTAL STORM"],
-	["sky_day01_08", "DUSK"],
-	["sky_day03_06", "EVENING"],
-]
 
 const LAYER_WORLD := 1
 const LAYER_KART := 2
@@ -108,7 +102,6 @@ var settings := {
 	"laps": 3,
 	"hazards": 1,  # track hazards (scripts/hazards): 0 off, 1 on
 	"track": "city17_circuit",
-	"sky": "sky_day01_01",
 	"master_volume": 1.0,
 	"music_volume": 0.7,
 	"sfx_volume": 1.0,
@@ -137,7 +130,7 @@ var settings := {
 	"host_upnp": true,
 }
 
-## Race rules forced by a multiplayer server (laps, difficulty, sky, track);
+## Race rules forced by a multiplayer server (laps, difficulty, hazards, track);
 ## empty in single player. Read race rules through race_setting().
 var session := {}
 
@@ -213,18 +206,6 @@ func track(id: String) -> Dictionary:
 func track_thumb(id: String) -> Texture2D:
 	var path := "res://assets/ui/tracks/%s.png" % id
 	return load(path) if ResourceLoader.exists(path) else null
-
-
-## Names of the HL2 skies offered as weather, for dropdowns.
-func sky_names() -> Array:
-	return SKIES.map(func(k: Array) -> String: return k[1])
-
-
-func sky_index(id: String) -> int:
-	for i in SKIES.size():
-		if SKIES[i][0] == id:
-			return i
-	return 0
 
 
 func track_index(id: String) -> int:

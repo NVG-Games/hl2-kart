@@ -247,7 +247,7 @@ func _hazards() -> Control:
 func _online() -> Control:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 16)
-	v.add_child(_step(1, "Host", "CREATE SERVER: name it, set max players, laps, track, weather and track hazards (your choice counts for everyone). Bots can fill the empty grid slots or stay off for a pure 1 on 1. You race too."))
+	v.add_child(_step(1, "Host", "CREATE SERVER: name it, set max players, laps, track and track hazards (your choice counts for everyone). Bots can fill the empty grid slots or stay off for a pure 1 on 1. You race too."))
 	v.add_child(_step(2, "Join", "FIND SERVERS: friends on your network see you under LAN. Over the internet they type your address into Connect to address (open UDP 27015-27016 on the router; UPnP tries it for you)."))
 	v.add_child(_step(3, "Same version", "Everyone needs the same version of the game. A server running another version shows as (different version) in the list and can't be joined."))
 	v.add_child(_step(4, "Lobby", "Everyone picks a racer and a vehicle and presses READY: the race starts 5 seconds after the last one. The host can also START RACE at once, change the rules and KICK."))

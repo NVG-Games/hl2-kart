@@ -1,7 +1,7 @@
 class_name RaceSetup
 extends Control
 ## NEW RACE screen: pick a racer and a vehicle (card grids + live 3D preview),
-## then the race rules (difficulty, track hazards, laps, track, weather) and start. One place, one START.
+## then the race rules (difficulty, track hazards, laps, track) and start. One place, one START.
 
 signal back
 signal start
@@ -22,7 +22,6 @@ var vehicle_cards: Array[Button] = []
 var start_button: Button
 var laps_value: Label
 var track_desc: Label
-var weather: OptionButton
 var _racer := 0
 var _vehicle := 0
 var _preview: AudioStreamPlayer
@@ -179,7 +178,7 @@ func _refresh() -> void:
 
 
 # ---------------------------------------------------------------- rules
-## Picture card (track or weather): thumbnail with a caption, orange when picked.
+## Picture card (a track): thumbnail with a caption, orange when picked.
 func _pic_card(tex: Texture2D, caption: String, size: Vector2, group: ButtonGroup) -> Button:
 	var b := Button.new()
 	b.toggle_mode = true
@@ -260,10 +259,7 @@ func _rules_row() -> Control:
 	var w := VBoxContainer.new()
 	w.add_theme_constant_override("separation", 8)
 	w.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	w.add_child(UiKit.section("WEATHER"))
-	weather = UiKit.dropdown(Game.sky_names(), Game.sky_index(str(Game.settings.get("sky", ""))),
-		func(i: int): Game.settings["sky"] = Game.SKIES[i][0])
-	w.add_child(weather)
+	w.add_child(UiKit.section("ABOUT THE TRACK"))
 	track_desc = UiKit.label("", 14, UiKit.TEXT_DIM)
 	track_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	track_desc.custom_minimum_size.x = 220
@@ -273,12 +269,9 @@ func _rules_row() -> Control:
 	return panel
 
 
-## Description of the picked track; only Highway 17 takes a weather (the maps keep their own sky).
+## Description of the picked track.
 func _refresh_track() -> void:
-	var tr := Game.track(str(Game.settings.get("track", "")))
-	track_desc.text = tr["desc"]
-	weather.disabled = not tr.get("weather", false)
-	weather.tooltip_text = "" if tr.get("weather", false) else "This map keeps its own sky"
+	track_desc.text = Game.track(str(Game.settings.get("track", "")))["desc"]
 
 
 func _buttons_row() -> Control:

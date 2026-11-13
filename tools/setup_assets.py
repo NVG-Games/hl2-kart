@@ -27,7 +27,6 @@ sys.path.insert(0, HERE)
 # circuits built by track_gen.py (tools/circuits/<name>.py)
 CIRCUITS = ["ct17", "black_mesa", "xen", "surface_tension"]
 HL1_SKIES = ["desert", "alien1", "xen8", "neb7"]
-WEATHER = ["sky_day01_01", "sky_day01_05", "sky_day02_09", "sky_day01_08", "sky_day03_06"]
 STEPS = ["extract", "music", "skies", "highway17", "tracks", "import", "ui"]
 # share of the total time each step takes (for the progress bar)
 WEIGHTS = {"extract": 30, "music": 1, "skies": 6, "highway17": 8, "tracks": 15, "import": 22, "ui": 18}
@@ -129,17 +128,6 @@ def music_index():
     log("music.json:", len(out), "tracks")
 
 
-def weather_cards():
-    """assets/ui/skies/<sky>.png: a strip of each weather panorama for the menu."""
-    from PIL import Image
-    os.makedirs(os.path.join(ASSETS, "ui", "skies"), exist_ok=True)
-    for s in WEATHER:
-        im = Image.open(os.path.join(ASSETS, "sky", "%s_pano.png" % s)).convert("RGB")
-        w, h = im.size
-        crop = im.crop((int(w * 0.30), int(h * 0.18), int(w * 0.30) + int(w * 0.32), int(h * 0.18) + int(w * 0.32 * 0.45)))
-        crop.resize((384, 172), Image.LANCZOS).save(os.path.join(ASSETS, "ui", "skies", "%s.png" % s))
-
-
 def main():
     global LOG, STATUS, HL1_ROOT, HL2_ROOT, steam_libraries
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -205,7 +193,6 @@ def build(a, steps):
         elif step == "skies":
             py("make_skies.py")
             py("hl1_skies.py", *HL1_SKIES)
-            weather_cards()
         elif step == "highway17":
             py("build_track.py")
         elif step == "tracks":

@@ -265,8 +265,7 @@ func _on_cfg() -> void:
 	title_label.text = str(cfg.get("name", "LOBBY"))
 	var diff: String = Game.DIFFICULTIES[clampi(int(cfg.get("difficulty", 1)), 0, 2)]["name"]
 	var tr := Game.track(str(cfg.get("track", "")))
-	var sky: String = Game.SKIES[Game.sky_index(str(cfg.get("sky", "")))][1] if tr.get("weather", false) else "map sky"
-	sub_label.text = "%s  ·  %d laps  ·  %s  ·  %s  ·  %s%s%s" % [tr["name"], int(cfg.get("laps", 3)), diff, sky,
+	sub_label.text = "%s  ·  %d laps  ·  %s  ·  %s%s%s" % [tr["name"], int(cfg.get("laps", 3)), diff,
 		"bots fill the grid to %d" % int(cfg.get("grid", 8)) if cfg.get("bots", false) else "no bots",
 		"  ·  hazards off" if int(cfg.get("hazards", 1)) == 0 else "",
 		"  ·  password" if cfg.get("locked", false) else ""]
@@ -302,20 +301,15 @@ func _build_rules() -> void:
 	rules_box.add_child(UiKit.row("Difficulty", diff, w))
 	var hazards := UiKit.segmented(["OFF", "ON"], int(cfg.get("hazards", 1)), func(i: int): Net.set_rule("hazards", i))
 	rules_box.add_child(UiKit.row("Track hazards", hazards, w))
-	var sky := UiKit.dropdown(Game.sky_names(), Game.sky_index(str(cfg.get("sky", ""))), func(i: int): Net.set_rule("sky", Game.SKIES[i][0]))
-	sky.disabled = not Game.track(str(cfg.get("track", ""))).get("weather", false)
 	var track_names: Array = Game.TRACKS.map(func(t: Dictionary) -> String: return t["name"])
 	var track := UiKit.dropdown(track_names, Game.track_index(str(cfg.get("track", ""))), func(i: int):
-		Net.set_rule("track", Game.TRACKS[i]["id"])
-		sky.disabled = not Game.TRACKS[i]["weather"])
+		Net.set_rule("track", Game.TRACKS[i]["id"]))
 	rules_box.add_child(UiKit.row("Track", track, w))
-	rules_box.add_child(UiKit.row("Weather", sky, w))
 	if not host:
 		# everyone sees the rules; only the host changes them
 		for c in [mp, grid, laps]:
 			((c as HBoxContainer).get_child(0) as HSlider).editable = false
 		bots.disabled = true
-		sky.disabled = true
 		track.disabled = true
 		for b in diff.get_children() + hazards.get_children():
 			(b as Button).disabled = true

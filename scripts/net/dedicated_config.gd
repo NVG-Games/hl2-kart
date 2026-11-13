@@ -5,20 +5,20 @@ class_name DedicatedConfig
 ## server.cfg cvar -> option key
 const CVARS := {
 	"hostname": "name", "port": "port", "maxplayers": "max_players", "bot_fill": "bots",
-	"bot_grid": "grid", "mp_laps": "laps", "mp_difficulty": "difficulty", "mp_hazards": "hazards", "mp_weather": "sky",
+	"bot_grid": "grid", "mp_laps": "laps", "mp_difficulty": "difficulty", "mp_hazards": "hazards",
 	"sv_password": "password", "sv_lan": "lan_only", "sv_master": "master", "sv_upnp": "upnp", "mp_track": "track", "map": "track",
 }
 ## command-line flag -> option key
 const FLAGS := {
 	"--name": "name", "--port": "port", "--max": "max_players", "--bots": "bots", "--grid": "grid",
-	"--laps": "laps", "--difficulty": "difficulty", "--hazards": "hazards", "--weather": "sky", "--sky": "sky",
+	"--laps": "laps", "--difficulty": "difficulty", "--hazards": "hazards",
 	"--password": "password", "--master": "master", "--config": "config", "--track": "track", "--map": "track",
 }
 
 
 static func defaults() -> Dictionary:
 	return {"name": "Half-Life 2: Kart server", "port": 27015, "max_players": 8, "bots": true, "grid": 8,
-		"laps": 3, "difficulty": 1, "hazards": 1, "sky": "sky_day01_01", "password": "", "lan_only": false,
+		"laps": 3, "difficulty": 1, "hazards": 1, "password": "", "lan_only": false,
 		"master": "", "upnp": false, "track": "city17_circuit"}
 
 
@@ -70,7 +70,7 @@ static func _read_cfg(path: String, o: Dictionary) -> void:
 			set_option(o, CVARS[key], value)
 
 
-## Parse a value the way the console does ("on", "1", "hard", "coastal storm").
+## Parse a value the way the console does ("on", "1", "hard", "xen").
 static func set_option(o: Dictionary, key: String, value: String) -> bool:
 	match key:
 		"port", "max_players", "grid", "laps":
@@ -95,16 +95,6 @@ static func set_option(o: Dictionary, key: String, value: String) -> bool:
 				o[key] = 1
 			else:
 				return false
-		"sky":
-			var found := ""
-			for s in Game.SKIES:
-				if s[0] == value or s[1].to_lower() == value.to_lower():
-					found = s[0]
-			if found == "" and value.is_valid_int():
-				found = Game.SKIES[clampi(int(value), 0, Game.SKIES.size() - 1)][0]
-			if found == "":
-				return false
-			o[key] = found
 		"track":
 			var found := ""
 			for t in Game.TRACKS:

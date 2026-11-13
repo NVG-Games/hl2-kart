@@ -20,7 +20,8 @@ signal countdown_changed(seconds: float)
 
 ## 2: _s_begin carries the server clock (the hazard clock). 3: a kart's state also carries its
 ## road, hits and held item and is stamped from the race's epoch; snapshots carry the start.
-## 4: the gravity gun pulls (its target travels with the item) and a supercharged one is new
+## 4: the gravity gun pulls (its target travels with the item) and a supercharged one is new; the
+## rules carry no sky (no weather choice)
 const PROTOCOL := 4
 const DEFAULT_PORT := 27015
 const MASTER_PORT := 27010
@@ -169,7 +170,6 @@ func host(options: Dictionary, as_dedicated := false) -> Error:
 		"grid": clampi(int(options.get("grid", MAX_RACERS)), 2, MAX_RACERS),
 		"laps": clampi(int(options.get("laps", 3)), 1, 9),
 		"difficulty": clampi(int(options.get("difficulty", 1)), 0, 2),
-		"sky": str(options.get("sky", "sky_day01_01")),
 		"track": str(options.get("track", "city17_circuit")),
 		"hazards": clampi(int(options.get("hazards", 1)), 0, 1),
 		"locked": _password != "",
@@ -547,7 +547,7 @@ func _start_race() -> void:
 	_to_clients(&"_s_countdown", [-1.0])
 	countdown_changed.emit(-1.0)
 	grid = _build_grid()
-	var rules := {"laps": cfg["laps"], "difficulty": cfg["difficulty"], "sky": cfg["sky"], "track": cfg["track"],
+	var rules := {"laps": cfg["laps"], "difficulty": cfg["difficulty"], "track": cfg["track"],
 		"hazards": cfg.get("hazards", 1), "epoch": now()}
 	for id in players:
 		players[id]["ready"] = false

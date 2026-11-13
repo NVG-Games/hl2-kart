@@ -27,7 +27,6 @@ func _ready() -> void:
 		get_tree().quit()
 		return
 	Game.settings["demo"] = true
-	Game.settings["sky"] = "sky_day01_01"
 	Game.settings["quality"] = 2
 	Game.settings["track"] = "city17_circuit"
 	race = load("res://scenes/race.tscn").instantiate()
@@ -166,7 +165,6 @@ func _track_thumbs() -> void:
 	await get_tree().process_frame
 	var keep: String = Game.settings.get("track", "city17_circuit")
 	Game.settings["demo"] = true
-	Game.settings["sky"] = "sky_day01_01"
 	for tr in Game.TRACKS:
 		Game.settings["track"] = tr["id"]
 		var r: Node = load("res://scenes/race.tscn").instantiate()

@@ -10,7 +10,6 @@ var done := {}
 func _ready() -> void:
 	out = OS.get_cmdline_user_args()[0]
 	Game.settings["demo"] = true
-	Game.settings["sky"] = OS.get_cmdline_user_args()[1] if OS.get_cmdline_user_args().size() > 1 else "sky_day01_01"
 	race = load("res://scenes/race.tscn").instantiate()
 	get_tree().root.add_child.call_deferred(race)
 
