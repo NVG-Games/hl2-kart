@@ -52,6 +52,23 @@ static func _num(info: Dictionary, key: String, def: float) -> float:
 	return def
 
 
+## The materials.json name of a surface material `imported` with a glTF scene. Godot's scene import
+## reads an "_alpha" or "_vcol" ending of a material's name (before any trailing digits) as a hint
+## and cuts it off, so a chain-link fence's "models/props_c17/fence_alpha" arrives as
+## "models/props_c17/fence": that ending is put back when only the name with it is known.
+static func source_name(imported: String) -> String:
+	if imported == "" or Game.materials_db.has(imported):
+		return imported
+	var stem := imported
+	while stem != "" and "0123456789. ".contains(stem[stem.length() - 1]):
+		stem = stem.left(stem.length() - 1)
+	var tail := imported.substr(stem.length())
+	for hint in ["_alpha", "_vcol"]:
+		if Game.materials_db.has(stem + hint + tail):
+			return stem + hint + tail
+	return imported
+
+
 ## Material for a model surface. `variant` lets callers tint per-kart without
 ## sharing the same ShaderMaterial instance.
 static func model_material(name: String, variant := "") -> Material:
@@ -79,6 +96,8 @@ static func _build_model_material(info: Dictionary) -> Material:
 		s.shader = SPRITE_SHADER
 		s.set_shader_parameter("tex", albedo)
 		return s
+	if shader == "refract":
+		return _refract_material(info)
 	if shader == "unlitgeneric" or info.get("translucent", false):
 		var sm := StandardMaterial3D.new()
 		sm.albedo_texture = albedo
@@ -135,13 +154,35 @@ static func _build_model_material(info: Dictionary) -> Material:
 	return m
 
 
+## Source's Refract on a model (the pane of a Combine shield, the shell of a Xen crystal) bends
+## what is behind it through a normal map and tints it; it has no base texture. Here it is a
+## see-through pane in its $refracttint (its tint texture is not converted: a pale blue stands in
+## for it), with the normal map for a glassy sheen, seen from both sides with $nocull. (The model
+## shader with no texture drew it as an opaque white sheet.)
+static func _refract_material(info: Dictionary) -> Material:
+	var m := StandardMaterial3D.new()
+	var params: Dictionary = info.get("params", {})
+	var c := _vec3(str(params.get("$refracttint", "")), Vector3(0.7, 0.85, 1.0))
+	m.albedo_color = Color(c.x, c.y, c.z, 0.3)
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.roughness = 0.15
+	m.metallic_specular = 0.9
+	var normal := tex(info.get("normal", ""))
+	if normal:
+		m.normal_enabled = true
+		m.normal_texture = normal
+	if info.get("nocull", false):
+		m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return m
+
+
 ## Material for a world surface (track geometry). `lit` makes it glow even when its VMT has no
 ## $selfillum, from both sides (the generator's light rings, lamp strips and glowing liquids).
 static func world_material(name: String, uv_scale := Vector2.ONE, lit := false) -> Material:
 	var key := "W|" + name + "|" + str(uv_scale) + ("|lit" if lit else "")
 	if _cache.has(key):
 		return _cache[key]
-	var info: Dictionary = Game.materials_db.get(name, {})
+	var info: Dictionary = Game.materials_db.get(source_name(name), {})
 	var m := ShaderMaterial.new()
 	# $translucent with an alpha channel (chain-link fences, grates) is cut out like $alphatest
 	# and, like $nocull, seen from both sides
@@ -196,7 +237,7 @@ static func apply_to(root: Node, variant := "", skin_map := {}) -> void:
 			var src := mi.mesh.surface_get_material(i)
 			if src == null:
 				continue
-			var mname := src.resource_name
+			var mname := source_name(src.resource_name)
 			if skin_map.has(mname):
 				mname = skin_map[mname]
 			mi.set_surface_override_material(i, model_material(mname, variant))

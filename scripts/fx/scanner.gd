@@ -1,46 +1,31 @@
 class_name Scanner
-extends Node3D
-## npc_cscanner doing Lakitu duty: flies in to hang just beyond the kart as the camera sees it
-## (sinking: over the liquid; falling: diving after it), turns to it, puts its light on it and
-## photographs it at the kart's photo_time. In that flash the kart is back on the road
-## (Kart._respawn_tick); for the kart the camera follows, the flash whites out the screen
-## (RaceCamera.photo_flash). The scanner then hangs by the kart on the road for a moment and
+extends Rescuer
+## npc_cscanner doing Lakitu duty, the City 17 rescue (Rescuer): flies in to hang just beyond the
+## kart as the camera sees it (sinking: over the liquid; falling: diving after it), turns to it,
+## puts its light on it and photographs it at the kart's photo_time. In that flash the kart is back
+## on the road (Kart._respawn_tick); for the kart the camera follows, the flash whites out the
+## screen (RaceCamera.photo_flash). The scanner then hangs by the kart on the road for a moment and
 ## climbs away.
 
 const FLY_IN := 0.7  # seconds from where it appears to its post by the kart
-const AIM := 0.6  # before the shot: a blip, the light coming up on the kart
 const STAND_OFF := 3.6  # metres beyond the kart (from the camera) it hangs, facing it
 const HANG := 2.0  # metres over the kart
 
-var kart: Kart
-var t := 0.0
 var model: Node3D
 var _start := Vector3.ZERO
 var _light: SpotLight3D
 var _burst: OmniLight3D  # the flash itself, lighting everything round the kart
-var _aimed := false
-var _shot := -1.0  # t of the photo, -1 before it
-var _at := Vector3.ZERO  # where the kart was just before the shot
-var _moved := false  # the kart has been taken to the road since the shot
-var _last_kp := Vector3.ZERO  # the kart's place last frame (it may be taken to the road before this frame's shot)
 var _side := Vector3.FORWARD  # level, which way from the kart it hangs (_away, eased)
-var _glint: MeshInstance3D  # its eye: blinks while it takes aim, flares at the shot
+var _glint: MeshInstance3D  # its eye: blinks while it takes aim (Rescuer.AIM), flares at the shot
 var _glint_mat: StandardMaterial3D
 static var _glint_tex: Texture2D
 
 
-static func rescue(k: Kart) -> void:
-	var s := Scanner.new()
-	k.get_parent().add_child(s)
-	s.setup(k)
-
-
 func setup(k: Kart) -> void:
-	kart = k
+	super(k)
 	model = Game.spawn_model("combine_scanner")
 	model.scale = Vector3.ONE * 2.0
 	add_child(model)
-	_last_kp = k.global_position
 	_side = _away(k.global_position)
 	_start = k.global_position + _side * 10.0 + Vector3.UP * 14.0
 	global_position = _start
@@ -75,25 +60,13 @@ func setup(k: Kart) -> void:
 	Game.play_3d("res://assets/sound/npc/scanner/scanner_blip1.wav", global_position, 0.0, 1.0, 14.0, self)
 
 
-func _process(delta: float) -> void:
-	t += delta
-	if not is_instance_valid(kart) or t > 10.0:
-		queue_free()
-		return
-	var kp := kart.global_position
+func _tick(kp: Vector3, delta: float) -> void:
 	# (round the shot the camera cuts to the road: there it turns with it at once)
 	var turn := 1.0 if _shot >= 0.0 and t - _shot < 0.5 else minf(1.0, delta * 3.0)
 	_side = _side.slerp(_away(kp), turn).normalized()
-	if _shot < 0.0:
-		if kart.state != Kart.State.RESPAWN:
-			# let go before this scanner got its shot (a proxy, an owner who left): it just leaves
-			_shot = t
-			_at = kp
-			_moved = true
-		else:
-			_approach(kp, delta)
-	if _shot >= 0.0:
-		_leave(kp, delta)
+
+
+func _after_tick(kp: Vector3, delta: float) -> void:
 	_light.light_energy = lerpf(_light.light_energy, 2.5 if _aimed and _shot < 0.0 else 0.0, minf(1.0, delta * 6.0))
 	_burst.light_energy = lerpf(_burst.light_energy, 0.0, minf(1.0, delta * 7.0))
 	# the eye: a glint that blinks while it takes aim, then the flash
@@ -109,7 +82,6 @@ func _process(delta: float) -> void:
 		_glint.scale = Vector3.ONE
 	_glint_mat.albedo_color.a = glint
 	_face(kp, delta)
-	_last_kp = kp
 
 
 ## A soft round glow (white in the middle, nothing at the edge), made once.
@@ -167,45 +139,39 @@ func _face(kp: Vector3, delta: float) -> void:
 
 
 ## In beyond the kart, facing it (over a liquid it stays above the surface while the kart sinks
-## below it), the light on it, then the shot.
+## below it), the light on it; then the shot (Rescuer: _aim, _take).
 func _approach(kp: Vector3, _delta: float) -> void:
 	if kart.rescue == Kart.Rescue.SINK:
 		kp.y = maxf(kp.y, kart.liquid.x)
 	var hover := _post(kp, HANG) + Vector3(0, sin(t * 5.0) * 0.15, 0) + _side.cross(Vector3.UP) * sin(t * 3.0) * 0.2
 	var a := clampf(t / FLY_IN, 0.0, 1.0)
 	global_position = _start.lerp(hover, a * a * (3.0 - 2.0 * a))
-	var shot_at := kart.photo_time()
-	if not _aimed and kart.state_time >= shot_at - AIM:
-		_aimed = true
-		Game.play_3d("res://assets/sound/npc/scanner/scanner_blip1.wav", global_position, 2.0, 1.15, 16.0, self)
-	if kart.state_time >= shot_at:
-		_shoot()
 
 
-func _shoot() -> void:
-	_shot = t
-	_at = _last_kp
+func _aim() -> void:
+	Game.play_3d("res://assets/sound/npc/scanner/scanner_blip1.wav", global_position, 2.0, 1.15, 16.0, self)
+
+
+## The photo (Rescuer flashes the screen of the camera following the kart, white).
+func _take() -> void:
 	Game.play_3d("res://assets/sound/npc/scanner/scanner_photo1.wav", global_position, 4.0, 1.0, 20.0, self)
 	_light.light_energy = 24.0
 	_burst.light_energy = 10.0
-	var cam = kart.race.get("camera") if kart.race else null
-	if cam is RaceCamera and (cam as RaceCamera).target == kart:
-		(cam as RaceCamera).photo_flash()
 
 
-## Beyond the kart where it was put back, a moment, then up and away. The kart is taken there in
-## the flash (on a proxy its new place arrives a little later): until it has moved the scanner
-## stays, then it is there at once (put back only a few metres off, it glides over after a moment).
-func _leave(kp: Vector3, delta: float) -> void:
-	var since := t - _shot
-	if not _moved and (kp.distance_to(_at) > 2.5 or since > 0.4):
-		_moved = true
-		if kp.distance_to(_at) > 2.5:
-			global_position = _post(kp, HANG)
+## The kart is taken to the road in the flash (on a proxy its new place arrives a little later):
+## the scanner is beyond it there at once (put back only a few metres off, it glides over after a
+## moment, _leave).
+func _arrive(kp: Vector3, far: bool) -> void:
+	if far:
+		global_position = _post(kp, HANG)
+
+
+## Beyond the kart where it was put back, a moment, then up and away (Rescuer frees it LINGER
+## seconds after the shot).
+func _leave(kp: Vector3, delta: float, since: float) -> void:
 	if not _moved:
 		return
 	var climb := maxf(0.0, since - 0.5)
 	var over := _post(kp, HANG) + Vector3.UP * climb * climb * 7.0
 	global_position = global_position.lerp(over, minf(1.0, delta * 10.0))
-	if since > 2.2:
-		queue_free()

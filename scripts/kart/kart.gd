@@ -8,17 +8,18 @@ signal item_changed(kart: Kart)
 signal got_hit(kart: Kart, by: Kart)
 
 enum State { NORMAL, SPIN, TUMBLE, RESPAWN, FINISHED }
-## How the scanner gets a kart back (start_respawn): SCAN photographs it where it stopped,
-## SINK lets it splash into a liquid and fishes it out, FALL lets it drop out of sight first.
+## How the track's rescuer (Rescuer: the scanner, a teleport, a Xen portal) gets a kart back
+## (start_respawn): SCAN takes it where it stopped, SINK lets it splash into a liquid and sink
+## first, FALL lets it drop out of sight first.
 enum Rescue { SCAN, SINK, FALL }
 ## A computer driver stuck on a wall or a prop (AIController): TRYING while it backs off and turns
 ## away (the stall rescue waits for that try), GAVE_UP once its tries failed (the scanner comes at once).
 enum Unstick { NONE, TRYING, GAVE_UP }
 const SINK_T := 1.5  # under the surface before the scanner hauls it out
 const HAUL_T := 1.0  # pulled up out of the liquid
-const FALL_SCANNER := 0.15  # dropping away before a scanner dives after it
-## The scanner's photo (photo_time): in its flash the kart is back on the road, where it settles on
-## its wheels for SETTLE seconds, engine off, before it is let go
+const FALL_SCANNER := 0.15  # dropping away before the rescuer comes after it
+## The scanner's photo, the teleport's or the portal's flash (photo_time): in it the kart is back on
+## the road, where it settles on its wheels for SETTLE seconds, engine off, before it is let go
 const SCAN_PHOTO := 1.8  # flown in, its light on the kart, the shot
 const SINK_PHOTO := 2.9  # sunk, hauled out, dripping under the scanner, the shot
 const FALL_PHOTO := 2.0  # dropping away with the scanner after it, the shot
@@ -803,10 +804,10 @@ func _behind_wall(g: TrackPath, i: int) -> bool:
 	return not hit.is_empty() and hit["collider"] is Node and (hit["collider"] as Node).get_meta("surface", "road") == "wall"
 
 
-## Combine scanner fishes the kart out (Lakitu, City 17 style) and photographs it (Scanner): in
-## the flash it is back on the road. SCAN: flown to where it stopped; SINK: splash, sink, hauled
-## out dripping; FALL: it drops away with the scanner diving after it. `liq` is the liquid for
-## SINK (Track.liquid_at).
+## The track's rescuer (Rescuer.rescue: the Combine scanner's photo in City 17, a teleport at
+## Black Mesa, a portal on Xen) takes the kart: in its flash it is back on the road. SCAN: it comes
+## to where the kart stopped; SINK: splash, sink, hauled out dripping; FALL: the kart drops away
+## with the rescuer after it. `liq` is the liquid for SINK (Track.liquid_at).
 func start_respawn(mode := Rescue.SCAN, liq := Vector2(-1e9, 0.0)) -> void:
 	if state == State.RESPAWN or remote:
 		return
@@ -840,7 +841,7 @@ func start_respawn(mode := Rescue.SCAN, liq := Vector2(-1e9, 0.0)) -> void:
 		_:
 			freeze = true
 			_scanned = true
-			Scanner.rescue(self)
+			Rescuer.rescue(self)
 
 
 func _respawn_tick(_delta: float) -> void:
@@ -854,20 +855,21 @@ func _respawn_tick(_delta: float) -> void:
 		Rescue.SINK:
 			if state_time > 0.25 and not _scanned:
 				_scanned = true
-				Scanner.rescue(self)
+				Rescuer.rescue(self)
 			_sink_tick()
 		Rescue.FALL:
 			if state_time > FALL_SCANNER and not _scanned:
 				_scanned = true
-				Scanner.rescue(self)
+				Rescuer.rescue(self)
 	if state_time >= photo_time():
-		# the scanner's flash: back on the road, a little over it to drop onto its wheels
+		# the rescuer's flash: back on the road, a little over it to drop onto its wheels
 		_back = true
 		_put_back(PUT_LIFT, false)
 		freeze = false
 
 
-## When, into its rescue, the scanner photographs it (and in that flash it is back on the road).
+## When, into its rescue, the rescuer takes it (the scanner's photo; in that flash it is back on
+## the road).
 func photo_time() -> float:
 	match rescue:
 		Rescue.SINK:
@@ -877,8 +879,8 @@ func photo_time() -> float:
 	return SCAN_PHOTO
 
 
-## Photographed and back on the road, not yet let go (from the kart's own clock, so a proxy, whose
-## new place arrives a little later, agrees with its owner).
+## Taken by the rescuer and back on the road, not yet let go (from the kart's own clock, so a
+## proxy, whose new place arrives a little later, agrees with its owner).
 func placed() -> bool:
 	return state == State.RESPAWN and state_time >= photo_time()
 
@@ -1591,7 +1593,7 @@ func apply_net_state(d: PackedFloat32Array) -> void:
 		global_transform = Transform3D(Basis(_net_rot), _net_pos)
 
 
-## The owner's kart started a rescue: the same splash / scanner here (Kart.start_respawn).
+## The owner's kart started a rescue: the same splash / rescuer here (Kart.start_respawn).
 func _net_rescue(flags: int) -> void:
 	rescue = Rescue.SINK if flags & 64 else (Rescue.FALL if flags & 128 else Rescue.SCAN)
 	CrowdDirector.notify(get_tree(), &"fall", _net_pos, self, null, rescue)
@@ -1605,14 +1607,14 @@ func _net_rescue(flags: int) -> void:
 			Effects.bubbles(get_parent(), at, int(liquid.y), SINK_T)
 			get_tree().create_timer(0.25).timeout.connect(func():
 				if is_instance_valid(self) and state == State.RESPAWN:
-					Scanner.rescue(self))
+					Rescuer.rescue(self))
 		Rescue.FALL:
 			fall_floor = geo().center[route_index].y
 			get_tree().create_timer(FALL_SCANNER).timeout.connect(func():
 				if is_instance_valid(self) and state == State.RESPAWN:
-					Scanner.rescue(self))
+					Rescuer.rescue(self))
 		_:
-			Scanner.rescue(self)
+			Rescuer.rescue(self)
 
 
 ## Dead reckoning: show the proxy where its owner is now (latest state moved on

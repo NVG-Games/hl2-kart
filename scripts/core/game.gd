@@ -59,17 +59,19 @@ const VEHICLES := [
 ]
 
 ## Circuits, all built by the track tools from Half-Life / Half-Life 2 content:
-## Highway 17 by tools/build_track.py, the others by tools/track_gen.py.
+## Highway 17 by tools/build_track.py, the others by tools/track_gen.py. "rescue" is who brings a
+## kart back to the road there (Rescuer.rescue): "scanner" the Combine scanner's photo (also where
+## a track names none), "teleport" a Black Mesa teleport, "xen_portal" a Xen portal.
 const TRACKS := [
-	{"id": "city17_circuit", "name": "Highway 17", "short": "HIGHWAY 17",
+	{"id": "city17_circuit", "name": "Highway 17", "short": "HIGHWAY 17", "rescue": "scanner",
 		"desc": "City 17, the Combine checkpoint, the coast road round the headland and the canal. Shortcuts: the headland trail and the quarry jump."},
-	{"id": "ct17", "name": "CT17", "short": "CT17",
+	{"id": "ct17", "name": "CT17", "short": "CT17", "rescue": "scanner",
 		"desc": "Combine-held City 17: the plaza, a pipe up the wall, the rail yard, the checkpoint and the old-town hairpins. Shortcuts: the canal jump and the rooftops."},
-	{"id": "xen", "name": "Xen", "short": "XEN",
+	{"id": "xen", "name": "Xen", "short": "XEN", "rescue": "xen_portal",
 		"desc": "Floating islands over the void: a cave that rolls you round, a chasm jump and a ledge with no railings. Shortcuts: the high root and the island hop."},
-	{"id": "black_mesa", "name": "Black Mesa", "short": "BLACK MESA",
+	{"id": "black_mesa", "name": "Black Mesa", "short": "BLACK MESA", "rescue": "teleport",
 		"desc": "Indoors at Black Mesa: twice across the reactor room, the accelerator tube and two slime jumps. Shortcuts: the crane gantry and the coolant jump."},
-	{"id": "surface_tension", "name": "Surface Tension", "short": "SURFACE TENSION",
+	{"id": "surface_tension", "name": "Surface Tension", "short": "SURFACE TENSION", "rescue": "teleport",
 		"desc": "The desert outside Black Mesa: the canyon, the gorge bridge, the HECU camp, the dam's water main and a cliff road. Shortcuts: the rim drop and the washout."},
 ]
 

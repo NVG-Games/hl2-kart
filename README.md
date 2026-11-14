@@ -102,7 +102,7 @@ speed, acceleration, weight, handling and engine sound.
   Xen teleport down the road.
 - **Shortcuts:** two on every circuit. Chevron boards mark the forks, the HUD names a
   shortcut the first time you come up to it and the minimap draws them as dashes. Most
-  end in a jump that takes speed or a boost; miss it and the scanner gives you one more
+  end in a jump that takes speed or a boost; miss it and the rescue gives you one more
   try from the run-up when a standing start can still make it.
 - **Track hazards:** a force-field gate, turrets, a Combine train, a strider, a gunship,
   hopper mines, laser tripmines, houndeyes, alien slaves, a tentacle, an Apache and mortars. Each one warns
@@ -118,10 +118,11 @@ speed, acceleration, weight, handling and engine sound.
   ceiling; some bridges and cliff roads have no railings, so a wide line ends in a fall.
 - **Drifting:** hold jump in a turn, let AUX POWER charge and release for a mini or
   super turbo. Hold the throttle on "one" for a rocket start.
-- **Rescue:** drive into water or slime and you splash and sink before a Combine scanner
-  hauls you out; fall off, get wedged or end up behind a wall and it flies to you. Either
-  way it takes your photo, and in the white flash you're back on the road. WRONG WAY
-  flashes when you drive back along the road.
+- **Rescue:** drive into water or slime and you splash and sink; fall off, get wedged or end
+  up behind a wall and help comes. Each track has its own: in City 17 (Highway 17, CT17) a
+  Combine scanner flies to you and takes your photo, at Black Mesa and on Surface Tension a
+  Black Mesa teleport builds up round you, on Xen a Xen portal swallows you. In its flash
+  you're back on the road. WRONG WAY flashes when you drive back along the road.
 - **Multiplayer:** LAN and internet, a Half-Life style server browser, a lobby with chat,
   bots for the empty grid slots, a dedicated server and a master server.
 - **Source look and feel:** VertexLitGeneric / LightmappedGeneric style shaders, HL2 and
@@ -187,7 +188,7 @@ The first start builds the content the same way (or run `python tools/setup_asse
 | Use item | E / Ctrl / Enter | LB, B |
 | Chat (online) | Y / T | |
 | Look back | C | Y |
-| Call the scanner | R | Back |
+| Call for help | R | Back |
 | Pause | Esc / P | Start |
 
 ## Multiplayer

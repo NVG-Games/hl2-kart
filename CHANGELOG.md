@@ -24,6 +24,12 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
   calling it with R all end that way; other players see the flash of its camera. No more drop
   from under the scanner: you are put on your wheels and drive off as the white fades, a little
   sooner than before.
+- Every track has its own rescue now. City 17 (Highway 17 and CT17) keeps the scanner's
+  photo. At Black Mesa and on Surface Tension a Half-Life teleport builds up round you
+  instead: a green-yellow column of light, sparks spiralling in, the suck-in, then a flash,
+  and you materialise on the road in a second swirl. On Xen a ball of green energy forms over
+  you, swallows you in a green flash and spits you out on the road. The timing is the same
+  everywhere, the screen flashes in the rescuer's colour, and R calls whichever it is.
 - Dog runs with Half-Life 2's own animations now: it stands with its idle pose, walks off
   with its walk and gallops on its knuckles with its run, blended by speed. At kart speeds the
   stride tops out at three a second and the feet slide, instead of the legs blurring. The
@@ -35,6 +41,11 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
 - The weather choice. It only ever changed Highway 17's sky; every circuit keeps its own
   sky now (Highway 17 the overcast City 17 one most races had anyway). The race setup, the
   server screens and the dedicated server (`mp_weather`, `--weather`) no longer have it.
+
+### Fixed
+- CT17's chain-link fences show their wire mesh instead of a blank sheet, and the shield
+  panes of the Combine booths and barricades and the shells of Black Mesa's Xen crystals are
+  see-through tinted glass instead of opaque white.
 
 ## [0.2.0] - 2026-11-12
 

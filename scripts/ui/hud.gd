@@ -91,7 +91,10 @@ func setup(r) -> void:
 	big.label_settings.font = Hl2Style.text_font(true)
 	big.label_settings.font_size = 92
 	root.add_child(big)
-	rescue_hint = Hl2Style.label("STUCK?  PRESS  R  TO CALL A SCANNER", 13 * U, Hl2Style.BRIGHT)
+	# R calls the track's own rescuer (Rescuer.kind_of)
+	var how: String = {"teleport": "TO TELEPORT OUT", "xen_portal": "TO OPEN A PORTAL"}.get(
+		Rescuer.kind_of(race.track), "TO CALL A SCANNER")
+	rescue_hint = Hl2Style.label("STUCK?  PRESS  R  " + how, 13 * U, Hl2Style.BRIGHT)
 	rescue_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	rescue_hint.anchor_left = 0.5
 	rescue_hint.anchor_right = 0.5
@@ -540,7 +543,7 @@ func _process(delta: float) -> void:
 	var total: int = race.karts.size()
 	_set_counter(pos_num, pos_of, str(k.place), "/%d" % total)
 	_set_counter(lap_num, lap_of, str(clampi(k.lap + 1, 1, race.laps)), "/%d" % race.laps)
-	# a kart being rescued (sinking, falling, under the scanner) is not moving, whatever it last did
+	# a kart being rescued (sinking, falling, being taken back to the road) is not moving, whatever it last did
 	speed_num.text = "0" if k.state == Kart.State.RESPAWN or k.freeze else str(int(absf(k.fwd_speed) * 2.237))
 	var t: float = race.race_time if race.racing or race._phase == "done" else 0.0
 	if k.finished:
@@ -564,7 +567,7 @@ func _process(delta: float) -> void:
 	_update_item(k, delta)
 	_update_lock(k, delta)
 	_update_notice(k, delta)
-	# offer the scanner rescue when the player is slow off the tarmac or wedged
+	# offer the rescue when the player is slow off the tarmac or wedged
 	var struggling: bool = race.racing and k.state == Kart.State.NORMAL and 		((k.offroad and k.speed < 9.0) or (k.speed < 2.0 and k.in_throttle > 0.5))
 	_rescue_t = _rescue_t + delta if struggling else 0.0
 	rescue_hint.visible = _rescue_t > 2.0

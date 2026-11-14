@@ -9,6 +9,7 @@ const TERRAIN_SHADER := preload("res://shaders/terrain.gdshader")
 const WATER_SHADER := preload("res://shaders/water.gdshader")
 const SKY_SHADER := preload("res://shaders/sky.gdshader")
 
+var id := ""  # the circuit's id (Game.TRACKS) once built
 var data := {}
 var path: TrackPath
 var sea_level := -13.0
@@ -34,6 +35,7 @@ func build(track_name: String) -> void:
 	name = "Track"
 	if not FileAccess.file_exists("res://assets/track/%s.json" % track_name):
 		track_name = "city17_circuit"
+	id = track_name
 	data = Game.load_json("res://assets/track/%s.json" % track_name)
 	path = make_path(data)
 	sea_level = data.get("sea_level", -13.0)

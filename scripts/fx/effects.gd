@@ -7,11 +7,12 @@ static var _keep: Array[Material] = []  # one material of each kind made afresh 
 
 ## Draws, while the race loads, what would otherwise be drawn for the first time mid-race and
 ## stall that frame while its shader and pipelines compile: every kind of particle sprite, beam
-## and ring, the energy ball, the canister marker, the scorch decal, the models the items, the
-## scanner and the track's hazards spawn, and the gibs with their collision hulls. All of it sits
-## tiny in front of `cam` for half a second (behind the loading card and the fly-by's first
-## frames). A ring's material is kept for the session: rings made afresh later find their shader
-## alive (once the last material of a kind is freed, the next one compiles again).
+## and ring, the energy ball, the canister marker, the scorch decal, the rescuers' glow sprite, the
+## models the items, the scanner and the track's hazards spawn, and the gibs with their collision
+## hulls. All of it sits tiny in front of `cam` for half a second (behind the loading card and the
+## fly-by's first frames). A ring's material and a glow sprite's are kept for the session: those
+## made afresh later find their shader alive (once the last material of a kind is freed, the next
+## one compiles again).
 static func prewarm(cam: Camera3D, track: Track) -> void:
 	var holder := Node3D.new()
 	holder.name = "Prewarm"
@@ -38,6 +39,8 @@ static func prewarm(cam: Camera3D, track: Track) -> void:
 	holder.add_child(ring)
 	for m in EnergyBall.ball_meshes():
 		holder.add_child(m)
+	_keep.append(Rescuer.glow_material(Color.WHITE))
+	holder.add_child(Rescuer.glow_quad(_keep[-1]))
 	var marker := MeshInstance3D.new()
 	marker.mesh = CylinderMesh.new()
 	marker.material_override = CanisterStrike.marker_material()
@@ -466,6 +469,19 @@ static func punt_flash(parent: Node, pos: Vector3, fwd: Vector3) -> void:
 	l.global_position = pos
 	var tw := l.create_tween()
 	tw.tween_property(l, "light_energy", 0.0, 0.35)
+	tw.tween_callback(l.queue_free)
+
+
+## A flash of `color` light at pos, `reach` metres round, that dies away over `life` seconds.
+static func flash_light(parent: Node, pos: Vector3, color: Color, energy: float, reach: float, life: float) -> void:
+	var l := OmniLight3D.new()
+	l.light_color = color
+	l.omni_range = reach
+	l.light_energy = energy
+	parent.add_child(l)
+	l.global_position = pos
+	var tw := l.create_tween()
+	tw.tween_property(l, "light_energy", 0.0, life).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	tw.tween_callback(l.queue_free)
 
 

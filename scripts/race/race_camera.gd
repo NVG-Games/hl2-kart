@@ -6,6 +6,8 @@ extends Camera3D
 
 enum Mode { INTRO, CHASE, ORBIT }
 
+const FLASH_WHITE := Color(0.95, 0.98, 1.0)  # the scanner's photo flash
+
 var target: Kart
 var mode := Mode.INTRO
 var intro_t := 0.0
@@ -20,7 +22,7 @@ var _dropped := false  # the last frame was a drop view (_drop_view)
 var _seen_from := Vector3.ZERO  # drop view: where round the kart it is seen from (_spot), ZERO while the wanted spot sees it
 var _look_t := 0.0  # drop view: seconds until that spot is looked for again
 var _cut_t := 0.0  # seconds the chase view cuts straight to its place (under a photo flash)
-var _flash: ColorRect  # photo_flash: white over the view, under the HUD
+var _flash: ColorRect  # photo_flash: a white (or a rescuer's own colour) flash over the view, under the HUD
 var _flash_tw: Tween
 
 
@@ -36,11 +38,12 @@ func shake(amount: float) -> void:
 	_shake = maxf(_shake, amount)
 
 
-## The scanner photographs this camera's kart (Scanner._shoot): the view goes white and fades back
-## in on the road it was put back on; under the white the chase view cuts there instead of sweeping.
-## Over the view, under the HUD (its panels and the pause menu stay readable), so it shows with the
-## HUD hidden too.
-func photo_flash() -> void:
+## A rescuer takes this camera's kart (Rescuer._flash: the scanner's photo, a teleport, a Xen
+## portal): the view flashes `color` (the scanner's white by default) and fades back in on the road
+## the kart was put back on; under the flash the chase view cuts there instead of sweeping. Over the
+## view, under the HUD (its panels and the pause menu stay readable), so it shows with the HUD
+## hidden too.
+func photo_flash(color := FLASH_WHITE) -> void:
 	if _flash == null:
 		var layer := CanvasLayer.new()
 		layer.layer = 4
@@ -51,7 +54,7 @@ func photo_flash() -> void:
 		layer.add_child(_flash)
 	if _flash_tw:
 		_flash_tw.kill()
-	_flash.color = Color(0.95, 0.98, 1.0, 1.0)
+	_flash.color = Color(color, 1.0)
 	_flash_tw = _flash.create_tween()
 	_flash_tw.tween_interval(0.1)
 	_flash_tw.tween_property(_flash, "color:a", 0.0, 0.9).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
@@ -112,7 +115,7 @@ func _chase(delta: float) -> void:
 		kfwd = _fwd
 	kfwd = kfwd.normalized()
 	var turn_rate := 4.5 if k.state == Kart.State.NORMAL else 1.0
-	# back from a drop view, or under a photo flash (cut to the road the scanner put it on):
+	# back from a drop view, or under a photo flash (cut to the road the rescuer put it on):
 	# straight in behind it
 	var cut := _dropped or _cut_t > 0.0
 	_fwd = kfwd if cut else _fwd.slerp(kfwd, minf(1.0, delta * turn_rate)).normalized()
@@ -132,7 +135,7 @@ func _chase(delta: float) -> void:
 	if not hit.is_empty():
 		desired = hit["position"] + (from - desired).normalized() * 0.6
 	# never sweep through a wall or a deck: a move that would (back from a drop view onto the
-	# road the scanner put the kart on, say) is a cut
+	# road the rescuer put the kart on, say) is a cut
 	if cut or not _clear(space, _pos, desired):
 		_pos = desired
 	else:

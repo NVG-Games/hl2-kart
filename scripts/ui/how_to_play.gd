@@ -77,7 +77,7 @@ func _controls() -> Control:
 		["Hop & drift", ["SHIFT", "SPACE"], ["RB"]],
 		["Use item", ["E", "CTRL"], ["LB", "B"]],
 		["Look behind", ["C"], ["Y"]],
-		["Call a scanner (stuck)", ["R"], ["BACK"]],
+		["Call for help (stuck)", ["R"], ["BACK"]],
 		["Pause", ["ESC"], ["START"]],
 	]
 	for col in [["KEYBOARD", 1], ["GAMEPAD", 2]]:
@@ -224,7 +224,7 @@ func _shortcuts() -> Control:
 	v.add_child(_track_card("res://assets/ui/items/battery.png", "Jumps take speed",
 		"Most shortcuts end in a jump: come at it flat out. Some have a boost pad on the run-up, and the CT17 rooftops need a battery or HEV boost. A DANGER sign stands before the risky ones. Land it and you get SHORTCUT!"))
 	v.add_child(_track_card("res://assets/ui/items/scanner.png", "Fell off or stuck?",
-		"Sink in water or slime, fall off, get wedged or stuck behind a wall and a Combine scanner comes: in its photo flash you're back on the road. Miss a shortcut's jump and you get one more go from its run-up if it can still be made, else the main road. R calls the scanner."))
+		"Sink, fall off or get stuck and help comes: the scanner's photo in City 17, a teleport at Black Mesa and Surface Tension, a portal on Xen. In its flash you're back on the road. Miss a shortcut's jump and you retry from its run-up if it can be made. R calls it."))
 	v.add_child(_track_card("res://assets/ui/vehicles/jalopy.png", "Wrong way",
 		"Drive back along the road and a red WRONG WAY flashes under the item box, with a beep, until you turn round."))
 	return v

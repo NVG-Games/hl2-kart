@@ -5,6 +5,9 @@ python -I extract_all.py [--force]
 A run only adds what is missing: HL2 models, textures and sounds already in assets/ are kept
 (model materials are still looked up again, so VMT fixes reach materials.json). HL1 models are
 always converted again (about a second). --force converts the HL2 models again too.
+
+The whole run rebuilds assets/data/models.json and voices.json from these lists. To add a few new
+entries to an assets/ folder that is already built, without the full run, use tools/extract_extra.py.
 """
 import json
 import os
@@ -77,6 +80,8 @@ HL1_PROPS = [
     "dead_osprey", "osprey", "apache", "hgrunt", "tentacle2", "garg",
     # hazards: the Apache's rockets, tripmines (the mine alone, no hands), barnacles
     "rpgrocket", "p_tripmine", "barnacle",
+    # Xen: the bullsquid that spits acid from the island edges (the controller and houndeye are above)
+    "bullsquid",
 ]
 
 # Spectators (scripts/crowd): City 17 residents, refugees and rebels, a one-material background
@@ -196,6 +201,101 @@ MODELS = [
     # later hazards: the big thumper, the Hunter-Chopper and its bombs
     "combine_turrets/floor_turret", "props_combine/combine_train02b", "weapons/w_missile", "weapons/w_slam",
     "props_combine/combinethumper001a", "combine_helicopter", "combine_helicopter/helicopter_bomb01",
+    # Phase D creatures: antlions for the desert and Nova Prospekt, the antlion guard (Nova Prospekt's boss),
+    # Episode Two's acid workers, grubs and their glowing nuggets for the antlion caves, the elite soldier and
+    # the Nova Prospekt guard for the marching Combine column, the Episode Two hunter. Animations for them go
+    # into ANIMS when a track needs them: the antlions' are in their own files, the hunter's in
+    # models/hunter_animations.mdl, the soldiers' in models/combine_soldier_anims.mdl.
+    "antlion", "antlion_worker", "antlion_guard", "antlion_grub", "grub_nugget_small", "grub_nugget_medium",
+    "grub_nugget_large", "combine_super_soldier", "combine_soldier_prisonguard", "hunter",
+    # the desert's magnet crane: the Highway 17 dock crane (crane_docks has the boom and cab bones,
+    # crane_body_lod is the same body in one piece, crane_frame the tower under it) and its magnet
+    "cranes/crane_docks", "cranes/crane_body_lod", "cranes/crane_frame", "props_wasteland/cranemagnet01a",
+    # desert: planks, boards, beams and docks for the plank paths and wooden bridges over the sand, beached boats,
+    # driftwood, more coast rocks, the Highway 17 bridge (whole at low detail, its middle span and railing), concrete
+    # bridge pier pieces and rusted wrecks for the highway
+    "props_wasteland/dockplank01a", "props_wasteland/dockplank01b", "props_debris/wood_board01a",
+    "props_debris/wood_board03a", "props_debris/wood_board05a", "props_debris/wood_board07a",
+    "props_docks/dock01_crossbeam01a", "props_docks/dock01_pole01a_256", "props_docks/dock01_polecluster01a",
+    "props_docks/canal_dock01a", "props_docks/canal_dock03a", "props_docks/dock_broken01a",
+    "props_docks/piling_cluster01a", "props_wasteland/boat_01", "props_wasteland/boat_fishing02a",
+    "props_wasteland/tugtop001", "props_foliage/driftwood_02a", "props_foliage/driftwood_clump_01a",
+    "props_wasteland/rockcliff01c", "props_wasteland/rockcliff06d", "props_wasteland/rockcliff06i",
+    "props_wasteland/rockcliff07b", "props_wasteland/bridge_low_res", "props_wasteland/bridge_middle",
+    "props_wasteland/bridge_railing", "props_wasteland/medbridge_base01", "props_wasteland/medbridge_post01",
+    "props_wasteland/medbridge_strut01", "props_vehicles/car001b_hatchback", "props_vehicles/car002b",
+    "props_vehicles/car003b", "props_vehicles/car004b", "props_vehicles/car005b", "props_vehicles/truck002a_cab",
+    # ruined City 17: concrete chunks and rubble piles, broken walls and floors, rebar, collapsed and gutted
+    # buildings, the broken flyover (a ruined viaduct), the destroyed dome, burnt-out APC wrecks, street junk
+    "props_debris/concrete_chunk01a", "props_debris/concrete_chunk02a", "props_debris/concrete_chunk03a",
+    "props_debris/concrete_chunk06c", "props_debris/concrete_chunk07a", "props_debris/concrete_debris128pile001a",
+    "props_debris/concrete_debris128pile001b", "props_debris/concrete_debris256pile001a",
+    "props_debris/concrete_debris256barricade001a", "props_debris/concrete_floorpile01a",
+    "props_debris/concrete_wallpile01a", "props_debris/concrete_cornerpile01a", "props_debris/plaster_floorpile001a",
+    "props_debris/plaster_ceilingpile001a", "props_debris/broken_pile001a", "props_debris/walldestroyed01a",
+    "props_debris/walldestroyed03a", "props_debris/walldestroyed05a",  # not 02a: its courtyard face has no VMT
+    "props_debris/walldestroyed09a", "props_debris/building_brokenexterior001a",
+    "props_debris/building_brokenexterior002a", "props_debris/building_brokenpillar001c",
+    "props_debris/rebar_cluster001a", "props_debris/rebar_cluster002a", "props_debris/beam01a",
+    "props_debris/concrete_section128wall001a", "props_debris/concrete_section128floor001a",
+    "props_debris/metal_panel01a", "props_debris/destroyedceiling01a", "props_debris/barricade_short01a",
+    "props_debris/barricade_tall01a", "props_buildings/destroyed_cityblock01b", "props_buildings/destroyed_cityblock01d",
+    "props_buildings/destroyed_cityblock01e", "props_buildings/destroyed_cityblock01f",
+    "props_buildings/collapsedbuilding01awall", "props_buildings/collapsedbuilding02b",
+    "props_buildings/collapsedbuilding02c", "props_buildings/project_destroyedbuildings01",
+    "props_rooftop/parliament_dome_destroyed_exterior", "props_c17/overpass_001a", "props_c17/overpass_001b",
+    "props_junk/garbage256_composite001a", "props_junk/garbage128_composite001a", "props_junk/trashcluster01a",
+    "combine_apc_destroyed_gib01", "combine_apc_destroyed_gib02", "combine_apc_destroyed_gib03",
+    # City 17 rooftops: aerials, chimneys, vents, roof clutter, scaffolding, dishes, gutters, broken railings
+    "props_rooftop/antenna01a", "props_rooftop/antennaclusters01a", "props_rooftop/chimneypipe_cluster02a",
+    "props_rooftop/roof_vent001", "props_rooftop/roof_vent002", "props_rooftop/rooftopcluser01a",
+    "props_rooftop/rooftopcluser06a", "props_rooftop/rooftopcluser07a", "props_rooftop/rooftopcluser09a",
+    "props_rooftop/rooftop_set01b", "props_rooftop/scaffolding01a", "props_rooftop/satellitedish02",
+    "props_rooftop/roof_dish001", "props_rooftop/gutter_pipe_256", "props_c17/handrail04_long",
+    "props_c17/handrail04_brokenlong",
+    # Nova Prospekt: the prison seen from outside (three big pieces) and its depot, gates, doors and cell blocks,
+    # beds, laundry, canteen, fences, lights; the Combine teleport of its last level and HL2's model of HL1's
+    # teleporter (for the teleport rescues)
+    "props_combine/prison01", "props_combine/prison01b", "props_combine/prison01c", "props_wasteland/depot",
+    "props_wasteland/prison_archgate001", "props_wasteland/prison_archgate002a", "props_wasteland/prison_archwindow001",
+    "props_wasteland/prison_gate001a", "props_wasteland/prison_slidingdoor001a", "props_wasteland/prison_heavydoor001a",
+    "props_wasteland/prison_celldoor001a", "props_wasteland/prison_bedframe001a", "props_wasteland/prison_metalbed001a",
+    "props_wasteland/prison_toilet01", "props_wasteland/prison_sink001a", "props_wasteland/prison_shelf001a",
+    "props_wasteland/prison_lamp001a", "props_wasteland/prison_flourescentlight001a", "props_wasteland/prison_pipes001a",
+    "props_wasteland/prison_switchbox001a", "props_debris/prison_wallchunk001a", "props_wasteland/laundry_cart001",
+    "props_wasteland/laundry_dryer001", "props_wasteland/cafeteria_table001a", "props_wasteland/cafeteria_bench001a",
+    "props_wasteland/kitchen_counter001a", "props_wasteland/shower_system001a", "props_wasteland/interior_fence001a",
+    "props_wasteland/interior_fence002d", "props_wasteland/exterior_fence001a", "props_wasteland/speakercluster01a",
+    "props_wasteland/lights_industrialcluster01a", "props_combine/combine_teleportplatform",
+    "props_combine/combine_teleport_2", "props_combine/combine_tptimer", "props_lab/hl1teleport",
+    # Episode Two antlion caves under Nova Prospekt: cave rocks, stalactites, mine struts and lamps, hive nests
+    "props_mining/rock_caves01", "props_mining/caverocks_cluster01", "props_mining/caverocks_cluster02",
+    "props_mining/stalactite_cluster01", "props_mining/stalactite_cluster02", "props_mining/stalactite_cluster03",
+    "props_mining/stalactite_cluster04", "props_mining/stalactite_static01", "props_mining/stalactite_static02",
+    "props_mining/struts_tunnel192_01", "props_mining/struts_tunnel320_01", "props_mining/lamps01",
+    "props_hive/nest_lrg_flat", "props_hive/nest_med_flat", "props_hive/nest_sm_flat", "props_hive/egg",
+    "props_hive/websackceiling01",
+    # Episode Two forest: locomotives and cars (standing, wrecked, the whole long train of HL2's opening, the
+    # cars that fell with the bridge in Episode Two), the see-saw bridge (the swinging span with its bones, the
+    # same span in one piece, the concrete approaches), the forest bridges, pines, dead trees, logs, rocks, ferns,
+    # fences and signs of White Forest
+    "props_trainstation/train_engine", "props_trainstation/diesel", "props_trainstation/train_boxcar",
+    "props_trainstation/train_boxcar_damaged", "props_trainstation/train_orecar", "props_trainstation/boxcar2a",
+    "props_trainstation/passengercar001", "props_trainstation/train003", "props_trainstation/train003_damaged1",
+    "props_trainstation/train004", "props_trainstation/train_outro_car01", "props_trainstation/wrecked_train",
+    "map1_bridge/traincars", "seesawbridge/bridgemetal", "seesawbridge/bridgemetalnondynamic",
+    "seesawbridge/bridge_static", "seesawbridge/bridge_static_exit", "props_outland/bridge01", "cliffs/bridge",
+    "cliffs/bridge02", "props_foliage/tree_pine_01", "props_foliage/tree_pine_02", "props_foliage/tree_pine06",
+    "props_foliage/tree_pine_tall_01", "props_foliage/tree_pine_tall_02", "props_foliage/tree_pine_cluster_01",
+    "props_foliage/tree_dead02", "props_foliage/tree_dry01", "props_foliage/tree_dry02", "props_foliage/fallentree02",
+    "props_foliage/fallentree_dry01", "props_foliage/tree_stump01", "props_foliage/rock_forest03",
+    "props_foliage/rock_forest04", "props_foliage/forestrock_cluster01", "props_foliage/forestrock_single01",
+    "props_foliage/ferns02", "props_foliage/fern01", "props_foliage/grass_cluster02", "props_foliage/grass_cluster03",
+    "props_foliage/shrub_small", "props_forest/log", "props_forest/forest_log01", "props_forest/riverlogs",
+    "props_forest/sawmill_logs", "props_forest/fence_trail_256", "props_forest/fence_border_256",
+    "props_forest/whiteforestsign", "props_forest/utilitypole01b", "props_forest/sawhorse", "cliffs/rocks_large01",
+    "cliffs/rocks_large01_veg", "cliffs/rocks_medium01", "cliffs/rocks_xlarge01", "cliffs/rockcluster01",
+    "props_outland/haybale",
 ]
 
 # chunk gibs for breakables
@@ -451,6 +551,93 @@ def _cit(*names):
     return [p for n in names for p in _in("vo/npc/male01", n) + _in("vo/npc/female01", n)]
 
 
+# Phase D sounds. Antlions (idle, digging up and down, attacks, wings, steps, pain; the Episode Two
+# workers' acid and burst), the antlion guard (roars, growls, heavy steps near and far, the shove, its
+# breathing) and grubs; antlion hills, sand impacts and steps; the thumper's loop
+SOUNDS += (
+    _in("npc/antlion", "idle1", "idle2", "idle3", "idle4", "idle5", "digup1", "digdown1", "attack_single1",
+        "attack_single2", "attack_single3", "attack_double1", "attack_double2", "attack_double3", "fly1", "foot1",
+        "foot2", "foot3", "foot4", "land1", "pain1", "pain2", "rumble1", "distract1", "shell_impact1",
+        "shell_impact2", "antlion_burst1", "antlion_preburst_scream1", "antlion_shoot1", "antlion_poisonball1") +
+    _in("npc/antlion_guard", "angry1", "angry2", "angry3", "growl_high", "growl_idle", "foot_heavy1", "foot_heavy2",
+        "foot_light1", "foot_light2", "shove1", "confused1", "antlion_guard_die1", "breathe_loop",
+        "frustrated_growl1", "frustrated_growl2", "frustrated_growl3", "near_foot_heavy1", "near_foot_heavy2",
+        "far_foot_heavy1", "far_foot_heavy2", "antlion_guard_pain1") +
+    _in("npc/antlion_grub", "agrub_idle1", "agrub_idle3", "agrub_idle6", "agrub_alert1", "agrub_squish1",
+        "agrub_squish2", "agrub_squish3", "squashed") +
+    _in("ambient/levels/coast", "antlion_hill_ambient1", "antlion_hill_ambient2", "antlion_hill_ambient4") +
+    _seq("physics/surfaces/sand_impact_bullet%d.wav", 2, 4) + _seq("player/footsteps/sand%d.wav", 1, 4) +
+    _in("ambient/machines", "thumper_amb", "thumper_top", "thumper_shutdown1"))
+# the dock crane (engine, turning, boom, creaks) and its magnet grabbing and letting go
+SOUNDS += (
+    _in("vehicles/crane", "crane_creak1", "crane_creak2", "crane_creak3", "crane_creak4", "crane_extend_loop1",
+        "crane_extend_stop", "crane_idle_loop3", "crane_magnet_grab", "crane_magnet_release", "crane_magnet_switchon",
+        "crane_slow_to_idle_loop4", "crane_startengine1", "crane_turn_loop2") +
+    _in("plats/crane", "vertical_start", "vertical_stop"))
+# rescues: HL2's teleports (Kleiner's lab: the suck-in before the blast, the thunder after it) for the teleport
+# and the Combine teleport, the vortigaunts' green energy for the forest's vortigaunt rescue
+SOUNDS += (
+    _in("ambient/machines", "teleport1", "teleport3", "teleport4") +
+    _in("ambient/levels/labs", "teleport_preblast_suckin1", "teleport_postblast_thunder1",
+        "teleport_postblast_winddown1", "teleport_winddown1", "teleport_mechanism_windup1", "teleport_active_loop1") +
+    _in("npc/vort", "attack_charge", "attack_shoot", "health_charge", "vort_attack_shoot1", "vorthealsingle_loop",
+        "vort_dispell"))
+# the marching Combine column (gear rattle, boots, distant marching, radio lines, Nova Prospekt's antlion calls),
+# the hunter, the striders walking and firing their guns, ruins collapsing and the battle in the distance
+SOUNDS += (
+    _seq("npc/combine_soldier/gear%d.wav", 1, 6) + _in("npc/combine_soldier", "pain1", "pain2", "pain3", "die1") +
+    _seq("npc/footsteps/hardboot_generic%d.wav", 1, 6) + ["npc/footsteps/hardboot_generic8.wav"] +
+    _in("ambient/levels/streetwar", "marching_distant1", "marching_distant2") +
+    _in("npc/combine_soldier/vo", "on1", "on2", "off1", "off2", "off3", "movein", "gosharp", "prepforcontact",
+        "readyweapons", "affirmative", "copy", "sectorisnotsecure", "stayalert", "engaging",
+        "prison_soldier_freeman_antlions", "prison_soldier_boomersinbound", "prison_soldier_bunker1",
+        "swarmoutbreakinsector", "weareinaninfestationzone") +
+    _in("npc/ministrider", "hunter_alert1", "hunter_angry1", "hunter_idle1", "hunter_idle2", "hunter_laugh1",
+        "hunter_foundenemy1", "hunter_charge3", "hunter_prestrike1", "hunter_fire_loop3", "ministrider_fire1",
+        "ministrider_footstep1", "ministrider_footstep2", "ministrider_footstep3", "flechette_explode1",
+        "flechetteltor01") +
+    _seq("npc/strider/strider_step%d.wav", 2, 6) + _in("npc/strider", "strider_minigun", "strider_minigun2") +
+    _in("ambient/levels/streetwar", "building_rubble1", "building_rubble2", "building_rubble3", "building_rubble4",
+        "building_rubble5", "strider_distant1", "strider_distant2", "strider_distant_walk1", "city_battle3",
+        "city_battle4"))
+# Nova Prospekt (radio chatter, the battle inside, the quiet cell block, alarms) and the antlion caves
+# (cave hits, rumbles, crickets, distant growls and grubs)
+SOUNDS += (
+    _seq("ambient/levels/prison/radio_random%d.wav", 1, 6) +
+    _in("ambient/levels/prison", "inside_battle_antlion1", "inside_battle_antlion2", "inside_battle_antlion3",
+        "inside_battle_soldier1") +
+    _in("ambient/atmosphere", "quiet_cellblock_amb", "cave_hit1", "cave_hit2", "cave_hit3", "terrain_rumble1") +
+    _in("ambient/alarms", "alarm1", "combine_bank_alarm_loop1") +
+    _in("ambient/levels/caves", "cave_crickets_loop1", "cave_howl_loop1", "dist_growl1", "dist_growl2", "dist_grub1",
+        "dist_grub2", "rumble1", "rumble2"))
+# the Episode Two forest: trains far and near, the see-saw bridge straining and creaking, planks underwheel,
+# wind in the trees and birds
+SOUNDS += (
+    _in("ambient/alarms", "train_horn_distant1") +
+    _in("ambient/machines", "train_freight_loop1", "train_rumble", "train_idle", "station_train_squeel",
+        "train_wheels_overhead_loop1") +
+    _seq("physics/metal/metal_solid_strain%d.wav", 1, 5) +
+    _in("physics/metal", "metal_box_strain1", "metal_box_strain2") +
+    _in("ambient/materials", "creaking", "creak5", "wood_creak1", "wood_creak2", "wood_creak3") +
+    _in("doors", "drawbridge_move1", "drawbridge_stop1") +
+    _seq("physics/wood/wood_plank_impact_hard%d.wav", 1, 5) +
+    _in("physics/wood", "wood_plank_break1", "wood_plank_scrape_rough_loop1") +
+    _in("ambient/levels/forest", "treewind1", "treewind2", "dist_birds1", "dist_birds2", "dist_birds3", "peckr1"))
+# HL1: the bullsquid ("bullchicken" in Half-Life's files), the controller, houndeyes running in packs, and the
+# teleports (Black Mesa's beam-in, the portal suck-in and -out, the Nihilanth's teleport and energy ball)
+HL1_SOUNDS += (
+    _in("bullchicken", "bc_acid1", "bc_acid2", "bc_attack1", "bc_attack2", "bc_attack3", "bc_attackgrowl",
+        "bc_attackgrowl2", "bc_attackgrowl3", "bc_bite1", "bc_bite2", "bc_bite3", "bc_die1", "bc_idle1", "bc_idle2",
+        "bc_idle3", "bc_idle4", "bc_idle5", "bc_pain1", "bc_pain2", "bc_pain3", "bc_pain4", "bc_spithit1",
+        "bc_spithit2", "bc_spithit3") +
+    _in("controller", "con_alert1", "con_alert2", "con_alert3", "con_attack1", "con_attack2", "con_attack3",
+        "con_die1", "con_idle1", "con_idle2", "con_idle3", "con_idle4", "con_idle5", "con_pain1", "con_pain2",
+        "con_pain3") +
+    _in("houndeye", "he_hunt1", "he_hunt2", "he_hunt3", "he_hunt4", "he_alert3", "he_idle2", "he_idle3") +
+    ["debris/beamstart%d.wav" % i for i in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15)] +  # 12 and 13 do not exist
+    _in("ambience", "port_suckin1", "port_suckout1") + _in("x", "x_teleattack1", "x_ballattack1"))
+
+
 # spectators' lines and loops, indexed as voices.json "_crowd": {role: {category: [res paths]}};
 # "hl1:" paths come from Half-Life's valve/sound
 _ODESSA = ("vo/coast/odessa/male01", "vo/coast/odessa/female01")
@@ -626,9 +813,89 @@ def surface_props(fs):
     return resolved, gs
 
 
-def write_anims(fs):
-    """assets/models/<key>.anims.json for each ANIMS entry (tools/mdl_anim.py)."""
+def model_todo():
+    """(kind, "models/<key>.mdl") for every HL2 model in the lists: racers, props, breakables' gibs, spectators."""
+    todo = [("drivers", "models/%s.mdl" % d) for d in DRIVERS] + [("props", "models/%s.mdl" % m) for m in MODELS]
+    for parent, gibs in GIBS.items():
+        todo += [("gibs", "models/%s.mdl" % g) for g in gibs]
+    todo += [("crowd", "models/%s.mdl" % m) for m in CROWD_MODELS]
+    return todo
+
+
+def convert_model(fs, lib, kind, path, force=False):
+    """Convert one HL2 model into assets/models. Returns (key, its models.json entry), or None when this
+    install lacks the model or it does not convert (both are logged)."""
+    if not fs.exists(path):
+        log("  -- missing model", path)
+        return None
+    try:
+        meta = mdl.convert(fs, lib, path, ASSETS + "/", bodygroups=BODYGROUPS.get(path), force=force)
+        key = path[len("models/") : -4]
+        entry = {"gltf": "res://assets/models/" + key + ".gltf", "meta": "res://assets/models/" + key + ".json",
+                 "mass": meta["mass"], "surfaceprop": meta["surfaceprop"],
+                 "aabb_min": meta.get("aabb_min"), "aabb_max": meta.get("aabb_max"), "kind": kind}
+        log("model", key, "%.0fkg" % meta["mass"], meta["surfaceprop"])
+        return key, entry
+    except Exception as e:  # noqa
+        log("  !! model", path, repr(e))
+        return None
+
+
+def hl1_jobs():
+    """(key, candidates under HL1_ROOT, bodygroups, kind) for the HL1 racers and spectators."""
+    return [(k, c, bg, "drivers") for k, c, bg in HL1_MODELS] + [(k, c, bg, "crowd") for k, c, bg in HL1_CROWD]
+
+
+def convert_hl1(lib, key, candidates, bg, kind):
+    """Convert an HL1 racer or spectator from the first candidate this install has. Returns its models.json
+    entry, or None when it has none of them. Its textures' materials go into lib.db."""
+    import goldsrc_mdl
+    src = next((os.path.join(HL1_ROOT, c) for c in candidates if os.path.exists(os.path.join(HL1_ROOT, c))), None)
+    if src is None:
+        log("  -- missing HL1 model", key)
+        return None
+    # racers' bodygroups are meant for the HD and HEV models (Opposing Force's Shephard has his own)
+    if kind == "drivers" and not ("valve_hd" in src or "gordon" in src):
+        bg = {}
+    meta, mats = goldsrc_mdl.convert(src, key, ASSETS, bg)
+    lib.db.update(mats)
+    log("hl1 model", key, src)
+    return {"gltf": "res://assets/models/%s.gltf" % key, "meta": "res://assets/models/%s.json" % key,
+            "mass": 90.0, "surfaceprop": "flesh", "aabb_min": meta["aabb_min"],
+            "aabb_max": meta["aabb_max"], "kind": kind}
+
+
+def hl1_prop_key(name):
+    """models.json key of an HL1_PROPS entry: "fungus(large)" -> "hl1/fungus_large"."""
+    return "hl1/" + name.replace("(", "_").replace(")", "")
+
+
+def convert_hl1_prop(lib, name):
+    """Convert valve/models/<name>.mdl. Returns (key, its models.json entry), or None when this install lacks
+    it or it does not convert (both are logged). Its textures' materials go into lib.db."""
+    import goldsrc_mdl
+    src = os.path.join(HL1_ROOT, "valve", "models", name + ".mdl")
+    if not os.path.exists(src):
+        log("  -- missing HL1 prop", name)
+        return None
+    key = hl1_prop_key(name)
+    try:
+        meta, mats = goldsrc_mdl.convert(src, key, ASSETS, {})
+    except Exception as e:  # noqa
+        log("  !! HL1 prop", name, repr(e))
+        return None
+    lib.db.update(mats)
+    log("hl1 prop", key)
+    return key, {"gltf": "res://assets/models/%s.gltf" % key, "meta": "res://assets/models/%s.json" % key,
+                 "mass": 200.0, "surfaceprop": "metal", "aabb_min": meta["aabb_min"],
+                 "aabb_max": meta["aabb_max"], "kind": "props"}
+
+
+def write_anims(fs, keys=None):
+    """assets/models/<key>.anims.json for each ANIMS entry (tools/mdl_anim.py), or only for the given keys."""
     for key, (src, names) in ANIMS.items():
+        if keys is not None and key not in keys:
+            continue
         if not fs.exists(src):
             log("  -- missing animations", src)
             continue
@@ -653,56 +920,18 @@ def main():
 
     # ---- models ----
     model_index = {}
-    todo = [("drivers", "models/%s.mdl" % d) for d in DRIVERS] + [("props", "models/%s.mdl" % m) for m in MODELS]
-    for parent, gibs in GIBS.items():
-        todo += [("gibs", "models/%s.mdl" % g) for g in gibs]
-    todo += [("crowd", "models/%s.mdl" % m) for m in CROWD_MODELS]
-    for kind, path in todo:
-        if not fs.exists(path):
-            log("  -- missing model", path)
-            continue
-        try:
-            meta = mdl.convert(fs, lib, path, ASSETS + "/", bodygroups=BODYGROUPS.get(path), force=FORCE)
-            key = path[len("models/") : -4]
-            model_index[key] = {"gltf": "res://assets/models/" + key + ".gltf",
-                                "meta": "res://assets/models/" + key + ".json",
-                                "mass": meta["mass"], "surfaceprop": meta["surfaceprop"],
-                                "aabb_min": meta.get("aabb_min"), "aabb_max": meta.get("aabb_max"), "kind": kind}
-            log("model", key, "%.0fkg" % meta["mass"], meta["surfaceprop"])
-        except Exception as e:  # noqa
-            log("  !! model", path, repr(e))
-    import goldsrc_mdl
-    hl1 = [(k, c, bg, "drivers") for k, c, bg in HL1_MODELS] + [(k, c, bg, "crowd") for k, c, bg in HL1_CROWD]
-    for key, candidates, bg, kind in hl1:
-        src = next((os.path.join(HL1_ROOT, c) for c in candidates if os.path.exists(os.path.join(HL1_ROOT, c))), None)
-        if src is None:
-            log("  -- missing HL1 model", key)
-            continue
-        # racers' bodygroups are meant for the HD and HEV models (Opposing Force's Shephard has his own)
-        if kind == "drivers" and not ("valve_hd" in src or "gordon" in src):
-            bg = {}
-        meta, mats = goldsrc_mdl.convert(src, key, ASSETS, bg)
-        lib.db.update(mats)
-        model_index[key] = {"gltf": "res://assets/models/%s.gltf" % key, "meta": "res://assets/models/%s.json" % key,
-                            "mass": 90.0, "surfaceprop": "flesh", "aabb_min": meta["aabb_min"],
-                            "aabb_max": meta["aabb_max"], "kind": kind}
-        log("hl1 model", key, src)
+    for kind, path in model_todo():
+        got = convert_model(fs, lib, kind, path, force=FORCE)
+        if got:
+            model_index[got[0]] = got[1]
+    for key, candidates, bg, kind in hl1_jobs():
+        entry = convert_hl1(lib, key, candidates, bg, kind)
+        if entry:
+            model_index[key] = entry
     for name in HL1_PROPS:
-        src = os.path.join(HL1_ROOT, "valve", "models", name + ".mdl")
-        if not os.path.exists(src):
-            log("  -- missing HL1 prop", name)
-            continue
-        key = "hl1/" + name.replace("(", "_").replace(")", "")
-        try:
-            meta, mats = goldsrc_mdl.convert(src, key, ASSETS, {})
-        except Exception as e:  # noqa
-            log("  !! HL1 prop", name, repr(e))
-            continue
-        lib.db.update(mats)
-        model_index[key] = {"gltf": "res://assets/models/%s.gltf" % key, "meta": "res://assets/models/%s.json" % key,
-                            "mass": 200.0, "surfaceprop": "metal", "aabb_min": meta["aabb_min"],
-                            "aabb_max": meta["aabb_max"], "kind": "props"}
-        log("hl1 prop", key)
+        got = convert_hl1_prop(lib, name)
+        if got:
+            model_index[got[0]] = got[1]
     with open(os.path.join(data_dir, "models.json"), "w") as f:
         json.dump(model_index, f, indent=1)
     write_anims(fs)
