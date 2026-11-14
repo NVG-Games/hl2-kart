@@ -216,6 +216,31 @@ static func world_material(name: String, uv_scale := Vector2.ONE, lit := false) 
 	return m
 
 
+## A track decal's material (the generator's "decal" mesh) where its VMT is a $translucent $decal
+## (soot, a crater, rubble: soft alpha shapes, black in the sheet): blended over the surface under
+## it, as Source draws it, instead of cut out at half its alpha like a fence (which drew soot as a
+## hard-edged black blot). It is drawn before the other see-through things (fires, water), which
+## stand in front of it. null for any other decal material (world_material's).
+static func decal_material(name: String) -> Material:
+	var key := "D|" + name
+	if _cache.has(key):
+		return _cache[key]
+	var info: Dictionary = Game.materials_db.get(source_name(name), {})
+	var m: Material = null
+	var params: Dictionary = info.get("params", {})
+	if info.get("translucent", false) and info.get("albedo_alpha", false) and params.has("$decal"):
+		var sm := StandardMaterial3D.new()
+		sm.albedo_texture = tex(info.get("albedo", ""))
+		sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		sm.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		sm.roughness = 0.95
+		sm.metallic_specular = 0.1
+		sm.render_priority = -1
+		m = sm
+	_cache[key] = m
+	return m
+
+
 static var _world_2s: Shader
 
 

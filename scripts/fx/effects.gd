@@ -48,6 +48,12 @@ static func prewarm(cam: Camera3D, track: Track) -> void:
 	var dec := Decal.new()
 	dec.texture_albedo = SourceMaterials.tex("materials/decals/scorch1.png")
 	holder.add_child(dec)
+	# a bullsquid's acid puddle has a shader of its own (kept for the session)
+	if track.hazards and track.hazards.has_type("bullsquid"):
+		var pud := MeshInstance3D.new()
+		pud.mesh = PlaneMesh.new()
+		pud.material_override = BullsquidHazard.puddle_material()
+		holder.add_child(pud)
 	var models: Array = Items.SPAWNS + ["combine_scanner"]
 	if track.hazards:
 		models.append_array(track.hazards.spawns())

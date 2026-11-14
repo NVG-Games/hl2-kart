@@ -1,31 +1,49 @@
-"""CT17: Combine-held City 17, a figure-8 of about 2.5 km.
+"""CT17: City 17 in ruins, a figure-8 of about 2.6 km.
 
 The station plaza under the Breencasts, down into a cutting under the old-town flyover, the
-underpass below the railway embankment, the Combine pipe over the canal, the rail yard with its
-jump and a level crossing, the canal corner over a bridge, the Combine checkpoint, the old-town
-switchbacks and up over the flyover to the boulevard toward the Citadel, back to the plaza.
+underpass below the railway embankment, up onto the ruined viaduct over the canal (its jerseys
+torn out in places, one span collapsed: the road runs down its sagging slab and up the next),
+down into the rail yard with its jump and a level crossing, the canal corner over a bridge, the
+Combine checkpoint, the old-town switchbacks and up over the flyover to the boulevard toward the
+Citadel: in through a hole blown in a block's facade, across its ground floor and out through
+another, up a ramp of rubble onto the long roof of a collapsed building and down its fallen floor
+slab, back to the plaza.
 
 Two branches: a jump straight over the canal instead of the canal corner (it takes speed: short
-of the far bank you swim) and the rooftops of the old town instead of its switchbacks, a ramp up
-onto the roofs and a jump over the middle street (it takes a boost; short of it you land in the
-street). A train crosses the yard, floor turrets guard the checkpoint and a strider watches the
-canal corner; the city turns out to watch the race.
+of the far bank you swim) and the rooftops of the old town instead of its switchbacks, a long way
+over the roofs: a ramp spiralling up off the hill road, three jumps over alleys, a run along the
+roofs beside the south street and down a collapsed floor slab into it (no boost needed: about as
+quick as the switchbacks). A train crosses the yard, floor turrets guard the checkpoint and three
+striders walk beside the viaduct, the canal corner and the boulevard, firing their warp cannons
+and machine guns at the karts; what is left of the city turns out to watch the race.
+
+The city is in ruins, as in Half-Life 2's "Anticitizen One" and "Follow Freeman": heaps of
+broken concrete under the collapsed span, beside the ramp of rubble and round craters, broken
+edges round the holes blown in the block, burnt-out cars and an APC, rubble shutting the side
+streets, gutted and collapsed blocks and the destroyed dome on the skyline, most street lamps
+dead, and fires and columns of smoke all over it (data["fires"], scripts/fx/ruin_fires.gd).
 """
 import math
 
 import numpy as np
 
 from crowds import FAR_MODEL
-from track_gen import UP, _side_w, _treatment, carve, face, noise2, smoothstep
+from track_gen import UP, _side_w, _treatment, _unwrap_s, carve, face, noise2, plane_uv, smoothstep, wall_strip
 
 # (x, y, z, width, style, flags): the start first. The west lobe runs clockwise seen from above
 # (the plaza, the cutting under the flyover, the underpass), the east lobe counter-clockwise (the
-# pipe, the rail yard, the canal corner, the checkpoint, the old town, the flyover)
+# viaduct, the rail yard, the canal corner, the checkpoint, the old town, the flyover)
 CTRL = [
     (0, 0, 0, 24, "plaza"), (105, 0, 0, 24, "plaza"), (170, -1.0, 10, 20, "avenue"),
     (222, -4.0, 26, 18, "cut", {"height": 4.6}), (268, -5.0, 38, 18, "cut", {"height": 4.6}),
-    (318, -5.5, 50, 18, "underpass"), (362, -5.0, 60, 17, "pipe"), (440, -6.0, 76, 17, "pipe"),
-    (506, -3.0, 74, 18, "yard"), (540, -1.0, 62, 20, "yard"), (562, 0, 34, 20, "yard"),
+    (318, -5.5, 50, 18, "underpass"),
+    # the ruined viaduct: out of the underpass's hollow up onto the broken elevated road, over the
+    # canal, down the collapsed span's slab and up the far one, then down into the yard
+    (362, -5.0, 60, 17, "viaramp"), (394, 0.0, 80, 17, "viaramp"), (424, 4.0, 102, 17, "viaduct"),
+    (458, 6.2, 116, 17, "viaduct"), (474, 6.2, 119, 17, "span"), (500, 2.2, 119, 17, "span"),
+    (522, 6.2, 112, 17, "viaduct"), (542, 6.0, 98, 17, "viaduct"), (550.5, 4.4, 85.5, 17.5, "viaramp"),
+    (558, 2.6, 72, 18, "viaramp"),
+    (566, 0, 40, 20, "yard"),
     # (a long kicker: a kart coming at it fast is not thrown high off it)
     (570, 0, 4, 21, "yard", {"gap": True, "gap_span": (0.025, 0.17), "ramp_lift": 1.4, "ramp_len": 24}),
     (584, 0, -82, 20, "yard"),
@@ -37,7 +55,7 @@ CTRL = [
     (480, 0, -300, 18, "checkpoint"), (420, 0, -300, 18, "checkpoint"),
     # the old town: west along the hill, a U-turn east down into the middle street, a wider U-turn
     # west (the switchbacks, each hairpin one steady arc), then round south to the flyover. The
-    # rooftops climb off the hill road (5.5 m to the roofs) and jump the middle street 9 m below
+    # rooftops climb off the hill road (5.5 m to the roofs) and come down beside the south street
     (330, 3.5, -298, 15, "old"), (272, 3.5, -298, 15, "old"),
     (236, 3.5, -298, 15, "switchback"), (219, 2.92, -293.4, 15, "switchback"), (206.6, 2.33, -281, 15, "switchback"),
     (202, 1.75, -264, 15, "switchback"), (206.6, 1.17, -247, 15, "switchback"), (219, 0.58, -234.6, 15, "switchback"),
@@ -50,31 +68,43 @@ CTRL = [
     (116.9, 1.5, -100.7, 18, "switchback"), (146, 2.5, -66, 18, "avenue"),
     # over the plaza road's cutting
     (206, 5.0, -26, 18, "flyover"), (248, 7.0, 32, 18, "flyover"),
-    # the boulevard toward the Citadel and back round to the plaza
-    (252, 3.5, 92, 18, "avenue"), (220, 1.0, 136, 20, "avenue"), (150, 1.0, 158, 20, "avenue"),
-    (74, 0.5, 156, 20, "avenue"), (4, 1.5, 128, 20, "avenue"), (-52, 0, 86, 20, "avenue"),
+    # the boulevard toward the Citadel: in through a hole blown in a block's facade, across its
+    # ground floor and out through another, up a ramp of rubble onto the long roof of a collapsed
+    # building, along it and down its fallen floor slab, back round to the plaza
+    (252, 3.5, 92, 18, "avenue"), (238, 1.2, 120, 18, "avenue"),
+    (220, 1.0, 138, 18, "breach"), (196, 1.0, 152, 18, "breach"),
+    (170, 1.0, 159, 18, "avenue"), (150, 1.0, 161, 16, "rubble"),
+    (114, 8.0, 160, 16, "roofroad"), (98, 8.0, 159.2, 16, "roofroad"), (70, 8.0, 156, 16, "roofroad"),
+    (34, 8.0, 146, 16, "roofroad"),
+    (12, 6.4, 136, 16, "fallen"),
+    (-24, 0.5, 112, 18, "avenue"), (-52, 0, 86, 20, "avenue"),
     (-88, 0, 40, 22, "plaza"), (-78, 0, 6, 24, "plaza"), (-40, 0, 0, 24, "plaza"),
 ]
 CTRL = [c if len(c) > 5 else c + ({},) for c in CTRL]
 
 # the canal's centre line: from the north-east under the corner's bridge, south-west between the
-# corner's two legs, under the Combine pipe and away south
+# corner's two legs, under the viaduct and away south
 CANAL = [(760.0, -262.0), (601.0, -228.0), (552.0, -216.0), (512.0, -200.0), (484.0, -164.0), (470.0, -110.0),
          (400.0, 68.0), (430.0, 420.0)]
 CANAL_HALF = 11.0
 WATER = -11.0
 FOOTBRIDGE = 1.6  # the footbridges' scale: they span the canal's 36 m from bank top to bank top
+# metres a broken railing's unseen wall (_broken_edges) reaches over its whole railing's "col_h":
+# with no jersey or parapet to hit first, a kart that hits the edge hard (head-on, at full speed, or
+# rammed into it in the pack) rides up the unseen wall, and over one only as tall as the railing's
+BROKEN_UP = 1.5
 
 TRACK = {
     "id": "ct17",
     "name": "CT17",
     "ctrl": CTRL,
-    # five crate rows in the 400 m before the rooftops' decision (a bot needs a boost in hand there)
-    "items": [0.0443, 0.1194, 0.1794, 0.2767, 0.3209, 0.3731, 0.3945, 0.4206, 0.6361, 0.6993, 0.8198, 0.9099],
-    # (none in the pipe's roll, on the run to the yard's jump or in the old town, whose hairpins and
-    # exit bend a boosted kart runs wide in: the first is out on the boulevard)
-    "boosts": [0.0292, 0.0798, 0.3802, 0.4585, 0.7209, 0.7802, 0.8696, 0.9494],
-    "barrels": [0.1391],
+    # (one on the viaduct's deck before the collapsed span, one on the collapsed building's roof)
+    "items": [0.0433, 0.1167, 0.1784, 0.2925, 0.3346, 0.3856, 0.4065, 0.4320, 0.6400, 0.7048, 0.8089, 0.8842],
+    # (none on the run to the yard's jump or in the old town, whose hairpins and exit bend a boosted
+    # kart runs wide in: the first is out on the boulevard; none before the ramp of rubble, whose top
+    # would throw a boosted kart at the roof's parapet: one along the roof)
+    "boosts": [0.0286, 0.0781, 0.3926, 0.4691, 0.7257, 0.7836, 0.8668, 0.9505],
+    "barrels": [0.1360],
     "vmax": 38.0,
     "offtrack": 40.0,
     "sky": "sky_day01_01",
@@ -89,8 +119,8 @@ TRACK = {
 
 # the checkpoint stretch starts at this lap metre and the yard jump lands at this one (the hazards
 # are placed from them, as on the old layout)
-CHECKPOINT_S = 1083.0
-YARD_LANDING_S = 632.0
+CHECKPOINT_S = 1137.8
+YARD_LANDING_S = 686.5
 TRACK["hazards"] = [
     # Combine floor turrets on the checkpoint's pavements, between the barricades, facing the oncoming karts
     {"type": "turret", "s": CHECKPOINT_S + 35, "side": -1, "setback": 1.6,
@@ -106,8 +136,24 @@ TRACK["hazards"] = [
     {"type": "train", "s": YARD_LANDING_S + 46, "angle": 90, "reach": 90,
      "cars": ["props_combine/combinetrain01a", "props_combine/combine_train02a", "props_combine/combine_train02b"],
      "car_axis": ["-x", "z", "z"], "speed": 28, "period": 26, "first": 50, "warn": 4.5},
-    # a strider on the canal bank beside the bridge fires its warp cannon at the bridge and the corner
-    {"type": "strider", "s": 850, "side": 1, "setback": 28, "zone": [818, 942], "scale": 1.15},
+    # three striders walk their own beats beside the road (scripts/hazards/strider_hazard.gd): at
+    # each halt the warp cannon at the nearest kart in view, machine-gun bursts down the road
+    # while they walk. Their zones lie 60 m or more apart (a pass through two would share one
+    # hit) and clear of the branches' forks and merges. On the inside of the viaduct's bend, on
+    # the open ground between it and the rail yard (the karts see it across the deck all round
+    # the bend); its zone ends 110 m before the yard jump's lip, so a kart it knocks about has
+    # the room to get back up to the jump's speed. (Its metre is the collapsed span's low point:
+    # the hazard lint counts a strider more than 4 m under the road at its metre as having no
+    # floor, and the deck elsewhere stands 6 m over the ground it walks on)
+    {"type": "strider", "s": 525, "zone": [425, 565], "cycle": 11.0, "phase": 3.0,
+     "walk": [[440, -1, 20], [500, -1, 24], [555, -1, 22]]},
+    # between the canal jump and the avenue to the canal corner, in view from the yard's exit on
+    {"type": "strider", "s": 860, "zone": [815, 935], "cycle": 11.0, "phase": 8.0,
+     "walk": [{"xz": [592, -165]}, {"xz": [597, -187]}, {"xz": [601, -208]}]},
+    # inside the west loop, west of the flyover's way down to the boulevard (seen from the
+    # flyover and on toward the breach)
+    {"type": "strider", "s": 2060, "zone": [2020, 2110], "cycle": 10.0, "phase": 2.0,
+     "walk": [{"xz": [220, 55]}, {"xz": [219, 75]}, {"xz": [214, 95]}]},
 ]
 
 BRANCHES = [
@@ -119,20 +165,35 @@ BRANCHES = [
               (531, 0, -294, 12, "avenue")],
      "items": [0.32, 0.72], "risk": 0.55, "ai": {"take": 0.65, "min_skill": 0.85}, "respawn": "before",
      "retry_back": 60.0},
-    # up onto the old town's roofs instead of its switchbacks and over the middle street: a boost
-    # carries a kart over it, short of the far roof it lands in the street (a safe drop). A bot
-    # holding a boost goes for it (take well over 1 against the risk's discount). The ramp climbs
-    # off the hill road to the roofs before the level corner at its top; the far roof sweeps round
-    # in one long descending curve (a kart that flies far lands in it and slides along its outer
-    # parapet) down beside the south street's wall and merges into it. A kart that falls off goes
-    # back to the main road (a retry would need the boost it has spent)
-    {"id": "rooftops", "name": "Rooftops", "kind": "ledge", "fork": (320, -298), "merge": (156, -150),
-     "ctrl": [(303, 3.68, -290, 10, "rooframp"), (288, 3.8, -284.1, 10, "rooframp"), (277, 6.1, -281.5, 10, "rooframp"),
-              (266, 8.7, -280.5, 11, "roof"), (253.5, 9.0, -277.2, 12, "roof"), (244.4, 9.0, -268, 12, "roof"),
-              (241.5, 9.0, -256, 10, "roof", {"gap": True, "gap_span": (0.3, 0.9), "ramp_lift": 1.8, "ramp_len": 20}),
-              (244, 9.0, -214.35, 10, "landing"), (237.8, 7.8, -191.35, 10, "landing"), (221, 5.6, -174.5, 10, "rooframp"),
-              (198, 3.0, -168.35, 9, "rooframp"), (175, 0.1, -162.5, 8, "rooframp")],
-     "items": [0.70], "risk": 0.5, "ai": {"take": 1.7, "min_skill": 0.8, "commit": 20.0}, "respawn": "main"},
+    # the long way over the old town's roofs instead of its switchbacks: a ramp up off the hill road
+    # that climbs on round a U-turn back east onto the roofs, the run east over the blocks, round
+    # south and two jumps over alleys, round west and along the roofs beside the south street with
+    # a jump over a third alley, and down a collapsed floor slab beside the street into it. The
+    # alleys are short (any kart at speed clears them: no boost needed) and the turns are tight, so
+    # a good driver is about as quick up here as down in the switchbacks. A kart that drops into an
+    # alley tries that jump again from 30 m before it (the jumps lie further apart than that: a
+    # retry never starts in the alley before). All of it stays between the fork and the merge
+    # along the lap (east of the fork's line a kart would count as off the end of the branch) and
+    # at least 20 m from the middle street (a stretch beside a street counts that street's lap
+    # metres, and the middle street's lie far ahead of the fork's)
+    {"id": "rooftops", "name": "Rooftops", "kind": "ledge", "fork": (320, -298), "merge": (152, -150),
+     "ctrl": [(303, 3.68, -290, 10, "rooframp"), (288, 3.8, -284.1, 10, "rampwall"), (277, 4.7, -281.5, 10, "rampwall"),
+              (268, 5.5, -284.3, 9, "spiral"), (259, 6.2, -284.6, 9, "spiral"), (253, 6.9, -278.5, 9, "spiral"),
+              (252.5, 7.6, -270, 9, "spiral"), (258.5, 8.3, -264.5, 9, "spiral"), (267, 8.85, -263.3, 10, "roof"),
+              (282, 9.0, -263.5, 11, "roof"),
+              (298, 9.0, -259.5, 11, "roof"), (307, 9.0, -249, 11, "roof"), (309.5, 9.0, -237, 11, "roof"),
+              (310, 9.0, -226, 11, "roof", {"gap": True, "gap_span": (0.3, 0.68), "ramp_lift": 1.0, "ramp_len": 12}),
+              (310, 8.2, -210, 11, "landing"), (310, 8.2, -199, 11, "landing"),
+              (310, 8.2, -187, 11, "roof", {"gap": True, "gap_span": (0.32, 0.68), "ramp_lift": 1.0, "ramp_len": 12}),
+              (310, 7.4, -171, 11, "landing"), (309, 7.4, -160, 11, "landing"),
+              (303.5, 7.4, -147.5, 11, "roof"), (294, 7.4, -137.5, 11, "roof"), (280, 7.4, -131, 11, "roof"),
+              (264, 7.4, -129.5, 11, "roof", {"gap": True, "gap_span": (0.3, 0.68), "ramp_lift": 1.0, "ramp_len": 12}),
+              (248, 6.6, -129.5, 11, "landing"), (234, 6.6, -129.5, 11, "landing"),
+              (222, 5.2, -130.5, 11, "slab"), (210, 2.7, -133.5, 10, "slab"),
+              (194, 0.6, -136.5, 10, "rooframp"), (176, 0.0, -142.5, 10, "rooframp")],
+     # (computer drivers take it about half the time on NORMAL and HARD, about a quarter on EASY)
+     "items": [0.26], "risk": 0.3, "ai": {"take": 0.65, "min_skill": 0.8, "commit": 20.0}, "respawn": "before",
+     "retry_back": 30.0},
 ]
 
 
@@ -157,6 +218,11 @@ def styles(m):
                "skirt": m.hl2("brick/brickwall031b"), "skirt_h": 9.5, "pillar_every": 1e9, "ground": "nat",
                "barrier": {"kind": "wall", "mat": m.hl2("brick/brickwall031b"), "h": 1.2, "thick": 0.45, "rep": 3.0,
                            "col_h": 3.5}, "gap_dip": False}
+    rooframp = {"kind": "bridge", "road": road, "road_u": "full", "skirt": concrete, "skirt_h": 9.5, "barrier": jersey,
+                "pillar_every": 1e9, "ground": "nat"}
+    viaduct = {"kind": "bridge", "road": m.hl2("concrete/concretefloor013a"), "road_rep": 6.0, "skirt": concrete,
+               "skirt_h": 1.4, "barrier": dict(jersey, sides="left", broken=[18.0, 6.0]), "pillar": concrete,
+               "pillar_every": 20.0, "pillar_size": 1.8, "ground": "nat"}
     return {
         # the plaza's cobbles are laid flat in plan (no stretch round its tight last corner)
         "plaza": {"kind": "street", "road": m.hl2("stone/stonefloor006d_c17"), "road_rep": 4.0, "curb": curb,
@@ -164,8 +230,8 @@ def styles(m):
                   "barrier": {"kind": "wall", "mat": m.hl2("stone/stonewall022a_c17"), "h": 0.9, "rep": 3.0,
                               "col_h": 2.5}},
         # the old town's walls stand 2 m: a kart thrown about by a blast stays in the street. Its
-        # junctions are the rooftops' noses, where the ramp beside the street is 2.5 m up: the crash
-        # cushion stands on the ground under the middle of the nose
+        # junctions are the rooftops' noses, where the ramp and the slab beside the street are 2.5 m
+        # up: the crash cushion stands on the ground under the middle of the nose
         "old": old,
         # the switchbacks and the old town's exit bend (out to the boulevard): no pavement, the wall
         # stands at the kerb, so a kart that runs wide slides along it instead of climbing the kerb
@@ -203,13 +269,17 @@ def styles(m):
                         "barrier": {"kind": "wall", "mat": m.hl2("stone/stonewall022a_c17"), "h": 1.1, "thick": 0.45,
                                     "rep": 3.0, "col_h": 3.0},
                         "pillar": concrete, "pillar_every": 16.0, "pillar_size": 1.4, "ground": "keep"},
-        # a Combine pipe through the city: the road climbs the wall nearly to the roof and comes back.
-        # It lies in a cutting, on the ground ("rest"), and spans the canal. The lane is back at the
-        # bottom 40 m before the exit ("settle"), so a kart still up the wall slides down inside
-        "pipe": {"kind": "tube", "road": road, "road_u": "full", "road_rep": 6.0, "ground": "rest",
-                 "wall": m.hl2("metal/citadel_metalwall072a"), "skin": m.hl2("metal/citadel_metalwall072a"),
-                 "glow": m.hl2("lights/white001"), "radius": 11.0, "roll": 150.0, "profile": "wall", "settle": 18.0,
-                 "ring_every": 12.0, "light_color": [0.55, 0.8, 1.0], "light_energy": 1.6},
+        # the ruined viaduct: a cracked concrete deck on pillars over the city's own ground and the
+        # canal. Its jerseys stand whole on the left; on the right stretches of them are torn out
+        # ("broken": 6 m gone in every 18), with an unseen wall along that whole edge
+        # (_broken_edges), so the deck looks open there but no kart falls off it
+        "viaduct": viaduct,
+        # its low ends, out of the underpass's hollow and down into the yard: the same deck on an
+        # embankment up to it ("keep": no slot under a low deck for a kart to wedge itself in)
+        "viaramp": dict(viaduct, ground="keep"),
+        # the collapsed span: the deck broke between two piers and its slab lies sagging between
+        # them, the road down it and up the next; walls down into the rubble under it, no pillars
+        "span": dict(viaduct, road=m.hl2("concrete/concretefloor007a"), road_rep=4.0, skirt_h=6.0, pillar_every=1e9),
         # the old-town flyover over the plaza road's cutting: jersey barriers, pillars down to the
         # ground beside the cutting (none in it)
         "flyover": {"kind": "bridge", "road": road, "road_u": "full", "skirt": concrete, "skirt_h": 1.8,
@@ -222,16 +292,55 @@ def styles(m):
                  "walk_mat": m.hl2("concrete/concretefloor028c_c17"), "barrier": jersey, "skirt": concrete},
         # the ramps up onto the roofs and back down: a concrete deck with jersey barriers, closed
         # below by its walls down to the city's ground (no pillars, no embankment)
-        "rooframp": {"kind": "bridge", "road": road, "road_u": "full", "skirt": concrete, "skirt_h": 9.5,
-                     "barrier": jersey, "pillar_every": 1e9, "ground": "nat"},
-        # the roofs (the jump over the middle street digs no pit: under it are the street and the
-        # blocks' yards); the far roof the jump lands on stops a kart that flew long up to 5.5 m
+        "rooframp": rooframp,
+        # the roofs (the jumps over the alleys dig no pit: under them are the blocks' yards)
         "parapet": parapet,
-        # round the corner at the top and on to the jump a computer driver keeps to the middle (an
-        # open edge's line, "pit"): it comes to the kicker straight, not across it from the corner's
-        # exit, and leaves the lip heading for the far roof
-        "roof": dict(parapet, pit=True),
-        "landing": dict(parapet, barrier=dict(parapet["barrier"], col_h=5.5)),
+        # round the tight corners and on to the jumps a computer driver keeps to the middle (an open
+        # edge's line, "pit"): it comes to each kicker straight, not across it from a corner's exit,
+        # and leaves the lip heading for the far roof. The roofs over the alleys (the run-ups and
+        # the landings) stop a kart up to 9 m over them: a boosted kart thrown high off a kicker
+        # (landing from one jump onto the next one's kicker, or scraping the parapet up it) flies
+        # over the next alley and comes down on the roof, not over the next corner's parapet
+        "roof": dict(parapet, pit=True, barrier=dict(parapet["barrier"], col_h=9.0)),
+        "landing": dict(parapet, barrier=dict(parapet["barrier"], col_h=9.0)),
+        # the ramp's last stretch climbs on round a U-turn back east onto the roofs (a kart that
+        # comes at it too fast meets the wall, not a crest that throws it off); a computer driver
+        # keeps to its middle at a steady speed, as in the switchbacks below. Upright concrete walls
+        # instead of jerseys (a kart pressed against a jersey round a tight turn rides up it and
+        # rolls over), stopping a kart up to 6 m
+        "spiral": dict(rooframp, pit=True, vmax=11.0,
+                       barrier={"kind": "wall", "mat": concrete, "h": 1.2, "thick": 0.45, "rep": 3.0, "col_h": 6.0}),
+        # the bend in the ramp just before the U-turn has the same walls: a kart that comes up the
+        # ramp at full speed runs wide there and meets the outside wall at speed (on a jersey it
+        # rode up it, rolled over and was thrown across the U-turn, over its wall or down the ramp)
+        "rampwall": dict(rooframp, barrier={"kind": "wall", "mat": concrete, "h": 1.2, "thick": 0.45, "rep": 3.0,
+                                            "col_h": 6.0}),
+        # the rooftops' way down: a floor slab fallen from the last roof, tilted down to the street
+        # beside the south street's wall, its broken edges walls down to the ground
+        "slab": dict(parapet, road=m.hl2("concrete/concretefloor013a"), road_rep=6.0, skirt=concrete),
+        # the boulevard's breach: in through a hole blown in a block's facade, across its ground
+        # floor and out through another. Plaster walls, a concrete ceiling 6 m up, a floor beside
+        # the road out to the walls (its pillars stand there, debris for the dressing), lit by
+        # fires instead of strip lights (no panels); the facades round the holes reach 9 m out to
+        # the sides and 8 m over the ceiling, the rest of the block is _breach_block's
+        "breach": {"kind": "tunnel", "road": m.hl2("concrete/concretefloor013a"), "road_rep": 6.0, "height": 6.0,
+                   "wall": m.hl2("plaster/plasterwall021a"), "wall_rep": 4.0, "wall_gap": 3.5,
+                   "side_floor": m.hl2("concrete/concretefloor007a"), "ceil": m.hl2("concrete/concretefloor013a"),
+                   "light": m.hl2("lights/white001"), "light_rows": [], "light_every": 12.0,
+                   "light_color": [1.0, 0.72, 0.45], "light_energy": 1.3, "lamp_every": 1,
+                   "portal": m.hl2("building_template/building_template002i"), "portal_w": 9.0, "portal_h": 8.0,
+                   "cover": 0.0},
+        # the ramp of rubble up onto the collapsed building's roof: its fallen end, broken concrete
+        # on top and heaped rubble down its sides to the ground (no pillars), jerseys partly torn out
+        "rubble": dict(viaduct, road=m.hl2("concrete/concretefloor007a"), road_rep=4.0,
+                       skirt=m.hl2("concrete/concretefloor020a"), skirt_h=9.0, pillar_every=1e9),
+        # the main road along that roof: tar on its block of broken brick, a parapet whole on the
+        # left and broken on the right (an unseen wall along that edge, _broken_edges)
+        "roofroad": dict(parapet, barrier=dict(parapet["barrier"], sides="left", broken=[14.0, 5.0]), skirt_h=9.0,
+                         skirt=m.hl2("brick/brickwall021a")),
+        # ... and down the floor slab fallen from its far end to the boulevard
+        "fallen": dict(viaduct, road=m.hl2("concrete/concretefloor013a"), road_rep=6.0, skirt_h=8.0,
+                       pillar_every=1e9),
     }
 
 
@@ -259,8 +368,11 @@ def _canal_along(u):
 
 
 def terrain(trk, m):
-    layers = {"base": m.hl2("nature/grassfloor002a"), "dirt": m.hl2("nature/dirtfloor003a"),
-              "rock": m.hl2("concrete/concretewall008a"), "pave": m.hl2("concrete/concretefloor028c_c17"),
+    # the ruined city's ground: broken concrete ("pave"), and heaped rubble with splintered wood
+    # where the concrete gives out (the base layer: patches of it all over the city and the ring
+    # out to the hills, where it used to be grass)
+    layers = {"base": m.hl2("nature/blendrubbledirt001a"), "dirt": m.hl2("nature/dirtfloor003a"),
+              "rock": m.hl2("concrete/concretewall008a"), "pave": m.hl2("concrete/concretefloor007a"),
               "sand": m.hl2("nature/blenddirtmud01")}
 
     def build(f, trk):
@@ -272,17 +384,25 @@ def terrain(trk, m):
         canal = smoothstep(CANAL_HALF + 1.5, CANAL_HALF - 0.5, cd)
         nat = nat * (1 - canal) + (WATER - 3.0) * canal
         h = carve(f, nat, trk, flat=9.0, blend=24.0, gap_floor=WATER - 3.0)
+        # the breach runs through a block of flats, not a hill: round it the ground stays level
+        # with the street (as beside an avenue) instead of rising to its ceiling
+        under = f.road_h + f.bank * np.clip(f.lat, -f.half, f.half) - 0.35 - np.abs(f.bank) * 1.5
+        t = smoothstep(f.half + 9.0, f.half + 33.0, f.dist)
+        h = np.where(f.style == "breach", np.minimum(under * (1 - t) + nat * t, f.cap), h)
         # the canal cuts through the shoulders too (it passes under the corner's bridge, the canal
-        # jump and the pipe)
+        # jump and the viaduct)
         h = np.where(canal > 0.5, np.minimum(h, WATER - 3.0), h)
         Hm = h.reshape(f.nz, f.nx)
         gz, gx = np.gradient(Hm, f.cell)
         slope = np.sqrt(gx ** 2 + gz ** 2).ravel()
         rock = smoothstep(0.6, 1.0, slope)
         yard = np.isin(f.style, ["yard"]) & (f.dist < f.half + 40)
-        embank = (f.kind == "tunnel") & (f.dist < f.half + 30)
+        embank = (f.style == "underpass") & (f.dist < f.half + 30)
         dirt = np.clip(yard * 0.9 + embank * 0.8 + far, 0, 1)
         pave = np.clip(1.0 - far * 1.4, 0, 1) * (1 - dirt)
+        # rubble in patches tens of metres across through the broken concrete
+        rubble = smoothstep(0.52, 0.66, noise2(P[:, 0] / 45.0 + 31.0, P[:, 1] / 45.0 - 17.0, 9))
+        pave = pave * (1.0 - rubble * 0.85)
         sand = smoothstep(WATER + 0.5, WATER - 1.5, h)
         col = np.stack([dirt, rock, pave, sand], 1).astype(np.float32)
         return h, col
@@ -308,12 +428,14 @@ def _canal_clear(ctx, model, q, yaw):
 
 def _lamps(ctx):
     """Street lamps on the pavements of ctx's road, their arms over the road; none under another
-    road's jump (the rooftops fly over the old town's middle street at lamp height), none where a
-    junction left the pavement out or there is hardly any (the switchbacks) and none on the
-    checkpoint's narrow pavements (its turrets and barricades stand there)."""
+    road's jump (a branch's jump over a street at lamp height), none where a junction left the
+    pavement out or there is hardly any (the switchbacks) and none on the checkpoint's narrow
+    pavements (its turrets and barricades stand there). In the ruined city the power is out on
+    most of them: one in three still burns."""
     t = ctx.trk
     r = ctx.roads
     fly = np.where(r.gap & (r.route != r.trks.index(t)))[0]
+    lit = 0
     for i in ctx.every(32.0):
         # (a street's end sample: its pavement starts or ends right under the lamp)
         if any(t.kind(t.wrap(i + d)) != "street" for d in (-1, 0, 1)) or t.gap[i] or t.style[i] == "checkpoint":
@@ -329,7 +451,9 @@ def _lamps(ctx):
             under = np.hypot(r.pos[fly, 0] - q[0], r.pos[fly, 2] - q[2]) < r.width[fly] / 2 + 3.0
             if (under & (r.pos[fly, 1] < q[1] + 14.0)).any():
                 continue
-            ctx.add("props_c17/lamppost03a_on", q, ctx.yaw_facing(t.flat_right[i] * sgn), ground=False)
+            lit += 1
+            ctx.add("props_c17/lamppost03a_on" if lit % 3 == 1 else "props_c17/lamppost03a_off", q,
+                    ctx.yaw_facing(t.flat_right[i] * sgn), ground=False)
 
 
 def _rails(ctx, P, width=2.8):
@@ -426,6 +550,35 @@ def _roofs(ctx):
             ctx.cylinder(ctx.mats.hl2("metal/metalpipe010a"), [q[0], top, q[2]], 0.06, 3.5, segs=6, kind="deco")
 
 
+def _pavement_ends(ctx):
+    """Where a street and a bridge meet (the canal corner's bridge, the flyover, the ramp of
+    rubble and the fallen slab), a stub of the street's barrier across the end of its pavement,
+    from the deck's edge out to the barrier: a kart running along the pavement meets it instead
+    of driving off the pavement's end onto the ground beside the deck, and none drops into the
+    open corner beside a deck's end where the pavement starts."""
+    t = ctx.trk
+    for i in range(t.n):
+        j = t.wrap(i - 1)
+        a, b = t.styles[t.style[j]], t.styles[t.style[i]]
+        if a["kind"] == "street" and b["kind"] == "bridge":
+            st, k = a, j
+        elif a["kind"] == "bridge" and b["kind"] == "street":
+            st, k = b, i
+        else:
+            continue
+        if not st.get("barrier") or t.gap[i] or t.cut[i]:
+            continue
+        bar = st["barrier"]
+        h = 1.05 if bar.get("kind") == "jersey" else bar.get("h", 1.2)
+        for sgn in (-1, 1):
+            if t.side_off[i, (sgn + 1) // 2] or t.side_off[j, (sgn + 1) // 2]:
+                continue
+            hi = 0.3 + _side_w(t, [k], sgn, st.get("walk", 4.0), _treatment(st) - st.get("walk", 4.0))[0] + 0.4
+            c = ctx.side(i, sgn, hi / 2)
+            y0 = t.pos[i][1] + st.get("curb_h", 0.16)
+            ctx.box(bar["mat"], [c[0], y0 + (h - 0.3) / 2, c[2]], [hi, h + 0.3, 0.4], ctx.yaw_facing(t.fwd[i]))
+
+
 def _barrier_steps(ctx):
     """Where two street styles meet with their barriers at different distances from the road (a
     wider pavement on one side of the change), a stub of the taller barrier across the step at the
@@ -452,24 +605,111 @@ def _barrier_steps(ctx):
             ctx.box(bar["mat"], [c[0], y0 + (h - 0.3) / 2, c[2]], [hi - lo, h + 0.3, 0.4], ctx.yaw_facing(t.fwd[i]))
 
 
-def _pipe_caps(ctx):
-    """Where a tunnel runs into the Combine pipe (or out of it), the pipe's end ring stands open
-    above the tunnel's roof: from outside you look into the pipe over the portal. A cap of the
-    pipe's skin closes the ring above the roof, facing out of the pipe."""
-    t = ctx.trk
-    for ids in ctx.runs_of([i for i in range(t.n) if t.kind(i) == "tube"]):
-        for end, nb, out in ((ids[0], t.wrap(ids[0] - 1), -1.0), (ids[-1], t.wrap(ids[-1] + 1), 1.0)):
-            if t.kind(nb) != "tunnel":
+def _broken_edges(ctx):
+    """Along the side of a deck whose railing is broken (a bridge style's barrier with "broken" and
+    "sides" naming the whole one), an unseen wall from the deck up to BROKEN_UP over the barrier's
+    "col_h": the gaps torn in the jerseys or the parapet look open, but a kart thrown at them stays
+    on the deck (on every road: the lap's viaduct, collapsed span, ramp of rubble, roof and fallen
+    slab). It stands 5 cm in from the deck's edge: a kart sliding along it never catches the blunt
+    end of the next piece of railing."""
+    for t in ctx.roads.trks:
+        for name, st in t.styles.items():
+            bar = st.get("barrier") or {}
+            if st["kind"] != "bridge" or not bar.get("broken") or bar.get("sides") not in ("left", "right"):
                 continue
-            st = t.styles[t.style[end]]
-            r = st["radius"] + 0.6
-            up, right = t.base_up[end], t.base_right[end]
-            c = t.base[end] + up * st["radius"] - t.fwd[end] * out * 0.05
-            # the chord along the tunnel's roof, the arc over the top
-            a = math.asin(np.clip((t.height[nb] - st["radius"]) / r, -1.0, 1.0))
-            pts = [c + (right * math.cos(th) + up * math.sin(th)) * r for th in np.linspace(a, math.pi - a, 25)]
-            face(ctx.meshes["walls"], st["skin"], pts, t.fwd[end] * out, [[p @ right / 4.0, p @ up / 4.0] for p in pts],
-                 center=True)
+            sgn = 1 if bar["sides"] == "left" else -1
+            for ids in t.runs(lambda i, nm=name: t.style[i] == nm):
+                if len(ids) < 2:
+                    continue
+                E = t.pos[ids] + t.right[ids] * sgn * (t.width[ids] / 2 - 0.05)[:, None] - UP * 0.3
+                wall_strip(ctx.meshes["colonly"], "colonly", E, E + UP * (bar.get("col_h", 3.0) + BROKEN_UP + 0.3),
+                           _unwrap_s(t, ids), sgn, 3.0)
+
+
+def _span_caps(ctx):
+    """The collapsed span's slab hangs its walls deeper than the viaduct's deck either side of it:
+    where they meet, a face across the deck from the viaduct's underside down to the slab's
+    closes the slab's end (no looking into it from under the viaduct)."""
+    t = ctx.trk
+    for ids in t.runs(lambda i: t.style[i] == "span"):
+        for j, k, out in ((ids[0], t.wrap(ids[0] - 1), -1.0), (ids[-1], t.wrap(ids[-1] + 1), 1.0)):
+            st, nb = t.styles["span"], t.styles[t.style[k]]
+            if nb["kind"] != "bridge":
+                continue
+            hw = t.width[j] / 2
+            top, low = t.pos[j][1] - nb.get("skirt_h", 1.6), t.pos[j][1] - st["skirt_h"]
+            q = [t.pos[j] + t.right[j] * (hw * a) for a in (-1.0, 1.0, 1.0, -1.0)]
+            q = [np.array([p[0], y, p[2]]) for p, y in zip(q, (low, low, top, top))]
+            face(ctx.meshes["side"], st["skirt"], q, t.fwd[j] * out, plane_uv(q, q[0], t.flat_right[j], 4.0))
+
+
+def _decks(ctx):
+    """The decks that stand on their own walls (the roofs, the ramps and slabs up to them, the
+    collapsed span: skirts 5 m and deeper) are held in the overlap registry, deck and side
+    treatment from the ground to 2 m over it, so no building of the rows or the grid placed later
+    stands through their walls or parapets."""
+    for t in ctx.roads.trks:
+        for i in range(0, t.n, 3):
+            st = t.styles[t.style[i]]
+            if st["kind"] != "bridge" or st.get("skirt_h", 1.6) < 5.0 or t.gap[i]:
+                continue
+            w = t.width[i] + 2.0 * ((_treatment(st) or 0.0) + 0.3)
+            g = ctx.ground(t.pos[i][0], t.pos[i][2])
+            lo, hi = min(g, t.pos[i][1]) - 0.5, t.pos[i][1] + 2.0
+            ctx.block([t.pos[i][0], (lo + hi) / 2, t.pos[i][2]], [w, hi - lo, 3 * t.step + 0.5],
+                      ctx.yaw_facing(t.fwd[i]))
+
+
+def _breach_block(ctx):
+    """The block of flats the boulevard's breach runs through: its ground floor is the hall (the
+    breach style, a tunnel), whose portals are the facades round the two holes; from their outer
+    edges the block's side walls run along it and its flat roof covers all of it 8 m over the
+    hall's ceiling. Square pillars stand on the hall's floor beside the road (a kart that runs
+    wide meets them). It collides like a wall, and the overlap registry holds its walls and the
+    floors over the hall, so no later prop stands in it (the hall itself is left free for the
+    dressing)."""
+    t = ctx.trk
+    st = t.styles["breach"]
+    mats = ctx.mats
+    for ids in t.runs(lambda i: t.style[i] == "breach", with_gaps=True):
+        inner = t.width[ids] / 2 + st["wall_gap"]
+        out = inner + st["portal_w"]
+        H = t.pos[ids, 1] + st["height"]
+        top = H + st["portal_h"]
+        v = _unwrap_s(t, ids)
+        edge = []
+        for sgn in (-1, 1):
+            E = t.pos[ids] + t.flat_right[ids] * sgn * out[:, None]
+            low = E.copy()
+            low[:, 1] = [min(ctx.ground(p[0], p[2]), y) - 1.0 for p, y in zip(E, t.pos[ids, 1])]
+            high = E.copy()
+            high[:, 1] = top
+            wall_strip(ctx.meshes["walls"], st["portal"], low, high, v, -sgn, 4.0)
+            edge.append(high)
+        ctx.meshes["walls"].strip(mats.hl2("props/rubberroof002a"), edge[0], edge[1], 0.0,
+                                  float(np.mean(out)) * 2 / 5.0, v / 5.0, np.tile(UP, (len(ids), 1)),
+                                  np.tile(UP, (len(ids), 1)))
+        for a in range(0, len(ids) - 1, 3):
+            b = min(a + 3, len(ids) - 1)
+            i, j = ids[a], ids[b]
+            c = (t.pos[i] + t.pos[j]) / 2
+            f = t.pos[j] - t.pos[i]
+            yaw = ctx.yaw_facing(f)
+            ln = float(np.hypot(f[0], f[2])) + 0.5
+            rf = (t.flat_right[i] + t.flat_right[j]) / 2
+            w_in, w_out = (inner[a] + inner[b]) / 2 + 0.3, (out[a] + out[b]) / 2
+            for sgn in (-1, 1):
+                m = c + rf * sgn * (w_in + w_out) / 2
+                ctx.block([m[0], (c[1] - 1.0 + top[a]) / 2, m[2]], [w_out - w_in, top[a] - c[1] + 1.0, ln], yaw)
+            ctx.block([c[0], (H[a] + top[a]) / 2, c[2]], [2 * w_out, top[a] - H[a], ln], yaw)
+        # the pillars: down the middle of the floor beside the road, every 9 m, clear of the ends
+        k = max(1, int(round(9.0 / t.step)))
+        for q in range(k // 2 + 2, len(ids) - 2, k):
+            i = ids[q]
+            for sgn in (-1, 1):
+                p = t.pos[i] + t.flat_right[i] * sgn * (t.width[i] / 2 + st["wall_gap"] * 0.55)
+                ctx.box(mats.hl2("concrete/concretewall008a"), [p[0], t.pos[i][1] + st["height"] / 2, p[2]],
+                        [0.9, st["height"] + 0.1, 0.9], ctx.yaw_facing(t.fwd[i]))
 
 
 def _prism(ctx, pts, base, top):
@@ -549,6 +789,431 @@ def _old_town(ctx):
                 break
 
 
+# ---------------------------------------------------------------- the ruins
+# heaps of broken concrete (the first two big, the rest small) and the chunks strewn round them
+HEAPS = ["props_debris/concrete_debris256pile001a", "props_debris/concrete_floorpile01a",
+         "props_debris/concrete_debris128pile001a", "props_debris/concrete_debris128pile001b",
+         "props_debris/concrete_cornerpile01a"]
+CHUNKS = ["props_debris/concrete_chunk01a", "props_debris/concrete_chunk02a", "props_debris/concrete_chunk06c",
+          "props_debris/concrete_chunk07a"]
+# burnt-out cars (HL2's rusted wrecks)
+WRECKS = ["props_vehicles/car001b_hatchback", "props_vehicles/car002b", "props_vehicles/car003b",
+          "props_vehicles/car004b", "props_vehicles/car005b"]
+# the skyline's gutted and fallen-in blocks among the tower blocks
+RUINED_TOWERS = ["props_buildings/project_destroyedbuildings01", "props_buildings/collapsedbuilding02b",
+                 "props_buildings/collapsedbuilding02c"]
+# what shuts a side street ("wreck": one of WRECKS)
+SHUTTERS = ["props_debris/concrete_debris256barricade001a", "props_debris/barricade_tall01a", "wreck",
+            "props_debris/concrete_debris256barricade001a", "props_debris/barricade_short01a"]
+# the lap metres whose side streets are shut: the avenue to the canal corner, the old town's exit
+# and the boulevard before the breach, between it and the ramp of rubble and on into the plaza
+SIDE_STREETS = ((823.0, 1025.0), (1757.0, 1853.0), (2059.0, 2115.0), (2171.0, 2191.0), (2378.0, 2476.0))
+# craters beside the road (lap metres, side, metres past the road edge): those on level open
+# ground are dug (the yard's verges between the fence and the sidings, the open ground beside
+# the viaduct and the collapsed building, the plaza's approach)
+CRATERS = ((460.0, 1, 12.0), (662.0, 1, 9.0), (700.0, -1, 9.0), (2205.0, 1, 18.0), (2240.0, -1, 16.0),
+           (2420.0, 1, 22.0), (2370.0, 1, 16.0))
+# burnt-out vehicles by the road (lap metres, side, metres past the road edge, model, burning)
+WRECK_SPOTS = ((656.0, -1, 21.0, WRECKS[0], True), (1100.0, 1, 26.0, WRECKS[3], False),
+               (2094.0, -1, 14.0, "combine_apc_destroyed_gib01", True), (2400.0, 1, 19.0, WRECKS[2], True),
+               (2445.0, -1, 20.0, WRECKS[4], False))
+
+
+def _lap_i(t, s):
+    """The sample at lap metres s."""
+    return int(round(s / t.step)) % t.n
+
+
+def _fire(ctx, q, size=1.0, smoke=1.0, light=False):
+    """A fire for scripts/fx/ruin_fires.gd with its flames at q: `size` scales the flames (1: a
+    burning car), `smoke` the column of smoke over it (0 none, 1 a car's, 3 a burning block's
+    seen from across the city) and `light` gives it a flickering light."""
+    ctx.fires.append({"pos": [round(float(c), 2) for c in q], "size": round(float(size), 2),
+                      "smoke": round(float(smoke), 2), "light": bool(light)})
+
+
+def _ground_prop(ctx, model, q, yaw, tol=0.6, **kw):
+    """A prop standing on the ground at plan point q (on the lowest ground under its footprint):
+    False where that ground varies by more than tol or the prop is refused (see Ctx.add)."""
+    if model not in ctx.models:
+        ctx.missing.add(model)
+        return False
+    q = np.array([q[0], 0.0, q[2]], float)
+    g = ctx.site(model, q, yaw, scale=kw.get("scale", 1.0), tol=tol)
+    if g is None:
+        return False
+    q[1] = g
+    return ctx.add(model, q, yaw, **kw)
+
+
+def _centred(ctx, model, c, yaw):
+    """The origin that puts a model's box (in plan) centred on c when turned by yaw."""
+    mm = ctx.models[model]
+    mid = (np.array(mm["aabb_min"]) + np.array(mm["aabb_max"])) / 2
+    q = np.array(c, float)
+    q -= np.array([math.cos(yaw), 0.0, -math.sin(yaw)]) * mid[0] + np.array([math.sin(yaw), 0.0, math.cos(yaw)]) * mid[2]
+    return q
+
+
+def _heap(ctx, c, big=True, chunks=2, pile=None):
+    """A heap of rubble on the ground at plan point c: a pile, big or small (or the one named by
+    `pile`), with a few chunks of concrete strewn round it. The height of the pile's top when it
+    stands, else None."""
+    rng = ctx.rng
+    piles = HEAPS[:2] if big else HEAPS[2:]
+    m = piles[int(rng.integers(0, len(piles)))]
+    m = pile or m
+    ok = _ground_prop(ctx, m, c, float(rng.uniform(0, 6.28)), tol=0.8)
+    top = ctx.props[-1]["pos"][1] + ctx.models[m]["aabb_max"][1] if ok else None
+    if ok:
+        r0 = 3.6 if big else 2.2
+        for _ in range(chunks):
+            a = float(rng.uniform(0, 6.28))
+            r = r0 + float(rng.uniform(0.0, 1.2))
+            q = np.array([c[0] + math.cos(a) * r, 0.0, c[2] + math.sin(a) * r])
+            _ground_prop(ctx, CHUNKS[int(rng.integers(0, len(CHUNKS)))], q, float(rng.uniform(0, 6.28)), tol=0.4)
+    return top
+
+
+def _decal_tris(P, nrm, nx, nz):
+    """Triangles of a grid of (nx + 1) x (nz + 1) points P (row by row), wound to face nrm."""
+    tri = []
+    for j in range(nz):
+        for k in range(nx):
+            a, b = j * (nx + 1) + k, j * (nx + 1) + k + 1
+            c, d = b + nx + 1, a + nx + 1
+            tri += [a, b, c, a, c, d]
+    if np.dot(np.cross(P[tri[1]] - P[tri[0]], P[tri[2]] - P[tri[0]]), nrm) < 0:
+        tri = [x for k in range(0, len(tri), 3) for x in (tri[k], tri[k + 2], tri[k + 1])]
+    return tri
+
+
+def _ground_decal(ctx, mat, c, size, yaw, lift=0.1, n=4):
+    """A decal lying on the ground (n x n cells following the terrain) centred on plan point c,
+    `size` metres square, turned by yaw."""
+    ax = np.array([math.cos(yaw), 0.0, -math.sin(yaw)])
+    az = np.array([math.sin(yaw), 0.0, math.cos(yaw)])
+    P, uv = [], []
+    for j in range(n + 1):
+        for k in range(n + 1):
+            p = np.array([c[0], 0.0, c[2]]) + ax * size * (k / n - 0.5) + az * size * (j / n - 0.5)
+            p[1] = ctx.ground(p[0], p[2]) + lift
+            P.append(p)
+            uv.append([k / n, j / n])
+    P = np.array(P)
+    ctx.meshes["decal"].add(mat, P, [UP] * len(P), uv, _decal_tris(P, UP, n, n))
+
+
+def _road_decal(ctx, t, i, lat, length, width, mat):
+    """A decal on the road of t, `length` metres along it centred on sample i, `width` across
+    centred `lat` metres right of its middle (it follows the road's slope)."""
+    k = max(2, int(round(length / t.step)) + 1)
+    ids = np.array([t.wrap(i - k // 2 + j) for j in range(k)])
+    if t.gap[ids].any() or (t.mag[ids] > 0.0).any():
+        return
+    A = np.array([t.surface(j, lat - width / 2, 0.03) for j in ids])
+    B = np.array([t.surface(j, lat + width / 2, 0.03) for j in ids])
+    ctx.meshes["decal"].strip(mat, A, B, 0.0, 1.0, np.linspace(0.0, 1.0, k), t.up[ids], t.up[ids])
+
+
+def _wall_decal(ctx, mat, c, nrm, along, w, h):
+    """An upright decal w x h metres centred on c, facing nrm (soot on a facade)."""
+    u, v = along * (w / 2), UP * (h / 2)
+    P = np.array([c - u - v, c + u - v, c - u + v, c + u + v])
+    ctx.meshes["decal"].add(mat, P, [nrm] * 4, [[0, 1], [1, 1], [0, 0], [1, 0]], _decal_tris(P, nrm, 1, 1))
+
+
+def _landmarks(ctx):
+    """The ruins' big pieces, placed before the city's rows and grid (they fill round them): two
+    spans of a broken flyover standing in the rubble outside the viaduct's bend beside its
+    collapsed span (clear of the canal), a gutted block of flats south of the collapsed
+    building's roof (seen from it) and the destroyed dome on the skyline west of the plaza, toward
+    the Citadel, with smoke rising out of both."""
+    t = ctx.trk
+    for s, off, model, skew in ((524.0, 26.0, "props_c17/overpass_001a", 0.35),
+                                (570.0, 30.0, "props_c17/overpass_001b", -0.45)):
+        i = _lap_i(t, s)
+        yaw = ctx.yaw_facing(t.fwd[i]) + skew
+        c = ctx.side(i, 1, off + 6.0)
+        if model in ctx.models and _canal_clear(ctx, model, c, yaw):
+            _ground_prop(ctx, model, c, yaw, tol=2.5, tag="building")
+    i = _lap_i(t, 2280.0)
+    m = "props_buildings/project_destroyedbuildings01"
+    if m in ctx.models:
+        yaw = ctx.yaw_facing(t.flat_right[i])
+        c = ctx.side(i, -1, 26.0 + ctx.model_size(m)[2] / 2)
+        if ctx.fits(m, c, yaw, 18.0) and _ground_prop(ctx, m, c, yaw, tol=2.0, tag="building"):
+            _fire(ctx, [c[0], ctx.ground(c[0], c[2]) + 30.0, c[2]], 1.5, 3.0)
+    m = "props_rooftop/parliament_dome_destroyed_exterior"
+    c = np.array([-270.0, 0.0, 205.0])
+    if m in ctx.models and ctx.road_gap_to(c) > 150.0 and _ground_prop(ctx, m, c, 0.6, tol=6.0, scale=2.2,
+                                                                       tag="building"):
+        _fire(ctx, [c[0], ctx.ground(c[0], c[2]) + 40.0, c[2]], 2.0, 3.5)
+
+
+def _viaduct_ruins(ctx):
+    """The ruined viaduct: rubble and crumbs of concrete over its deck (decals), heaps of rubble
+    on the ground both sides of the collapsed span, rebar out of the broken piers at its ends and
+    fires in the heaps (their smoke rises past the deck)."""
+    t = ctx.trk
+    rng = ctx.rng
+    deck = [i for i in range(t.n) if t.style[i] in ("viaduct", "span", "viaramp") and not t.gap[i]]
+    for n, i in enumerate(deck[3::7]):
+        hw = t.width[i] / 2
+        mat = ("decals/rubble01a", "decals/debris_concrete001a")[n % 2]
+        _road_decal(ctx, t, i, float(rng.uniform(-hw + 2.8, hw - 2.8)), 5.0, 4.0, ctx.mats.hl2(mat))
+    span = [i for i in range(t.n) if t.style[i] == "span"]
+    if len(span) < 6:
+        return
+    # (the heaps stand past the span's walls and their 2.3 m in the overlap registry, _decks)
+    for k, i in enumerate(span[2:-2:5]):
+        for sgn in (-1, 1):
+            big = (k + (sgn > 0)) % 2 == 0
+            _heap(ctx, ctx.side(i, sgn, (6.2 if big else 4.2) + float(rng.uniform(0.0, 2.5))), big)
+    for i in (span[0], span[-1]):
+        for sgn in (-1, 1):
+            _ground_prop(ctx, "props_debris/rebar_cluster002a", ctx.side(i, sgn, 2.9), float(rng.uniform(0, 6.28)),
+                         tol=0.8)
+    for i, sgn in ((span[len(span) // 3], 1), (span[2 * len(span) // 3], -1)):
+        q = ctx.side(i, sgn, 5.0)
+        q[1] = ctx.ground(q[0], q[2]) + 0.8
+        _fire(ctx, q, 1.2, 1.8, light=sgn > 0)
+
+
+def _breach_ruins(ctx):
+    """The breach: broken edges hanging under the lintels of the two holes blown in the block's
+    facades and soot over them, heaps of plaster and broken floor against the hall's walls between
+    its pillars (none of them over 0.41 m, all 1.5 m or more from the road) with pieces of the
+    ceiling hanging over the floor, fires in the hall and on heaps outside both holes."""
+    t = ctx.trk
+    rng = ctx.rng
+    st = t.styles["breach"]
+    H = st["height"]
+    soot = ctx.mats.hl2("decals/scorch2")
+    for ids in t.runs(lambda i: t.style[i] == "breach", with_gaps=True):
+        for end, out in ((ids[0], -1.0), (ids[-1], 1.0)):
+            f = t.fwd[end] * out
+            f = np.array([f[0], 0.0, f[2]]) / np.hypot(f[0], f[2])
+            rr = t.flat_right[end]
+            c = t.pos[end]
+            w2 = t.width[end] / 2 + st["wall_gap"]
+            # (their fronts, local +x, face out of the facade; hung on it, they block nothing; none
+            # over the middle of the road, where Ctx.add counts a prop 7 m up as on it)
+            yaw = ctx.yaw_facing(f) - math.pi / 2
+            for lat, m in ((-6.0, "002a"), (6.0, "002a"), (-(w2 - 1.7), "001a"), (w2 - 1.7, "001a")):
+                q = c + f * 0.22 + rr * lat
+                q[1] = c[1] + H - 0.4
+                ctx.add("props_debris/building_brokenexterior" + m, q, yaw, tag="deco", solid=False, ground=False)
+            for lat in (-8.5, 8.5):
+                _wall_decal(ctx, soot, c + f * 0.05 + rr * lat + UP * (H + 2.8), f, rr, 7.0, 5.5)
+            # a heap burning outside the hole, beyond the avenue's barrier
+            j = t.wrap(end + int(out * 4))
+            sgn = -1 if out < 0 else 1
+            q = ctx.side(j, sgn, (_treatment(t.styles[t.style[j]]) or 2.0) + 3.5)
+            if _heap(ctx, q, False, chunks=1) is not None:
+                _fire(ctx, [q[0], ctx.ground(q[0], q[2]) + 0.7, q[2]], 1.0, 1.5, light=True)
+        # against the walls on the hall's floor, between its pillars (every 9 m, _breach_block)
+        k = max(1, int(round(9.0 / t.step)))
+        n = 0
+        for q_ in range(k // 2 + 2 + k // 2, len(ids) - 3, k):
+            i = ids[q_]
+            for sgn in (-1, 1):
+                if rng.random() < 0.3:
+                    continue
+                m = ("props_debris/plaster_floorpile001a", "props_debris/broken_pile001a")[n % 2]
+                at = ctx.against_wall(i, sgn, m, y=t.pos[i][1])
+                n += 1
+                if at is None:
+                    continue
+                if n % 3 == 1:
+                    _fire(ctx, [at[0], t.pos[i][1] + 0.3, at[2]], 0.55, 0.0)
+                if n % 3 == 2:
+                    # (square to the walls: turned, its corners would reach into them)
+                    q = t.pos[i] + t.flat_right[i] * sgn * (t.width[i] / 2 + 1.7)
+                    q[1] = t.pos[i][1] + H - 0.1
+                    ctx.add("props_debris/destroyedceiling01a", q, ctx.yaw_facing(t.fwd[i]), base=False, tag="deco",
+                            solid=False, ground=False)
+
+
+def _roof_ruins(ctx):
+    """The collapsed building: rubble heaped on the ground along both sides of the ramp of rubble,
+    rebar out of the broken ends of the roof's parapet on its right and where the fallen slab
+    broke off it, a fire on the roof's broken edge and smoke rising past the roof from fires on
+    the ground beside the building."""
+    t = ctx.trk
+    rng = ctx.rng
+    ramp = [i for i in range(t.n) if t.style[i] == "rubble"]
+    for k, i in enumerate(ramp[1::4]):
+        for sgn in (-1, 1):
+            big = (k + (sgn > 0)) % 2 == 0
+            _heap(ctx, ctx.side(i, sgn, (6.0 if big else 4.0) + float(rng.uniform(0.0, 2.0))), big)
+    st = t.styles["roofroad"]
+    bar = st["barrier"]
+    every, open_ = bar["broken"]
+    for ids in t.runs(lambda i: t.style[i] == "roofroad"):
+        v = _unwrap_s(t, ids)
+        v = v - v[0]
+        piece = (v % every) > open_
+        ends = [j + (0 if piece[j] else 1) for j in range(len(ids) - 1) if piece[j] != piece[j + 1]]
+        for n, j in enumerate(ends):
+            i = ids[j]
+            # on the parapet's top, its right-hand side being the broken one (sides "left"); square
+            # to the road, none of it over the road's edge
+            q = t.pos[i] + t.right[i] * (t.width[i] / 2) + t.flat_right[i] * (bar["thick"] / 2)
+            q[1] += bar["h"]
+            if n % 2 == 0:
+                yaw = ctx.yaw_facing(t.fwd[i])
+                ctx.add("props_debris/rebar_cluster001a", _centred(ctx, "props_debris/rebar_cluster001a", q, yaw), yaw,
+                        solid=False, ground=False)
+            elif n == 3:
+                # a fire on the roof's broken edge: on the top of this piece of parapet at its
+                # broken end (a fire out in the gap would hang in the air over the drop)
+                e = q - t.fwd[i] * (0.5 if piece[j] else -0.5)
+                _fire(ctx, e + UP * 0.1, 0.7, 1.2, light=True)
+        # where the fallen slab broke off: rebar out of the left parapet's end (its narrow side
+        # across the parapet)
+        i = ids[-1]
+        q = t.pos[i] - t.right[i] * (t.width[i] / 2) - t.flat_right[i] * (bar["thick"] / 2) - t.fwd[i] * 0.5
+        q[1] += bar["h"]
+        yaw = ctx.yaw_facing(t.flat_right[i])
+        ctx.add("props_debris/rebar_cluster002a", _centred(ctx, "props_debris/rebar_cluster002a", q, yaw), yaw,
+                solid=False, ground=False)
+    # (the burning heaps are the big piles of broken concrete, the flames down in their tops: on a
+    # flat floor pile the same fire hung over it)
+    for s, sgn, off, light in ((2262.0, -1, 10.0, False), (2312.0, 1, 12.0, True)):
+        i = _lap_i(t, s)
+        q = ctx.side(i, sgn, off)
+        top = _heap(ctx, q, True, chunks=1, pile=HEAPS[0])
+        if top is not None:
+            _fire(ctx, [q[0], top + 0.25, q[2]], 1.4, 2.4, light=light)
+
+
+def _side_streets(ctx):
+    """Rubble shutting the side streets: in each gap the building rows left behind the barrier
+    along the avenue to the canal corner, the old town's exit and the boulevard, a rubble or a
+    junk barricade or a burnt-out car, a metre or more behind the barrier."""
+    t = ctx.trk
+    rng = ctx.rng
+    n = 0
+    for s0, s1 in SIDE_STREETS:
+        for sgn in (-1, 1):
+            s = s0 + 3.0
+            while s < s1 - 3.0:
+                i = _lap_i(t, s)
+                st = t.styles[t.style[i]]
+                if st["kind"] != "street" or not st.get("barrier") or t.side_off[i, (sgn + 1) // 2] or \
+                        t.junction[i] or t.cut[i]:
+                    s += 3.0
+                    continue
+                m = SHUTTERS[n % len(SHUTTERS)]
+                if m == "wreck":
+                    m = WRECKS[(n // len(SHUTTERS)) % len(WRECKS)]
+                if m not in ctx.models:
+                    ctx.missing.add(m)
+                    n += 1
+                    s += 3.0
+                    continue
+                size = ctx.model_size(m)
+                q = ctx.side(i, sgn, _treatment(st) + 1.0 + min(size[0], size[2]) / 2)
+                yaw = ctx.yaw_along(m, t.fwd[i]) + float(rng.uniform(-0.15, 0.15))
+                if _ground_prop(ctx, m, q, yaw, tol=0.8):
+                    n += 1
+                    s += 11.0 + max(size[0], size[2])
+                else:
+                    s += 3.0
+
+
+def _wrecks(ctx):
+    """Burnt-out cars and the burnt hull of an APC by the road (WRECK_SPOTS), some still burning."""
+    t = ctx.trk
+    rng = ctx.rng
+    for s, sgn, off, m, burning in WRECK_SPOTS:
+        i = _lap_i(t, s)
+        if m not in ctx.models:
+            ctx.missing.add(m)
+            continue
+        q = ctx.side(i, sgn, off)
+        yaw = ctx.yaw_along(m, t.fwd[i]) + float(rng.uniform(-0.6, 0.6))
+        if _ground_prop(ctx, m, q, yaw, tol=0.6) and burning:
+            top = ctx.props[-1]["pos"][1] + ctx.models[m]["aabb_max"][1] * 0.7
+            _fire(ctx, [q[0], top, q[2]], 1.0 if "apc" in m else 0.8, 1.6 if "apc" in m else 1.0,
+                  light="apc" in m)
+
+
+def _craters(ctx):
+    """Shell craters on open ground beside the road (CRATERS): a crater decal with chunks of
+    concrete thrown round its rim, where the ground is level and nothing stands."""
+    t = ctx.trk
+    rng = ctx.rng
+    mat = ctx.mats.hl2("decals/decal_crater001a")
+    dug = 0
+    for s, sgn, off in CRATERS:
+        i = _lap_i(t, s)
+        c = ctx.side(i, sgn, off)
+        g = [ctx.ground(c[0] + dx, c[2] + dz) for dx in (-3.5, 0.0, 3.5) for dz in (-3.5, 0.0, 3.5)]
+        if max(g) - min(g) > 1.2 or ctx.road_gap_to(c) < 4.5 or not ctx.free([c[0], min(g) + 1.0, c[2]],
+                                                                                 [6.5, 2.0, 6.5]):
+            continue
+        dug += 1
+        _ground_decal(ctx, mat, c, 7.5, float(rng.uniform(0, 6.28)))
+        for k in range(5):
+            a = k * 1.26 + float(rng.uniform(-0.3, 0.3))
+            q = np.array([c[0] + math.cos(a) * 4.2, 0.0, c[2] + math.sin(a) * 4.2])
+            # (none on a verge or a pavement inside a fence or a barrier: those are driven on)
+            if ctx.road_gap_to(q) > 7.0:
+                _ground_prop(ctx, CHUNKS[k % len(CHUNKS)], q, float(rng.uniform(0, 6.28)), tol=0.5)
+    print("  ruins: %d of %d craters dug" % (dug, len(CRATERS)))
+
+
+def _skyline_fires(ctx):
+    """Smoke rising out of the skyline's ruined blocks (the grid's RUINED_TOWERS), a few of them
+    far apart."""
+    picked = [f["pos"] for f in ctx.fires if f["smoke"] >= 3.0]
+    for p in ctx.props:
+        if p["model"] not in RUINED_TOWERS or any(math.hypot(p["pos"][0] - q[0], p["pos"][2] - q[2]) < 220.0
+                                                  for q in picked):
+            continue
+        h = ctx.models[p["model"]]["aabb_max"][1] - ctx.models[p["model"]]["aabb_min"][1]
+        q = [p["pos"][0], p["pos"][1] + ctx.models[p["model"]]["aabb_min"][1] + h * 0.7, p["pos"][2]]
+        _fire(ctx, q, 1.8, 3.0)
+        picked.append(q)
+        if len(picked) >= 7:
+            break
+
+
+def _soot(ctx):
+    """Soot up the old town's blocks of flats (_prism) where fire came out of their windows: a
+    black scorch high on about half of their long walls."""
+    rng = ctx.rng
+    mat = ctx.mats.hl2("decals/scorch1")
+    for P in getattr(ctx, "old_blocks", []):
+        c = P.mean(0)
+        for a, b in zip(P, np.roll(P, -1, axis=0)):
+            e = b - a
+            ln = float(np.hypot(*e))
+            if ln < 12.0 or rng.random() < 0.5:
+                continue
+            mid = a + e * float(rng.uniform(0.3, 0.7))
+            nrm = np.array([e[1], 0.0, -e[0]]) / ln
+            if nrm[[0, 2]] @ (mid - c) < 0:
+                nrm = -nrm
+            q = np.array([mid[0], ctx.ground(mid[0], mid[1]) + float(rng.uniform(5.0, 8.0)), mid[1]]) + nrm * 0.05
+            _wall_decal(ctx, mat, q, nrm, np.array([e[0], 0.0, e[1]]) / ln, 6.0, 5.0)
+
+
+def _ruins(ctx):
+    """The ruined city round the circuit (stage D3), after the buildings and the street furniture:
+    see the parts."""
+    _viaduct_ruins(ctx)
+    _breach_ruins(ctx)
+    _roof_ruins(ctx)
+    _wrecks(ctx)
+    _craters(ctx)
+    _side_streets(ctx)
+    _soot(ctx)
+    _skyline_fires(ctx)
+
+
 def decorate_branch(ctx, spec):
     """A branch's dressing (ctx dresses its road): building rows and lamps along its avenues, the
     roofscape along the rooftops."""
@@ -557,12 +1222,36 @@ def decorate_branch(ctx, spec):
     _lamps(ctx)
     if spec["id"] == "rooftops":
         _roofs(ctx)
+        _alley_guides(ctx)
+
+
+def _alley_guides(ctx):
+    """Across each alley the rooftops jump, an unseen wall along both edges of the gap from the
+    take-off roof's parapet to the landing roof's (as tall as the landing's stops a kart): a kart
+    that flies across beside an edge (a boosted one thrown off its line by the landing before)
+    slides along it onto the landing roof instead of catching the blunt end of the landing's
+    parapet and dropping into the alley. A kart that falls short drops between them."""
+    t = ctx.trk
+    for a, b in t.gaps:
+        ids = np.arange(max(a - 3, 0), min(b + 2, t.n))
+        h = t.styles[t.style[ids[-1]]]["barrier"].get("col_h", 3.0)
+        for sgn in (-1, 1):
+            E = t.pos[ids] + t.right[ids] * sgn * (t.width[ids] / 2)[:, None] - UP * 0.3
+            wall_strip(ctx.meshes["colonly"], "colonly", E, E + UP * (h + 0.3), t.s[ids], sgn, 3.0)
 
 
 def decorate(ctx):
     t = ctx.trk
     rng = ctx.rng
     L = t.length
+    # the block the breach runs through and the decks on their own walls first: every building
+    # placed after them keeps out of them
+    _breach_block(ctx)
+    _decks(ctx)
+    # the ruins' big pieces next (the broken flyover spans, the gutted block, the dome): the rows
+    # and the grid fill round them
+    ctx.fires = []
+    _landmarks(ctx)
     # building rows behind the pavements, clear of the canal (rows first: the grid fills round them)
     for sgn in (-1, 1):
         ctx.row_along({"plaza"}, BUILDINGS, sgn, 7.0 + 2.2, gap=0.5, accept=_canal_clear)
@@ -583,6 +1272,9 @@ def decorate(ctx):
             if gap < 22 or gap > 430:
                 continue
             m = TOWERS[int(rng.integers(0, 3))] if gap > 120 or rng.random() < 0.25 else BUILDINGS[int(rng.integers(0, len(BUILDINGS)))]
+            # out on the skyline about one tower block in three is gutted or has fallen in
+            if m in TOWERS and gap > 100 and rng.random() < 0.35:
+                m = RUINED_TOWERS[int(rng.integers(0, len(RUINED_TOWERS)))]
             i = int(np.argmin(((roads[:, [0, 2]] - q[[0, 2]]) ** 2).sum(1)))
             yaw = round(ctx.yaw_facing(roads[i] - q) / (np.pi / 2)) * np.pi / 2
             if m in TOWERS:
@@ -635,8 +1327,10 @@ def decorate(ctx):
         ctx.add("props_combine/combine_bunker01", q, ctx.yaw_facing(t.flat_right[chk[-1]]), ground=False)
     _canal(ctx)
     _yard(ctx)
-    _pipe_caps(ctx)
+    _broken_edges(ctx)
+    _span_caps(ctx)
     _barrier_steps(ctx)
+    _pavement_ends(ctx)
     # trains parked on the embankment over the underpass
     tun = [i for i in range(t.n) if t.style[i] == "underpass"]
     for k, i in enumerate(tun[8::14]):
@@ -675,6 +1369,8 @@ def decorate(ctx):
             q = base + t.fwd[i] * rng.uniform(-3, 3) + t.flat_right[i] * sgn * rng.uniform(-0.3, 0.3)
             ctx.add(["props_junk/trafficcone001a", "props_c17/oildrum001", "props_junk/wood_crate001a"][k],
                     q + UP * 0.02, rng.uniform(0, 6.28), physics=True, ground=False)
+    # the ruins round everything placed so far: they fill the gaps it left
+    _ruins(ctx)
 
 
 # ---------------------------------------------------------------- spectators (tools/crowds.py)
@@ -685,8 +1381,8 @@ CP_EVERY = 9.0  # metrocops posted along the plaza terraces
 # from the waist up (the checkpoint's guards stand on a step behind its 5 m wall)
 OLD_RISE = 0.7
 OLD_EVERY = 60.0  # a 20 m terrace every this many metres of walled street
-JUMP_WATCH = 32.0  # the middle street's terraces this near the rooftops' jump are its watchers'
-GMAN_S = (700.0, 950.0)  # the lap metres the G-Man may stand beside (ctx.gman_spot)
+JUMP_WATCH = 32.0  # the switchbacks' terraces this near the rooftops' first jump are its watchers'
+GMAN_S = (754.0, 1004.0)  # the lap metres the G-Man may stand beside (ctx.gman_spot)
 GUARD_EVERY, GUARD_LEN, GUARD_DEPTH, GUARD_H = 36.0, 5.0, 1.6, 0.5  # the checkpoint guards' platforms
 
 
@@ -725,7 +1421,7 @@ def _old_walls(ctx):
 
 
 def _jump_watch(ctx):
-    """The walled main-road samples under the rooftops' jump, within JUMP_WATCH of its middle."""
+    """The walled main-road samples near the rooftops' first jump, within JUMP_WATCH of its middle."""
     t = ctx.trk
     roof = ctx.roads.trks[1 + [b["id"] for b in BRANCHES].index("rooftops")]
     a, b = roof.gaps[0]
@@ -735,7 +1431,7 @@ def _jump_watch(ctx):
 
 def _old_chunks(ctx):
     """The one-step terraces' stretches: 20 m every OLD_EVERY m along the old walls (none over the
-    middle street's under the rooftops' jump), and the stretches under the jump (its watchers')."""
+    switchbacks' near the rooftops' first jump), and the stretches near the jump (its watchers')."""
     t = ctx.trk
     jump = _jump_watch(ctx)
     old = [ch for ch in ctx.chunks(_old_walls(ctx), int(OLD_EVERY / t.step), int(20 / t.step))
@@ -779,14 +1475,15 @@ def crowds(ctx):
                            mood=["fan", "fan", "excited", "polite"][int(rng.integers(0, 4))], chance=chance,
                            lod=(lambda k: 1) if far else None, margin=0.4, on="geom",
                            model=FAR_MODEL if far else None)
-    # either side of them: the plaza crowd on its two steps
+    # either side of them: the plaza crowd on its two steps, refugees out of the ruins (fewer
+    # than the old city's crowd)
     for sgn in (-1, 1):
         for w in PLAZA:
             ids = _lap_walled(ctx, w)
-            gid = ctx.crowd_group(ids[len(ids) // 2] if ids else 0, sgn, "terrace", "citizen", tags=["start"])
-            ctx.crowd_line(gid, ids, sgn, 2.0, lambda i, s: ctx.terrace_spot(i, s, 0), "citizen", chance=0.65,
+            gid = ctx.crowd_group(ids[len(ids) // 2] if ids else 0, sgn, "terrace", "refugee", tags=["start"])
+            ctx.crowd_line(gid, ids, sgn, 2.0, lambda i, s: ctx.terrace_spot(i, s, 0), "refugee", chance=0.5,
                            margin=0.4, on="geom")
-            ctx.crowd_line(gid, ids, sgn, 2.0, lambda i, s: ctx.terrace_spot(i, s, 1), "citizen", chance=0.4,
+            ctx.crowd_line(gid, ids, sgn, 2.0, lambda i, s: ctx.terrace_spot(i, s, 1), "refugee", chance=0.3,
                            lod=lambda k: 2, margin=0.4, on="geom")
     # the old town (and the plaza's far side): refugees on the one-step terraces, a group per chunk
     for ch in _old_chunks(ctx)[0]:
@@ -817,11 +1514,11 @@ def crowds(ctx):
         for ch in ctx.chunks(fenced, int(40 / t.step), int(40 / t.step)):
             gid = ctx.crowd_group(ch[len(ch) // 2], sgn, "line", "rebel")
             ctx.crowd_line(gid, ch, sgn, 3.0, beyond, "rebel", chance=0.28, margin=2.5, dy=(-1.0, 3.0))
-    # the cutting: people on both lips looking down into it
+    # the cutting: rebels on both lips looking down into it
     for ids in ctx.runs_of([i for i in range(t.n) if t.kind(i) == "trench"]):
         for sgn in (-1, 1):
-            gid = ctx.crowd_group(ids[len(ids) // 2], sgn, "lip", "citizen", tags=["lip"])
-            ctx.crowd_line(gid, ids, sgn, 2.0, ctx.lip_spot, "citizen", chance=0.5, margin=0.3, on="geom")
+            gid = ctx.crowd_group(ids[len(ids) // 2], sgn, "lip", "rebel", tags=["lip"])
+            ctx.crowd_line(gid, ids, sgn, 2.0, ctx.lip_spot, "rebel", chance=0.4, margin=0.3, on="geom")
     _guards(ctx)
     # the Breencast screens: the plaza crowd near one watches it instead now and then
     for scr in getattr(ctx, "screens", []):
@@ -864,9 +1561,9 @@ def _guards(ctx):
 
 
 def crowds_branch(bctx, spec):
-    """People watching a branch's jump (their group follows the karts on that branch): on the
-    canal's banks beside the canal jump, and on the middle street's terraces under the rooftops'
-    jump, looking up."""
+    """People watching a branch's jump (their group follows the karts on that branch): rebels on
+    the canal's banks beside the canal jump, and refugees on the switchbacks' terraces near the
+    rooftops' jumps, looking up."""
     t = bctx.trk
     for a, b in t.gaps:
         mid = (a + b) // 2
@@ -875,8 +1572,8 @@ def crowds_branch(bctx, spec):
         if spec["id"] == "canal_jump":
             for k, sgn in ((a - 6, -1), (a - 6, 1), (min(b + 6, t.n - 1), -1), (min(b + 6, t.n - 1), 1)):
                 c = bctx.side_point(k, sgn, 8.0)
-                gid = bctx.crowd_group(k, sgn, "cluster", "citizen", tags=["jump"], watch=watch)
-                bctx.crowd_cluster(gid, c, 6, 4.0, "citizen", look, mood="excited", ref_y=t.pos[k][1],
+                gid = bctx.crowd_group(k, sgn, "cluster", "rebel", tags=["jump"], watch=watch)
+                bctx.crowd_cluster(gid, c, 6, 4.0, "rebel", look, mood="excited", ref_y=t.pos[k][1],
                                    dy=(-1.5, 1.5))
         elif spec["id"] == "rooftops":
             # the main road's own terrace steps below the jump
@@ -885,7 +1582,7 @@ def crowds_branch(bctx, spec):
                      and np.hypot(*(main.pos[i] - t.pos[mid])[[0, 2]]) < JUMP_WATCH]
             if not under:
                 continue
-            gid = bctx.crowd_group(mid, 0, "terrace", "citizen", tags=["jump"], watch=watch)
+            gid = bctx.crowd_group(mid, 0, "terrace", "refugee", tags=["jump"], watch=watch)
             for i in under:
                 for sgn in (-1, 1):
                     st = bctx._steps.get((None, i, sgn))
@@ -894,7 +1591,7 @@ def crowds_branch(bctx, spec):
                     back, rise, depth, steps, base, _ = st
                     q = main.pos[i] + main.flat_right[i] * sgn * (main.width[i] / 2 + back + depth * 0.5)
                     q[1] = base + rise
-                    bctx.crowd_add(gid, q, look, "citizen", mood="excited", margin=0.4, on="geom")
+                    bctx.crowd_add(gid, q, look, "refugee", mood="excited", margin=0.4, on="geom")
 
 
 def _in_blocks(ctx, q):

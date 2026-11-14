@@ -518,8 +518,10 @@ class Branch:
 
     def __init__(self, main, spec, styles, step, index, g=branches.G):
         self.main, self.spec, self.index = main, spec, index
-        # the gravity its jumps' launch speeds are worked out for (TRACK["gravity"])
+        # the gravity its jumps' launch speeds are worked out for (TRACK["gravity"]), and its
+        # low-gravity zones (low_gravity(): data["low_gravity"] entries on its road)
         self.g = g
+        self.low_gravity = []
         self.id = spec["id"]
         self.in_hall = bool(spec.get("in_hall", False))
         self.drop = spec.get("merge_type", "gore") == "drop"
@@ -748,7 +750,8 @@ class Branch:
             lift, ramp = fl.get("ramp_lift", 1.8), fl.get("ramp_len", 16)
             gap = (b - a + 1) * t.step
             drop = float(t.pos[a - 1, 1] - t.pos[min(b, t.n - 1), 1])
-            out.append((a, b, gap, lift, ramp, drop, branches.launch_speed(gap, lift, ramp, drop, self.g)))
+            g = self.g * branches.gravity_scale(self.low_gravity, float(t.s[a]))
+            out.append((a, b, gap, lift, ramp, drop, branches.launch_speed(gap, lift, ramp, drop, g)))
         return out
 
     def racing(self, defn):
@@ -3385,6 +3388,31 @@ def path_data(trk, line, vt):
     }
 
 
+def low_gravity(trk, brs, specs):
+    """The circuit's low-gravity zones (TRACK["low_gravity"]: {"from": (x, z), "to": (x, z), "scale",
+    "ease"} on the lap, with "branch": its id on a branch's road) as the game reads them (data
+    ["low_gravity"]: route -1 for the lap or the branch's index (and its id as "branch"), s0 / s1
+    in that road's metres at the samples nearest from / to, scale, ease; the game's
+    LowGravityField). Each branch keeps its own (Branch.low_gravity) for its jumps' launch speeds.
+    One printout line per zone."""
+    out = []
+    for spec in specs:
+        r, t = -1, trk
+        if spec.get("branch"):
+            br = next(b for b in brs if b.id == spec["branch"])
+            r, t = br.index, br.trk
+        s0, s1 = (float(t.s[int(np.argmin(((t.pos[:, [0, 2]] - np.asarray(p, float)) ** 2).sum(1)))])
+                  for p in (spec["from"], spec["to"]))
+        out.append({"route": r, "s0": round(s0, 2), "s1": round(s1, 2), "scale": float(spec["scale"]),
+                    "ease": float(spec.get("ease", 15.0))})
+        if r >= 0:
+            out[-1]["branch"] = spec["branch"]
+        print("  low gravity %s s %.0f-%.0f at %.2f g" % (spec.get("branch", "lap"), s0, s1, spec["scale"]))
+    for br in brs:
+        br.low_gravity = [z for z in out if z["route"] == br.index]
+    return out
+
+
 def gameplay(trk, line, vt, defn, brs=()):
     """The track JSON's race data: grid, item crates and boost pads (the lap's, then each
     branch's), the lap's path and the branches (Branch.export)."""
@@ -3411,6 +3439,65 @@ def gameplay(trk, line, vt, defn, brs=()):
         lap = branches.LapPath(data["path"]["center"], data["path"]["fwd"], trk.length)
         data["branches"] = [br.export(lap) for br in brs]
     return data
+
+
+def clip_colonly(mesh, roads, clear=0.3, foot=0.25):
+    """Lowers the top of every unseen wall ("colonly": a barrier's col_h, a broken railing's or an
+    alley's guide) that would stand up through another road's deck: where a deck passes over a
+    barrier lower than its unseen top (a ramp spiralling up over the street it leaves, say), that
+    top comes down to `clear` metres under the deck, so nothing invisible sticks up out of a road
+    a kart drives on (a deck reaching past its road's edge to its railing: a bridge's metre of edge,
+    a street's pavement). A deck counts when it is more than `foot` metres over the strip's foot.
+    A road's own unseen walls stand on its edge (a broken railing's 5 cm in, an alley's guide on
+    it) a little under or over its deck: those are left alone. Only the vertical strips wall_strip
+    makes are touched. Returns how many top points it lowered."""
+    ok = ~(roads.gap | roads.hidden)
+    pos, fwd, right, hw = roads.pos[ok], roads.fwd[ok], roads.right[ok], roads.width[ok] / 2.0
+    kinds = [roads.styles[s] for s, o in zip(roads.style, ok) if o]
+    ext = np.array([1.0 if st["kind"] == "bridge" else 0.3 + st.get("walk", 4.0) if st["kind"] == "street" else 0.0
+                    for st in kinds])
+    fl = fwd * np.array([1.0, 0.0, 1.0])
+    fl /= np.maximum(np.linalg.norm(fl, axis=1, keepdims=True), 1e-9)
+    rf = right * np.array([1.0, 0.0, 1.0])
+    rf /= np.maximum(np.linalg.norm(rf, axis=1, keepdims=True), 1e-9)
+    # a sample's deck reaches half a step on along the road either way (with some overlap)
+    reach = max(t.step for t in roads.trks) * 0.75
+    lowered = 0
+    for part in mesh.parts.values():
+        for p in part["p"]:
+            n = len(p) // 2
+            if n < 2 or len(p) != 2 * n:
+                continue
+            a, b = p[:n], p[n:]
+            if np.abs(a[:, [0, 2]] - b[:, [0, 2]]).max() > 1e-3:
+                continue
+            lo, hi = np.minimum(a[:, 1], b[:, 1]), np.maximum(a[:, 1], b[:, 1])
+            top = np.where(a[:, 1] >= b[:, 1], 0, 1)
+            # the decks that might lie over this strip: near it in plan and round its height
+            box0, box1 = a[:, [0, 2]].min(0) - 30.0, a[:, [0, 2]].max(0) + 30.0
+            near = np.where((pos[:, 0] > box0[0]) & (pos[:, 0] < box1[0]) & (pos[:, 2] > box0[1]) &
+                            (pos[:, 2] < box1[1]) & (pos[:, 1] > lo.min() - 2.0) & (pos[:, 1] < hi.max() + 2.0))[0]
+            if len(near) == 0:
+                continue
+            for k in range(n):
+                d = a[k] - pos[near]
+                along = np.abs((d * fl[near]).sum(1))
+                lat = (d * rf[near]).sum(1)
+                over = (along < reach) & (np.abs(lat) < hw[near] + ext[near])
+                if not over.any():
+                    continue
+                j = near[over]
+                lt = lat[over]
+                deck = pos[j, 1] + right[j, 1] * np.clip(lt, -hw[j], hw[j])
+                own = (np.abs(lt) > hw[j] - 0.3) & (deck - lo[k] < 0.9)
+                deck = deck[~own & (deck > lo[k] + foot) & (deck < hi[k] + clear)]
+                if len(deck) == 0:
+                    continue
+                y = max(lo[k] + 0.05, float(deck.min()) - clear)
+                if y < hi[k] - 1e-3:
+                    (a if top[k] == 0 else b)[k, 1] = y
+                    lowered += 1
+    return lowered
 
 
 # ---------------------------------------------------------------- output
@@ -3525,6 +3612,7 @@ def build(module_name):
         print("  jump       %.3f-%.3f" % (a / trk.n, b / trk.n))
     brs = [Branch(trk, spec, styles, step, k, defn.get("gravity", branches.G))
            for k, spec in enumerate(getattr(mod, "BRANCHES", []))]
+    lowg = low_gravity(trk, brs, defn.get("low_gravity", []))
     for br in brs:
         print(br.summary())
         for end, (dy, u0, u1, ease) in br.moved.items():
@@ -3626,13 +3714,21 @@ def build(module_name):
             len(ctx.cleared), ", ".join(sorted(set(ctx.cleared)))))
     print("  props %d, lights %d" % (len(ctx.props), len(ctx.lights)))
     data = gameplay(trk, line, vt, defn, brs)
+    if lowg:
+        data["low_gravity"] = lowg
     if specs:
         # one line per hazard; one at a junction or on a branch's road stops the build (STRICT)
         data["hazards"] = hazards.lint(ctx, hz, data, STRICT)
+    k = clip_colonly(meshes["colonly"], roads)
+    if k:
+        print("  unseen walls lowered under another road's deck at %d points" % k)
     write_gltf(name, meshes, mats, layers or {"base": styles[trk.style[0]]["road"]})
     data["props"] = ctx.props
     data["lights"] = ctx.lights
     data["screens"] = getattr(ctx, "screens", [])
+    # fires and smoke a circuit's decorate() lists (ctx.fires), shown by scripts/fx/ruin_fires.gd
+    if getattr(ctx, "fires", None):
+        data["fires"] = ctx.fires
     if hasattr(mod, "crowds"):
         data.update(ctx.crowd_export())
     for k in ("sky", "env", "water", "waters", "background", "gantry", "gantry_clear", "kill_y", "music", "offtrack",

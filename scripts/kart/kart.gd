@@ -163,6 +163,8 @@ var air_time := 0.0
 var ground_normal := Vector3.UP
 ## which way is up for this kart: the sky, or inside a tube the pipe's axis
 var grav_up := Vector3.UP
+## the track's low-gravity zones (LowGravityField.zones; empty on most tracks)
+var _lg_zones: Array = []
 
 var drifting := false
 var drift_dir := 0
@@ -217,6 +219,7 @@ func setup(char_id: String, idx: int, trk: Track, player: bool, vehicle_id := "b
 	wheels = spec.wheels
 	racer_index = idx
 	track = trk
+	_lg_zones = LowGravityField.zones(trk.data) if trk else []
 	is_player = player
 	name = "Kart_%s" % char_id
 	_rng.seed = idx * 7919 + 13
@@ -566,14 +569,19 @@ func _update_drift(dt: float, steer: float, st: PhysicsDirectBodyState3D) -> voi
 ## there (_tube_round, _tube_slide; spun or stalled it slides round instead), in the air it falls
 ## towards the lane rather than the nearest wall; over the last TUBE_LAND metres gravity turns into
 ## the lane's own, so a kart leaves the mouth on the road. Elsewhere grav_up eases back to the sky.
+## In a low-gravity zone (LowGravityField) the kart carries the rest of its weight itself, on the
+## road, in the air and falling into the void alike, and a pipe's pull is as weak.
 func _tube_gravity(st: PhysicsDirectBodyState3D, dt: float) -> void:
 	_tube_pull = 0.0
 	_tube_stall = false
 	var road: TrackPath = geo() if track else null
 	var i := route_index
 	var r: float = road.mag[i] if road and road.mag.size() > i else 0.0
+	var lg := _low_gravity()
 	if r <= 0.0:
 		grav_up = ease_up(grav_up, Vector3.UP, dt * 4.0)
+		if lg < 1.0:
+			st.apply_central_force(-st.total_gravity * mass * (1.0 - lg))
 		return
 	var ax := _tube_axis(road, i)
 	var out := st.transform.origin - (road.center[i] + road.up[i] * r)
@@ -620,7 +628,22 @@ func _tube_gravity(st: PhysicsDirectBodyState3D, dt: float) -> void:
 		want = ease_up(want, road.up[i], land)
 	grav_up = ease_up(grav_up, want, dt * 10.0)
 	var g := st.total_gravity
-	st.apply_central_force(-g * mass - grav_up * mass * g.length() * 1.25)
+	st.apply_central_force(-g * mass - grav_up * mass * g.length() * 1.25 * lg)
+
+
+## The share of the game's gravity this kart feels where it is: 1 outside the track's low-gravity
+## zones (LowGravityField.scale_at at its place on the road it is on).
+func _low_gravity() -> float:
+	if _lg_zones.is_empty():
+		return 1.0
+	return gravity_scale_at(route, route_pos())
+
+
+## The share of the game's gravity at metres s along route r (-1 the main loop, else a branch).
+func gravity_scale_at(r: int, s: float) -> float:
+	if _lg_zones.is_empty():
+		return 1.0
+	return LowGravityField.scale_at(_lg_zones, r, s, track.path.length if r < 0 else 0.0)
 
 
 ## The up of the road the kart is tracked on, for the contact lift cap in _integrate_forces;
@@ -1017,9 +1040,11 @@ func retry_winnable(br: TrackBranch, u0: float, u1: float) -> bool:
 
 
 ## The speed this kart reaches driving flat out from a standstill at u0 to u1 on road g: its
-## engine up to its top speed against the slope, with a boost it holds fired straight away.
+## engine up to its top speed against the slope (at a low-gravity zone's gravity there), with a
+## boost it holds fired straight away.
 func run_up_speed(g: TrackPath, u0: float, u1: float) -> float:
 	var grav := absf(float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)))
+	var r := (g as TrackBranch).index if g is TrackBranch else -1
 	var boosted := roulette <= 0.0 and item in AIController.BOOSTS
 	var v := 0.0
 	var t := 0.0
@@ -1027,7 +1052,7 @@ func run_up_speed(g: TrackPath, u0: float, u1: float) -> float:
 	while u < u1:
 		var fired := boosted and t < 1.4
 		var top := max_speed * (1.32 if fired else 1.0)
-		var a := -grav * g.fwd[g.index_at(u)].y + (22.0 if fired else 0.0)
+		var a := -grav * gravity_scale_at(r, u) * g.fwd[g.index_at(u)].y + (22.0 if fired else 0.0)
 		if v < top:
 			a += 15.0 * accel_mult * (0.25 + 0.75 * clampf(1.0 - pow(v / top, 2.2), 0.0, 1.0))
 		else:

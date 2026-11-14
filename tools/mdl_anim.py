@@ -187,22 +187,33 @@ def anims(fs, path, names):
         a = m.by_name.get(name) or m.by_name.get("@" + name)
         if a is None:
             continue
-        fps, _flags, frames, nmov, movi = struct.unpack_from("<fiiii", m.d, a + 8)
+        fps, aflags, frames, nmov, movi = struct.unpack_from("<fiiii", m.d, a + 8)
         move = 0.0
         for j in range(nmov):
             pos = struct.unpack_from("<3f", m.d, a + movi + j * 44 + 32)
             move += pos[0] * SCALE
+        poses = [m.pose(a, f, frames) for f in range(frames)]
+        # An animation stored in sections (sectionframes, 30 for the antlion guard's and the hunter's long
+        # idles; its last frame has a section of its own) lists in each section only the bones that leave
+        # their rest pose there. A bone missing from a section sits at its rest for that section: the
+        # engine poses it so (CalcAnimation takes the bone table's pos / quat, zero for a delta animation),
+        # and in the data the frames next to such a gap, and frame 0 of a loop whose separate last frame
+        # leaves a bone out, hold that bone at its rest. So a missing bone is filled with its rest, and
+        # then goes through the same conversion as every other frame.
+        delta = bool(aflags & 0x4)  # STUDIO_DELTA
+        moved = sorted(set().union(*[set(p) for p in poses]))
         bones = {}
-        for f in range(frames):
-            for bone, (pos, q) in m.pose(a, f, frames).items():
+        for bone in moved:
+            b = m.bones[bone]
+            rest = ((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0)) if delta else (b["pos"], b["quat"])
+            e = bones[b["name"]] = {"r": [], "p": []}
+            for f in range(frames):
+                pos, q = poses[f].get(bone, rest)
                 if bone in turn:
                     q = _qmul(turn[bone], q)
                     pos = _qrot(turn[bone], pos)
-                e = bones.setdefault(m.bones[bone]["name"], {"r": [], "p": []})
                 n = math.sqrt(sum(c * c for c in q)) or 1.0
                 e["r"].append([round(q[0] / n, 5), round(q[2] / n, 5), round(-q[1] / n, 5), round(q[3] / n, 5)])
                 e["p"].append([round(pos[0] * SCALE, 5), round(pos[2] * SCALE, 5), round(-pos[1] * SCALE, 5)])
-        # a bone missing from some frames' chains (it should not be) is dropped rather than half-filled
-        bones = {k: v for k, v in bones.items() if len(v["r"]) == frames}
         out[name] = {"fps": fps, "frames": frames, "move": round(move, 4), "bones": bones}
     return out

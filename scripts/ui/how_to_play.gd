@@ -234,7 +234,7 @@ func _hazards() -> Control:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 20)
 	v.add_child(_track_card("res://assets/ui/items/hopper.png", "Track hazards",
-		"Every track has its own: a force field, turrets, a Combine train, a strider, a gunship, hopper mines, laser tripmines, houndeyes, alien slaves, a tentacle, an Apache, mortars. Each one warns before it strikes: a flicker, a bell, a beam, a charge, red marks where the shots land."))
+		"Every track has its own: a force field, turrets, a Combine train, a strider, a gunship, hopper mines, laser tripmines, houndeyes, alien slaves, controllers, bullsquids, a tentacle, an Apache, mortars. Each one warns before it strikes: a flicker, a bell, a beam, a charge, red marks where the shots land."))
 	v.add_child(_track_card("res://assets/ui/items/manhack.png", "Locked on",
 		"A red chevron at the edge of the screen points at a turret or an alien slave that has locked on you, beeping faster as the shot nears. Hold your line and it hits: brake, boost or change lane."))
 	v.add_child(_track_card("res://assets/ui/items/hev.png", "One hit per gauntlet",

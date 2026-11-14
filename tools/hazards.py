@@ -32,12 +32,15 @@ GEN_KEYS = {
     "tentacle": ("out", "depth", "reach"),
     "minefield": ("mines",),
     "apache": ("hover",),
+    "strider": ("walk",),
+    "controller": ("out", "wide", "h", "rise", "orbit"),
+    "bullsquid": ("look",),
 }
-# spec keys each type must give (a floor turret its side too)
-NEEDS = {"turret": ("s",), "vortigaunt": ("s", "side"), "strider": ("s", "side", "setback", "zone"),
+# spec keys each type must give (a floor turret its side too, a strider that stands still its side and setback)
+NEEDS = {"turret": ("s",), "vortigaunt": ("s", "side"), "strider": ("s", "zone"),
          "apache": ("zone", "hover"), "train": ("s",), "tripmine": ("s", "from", "to"), "strike_zone": ("zone",),
          "field_gate": ("s",), "air_strafe": ("zone",), "houndeyes": ("s", "side"), "tentacle": ("s",),
-         "minefield": ("mines",)}
+         "minefield": ("mines",), "controller": ("zone", "side"), "bullsquid": ("s", "side", "zone")}
 
 
 def check(specs):
@@ -48,6 +51,10 @@ def check(specs):
         if kind not in NEEDS:
             raise ValueError("hazard %d: unknown type %r" % (k, kind))
         need = NEEDS[kind] + (("side",) if kind == "turret" and spec.get("mount", "floor") == "floor" else ())
+        if kind == "strider" and "walk" not in spec:
+            need += ("side", "setback")
+        if kind == "strider" and "walk" in spec:
+            _check_walk(k, spec["walk"])
         miss = [key for key in need if key not in spec]
         if miss:
             raise ValueError("hazard %d (%s) needs %s" % (k, kind, ", ".join(miss)))
@@ -157,9 +164,16 @@ def entry(ctx, spec, k, s, span, pos=None, yaw=0.0, **p):
 
 # ---------------------------------------------------------------- before geometry / decoration
 def barrier_cuts(trk, specs):
-    """Samples where no barrier is drawn: a level crossing needs a gap in the fences."""
+    """Samples where no barrier is drawn: a level crossing needs a gap in the fences, and so does
+    a strider stepping over the road (its legs would pass through the wall at the back of the
+    pavement)."""
     cut = np.zeros(trk.n, bool)
     for spec in specs:
+        if spec["type"] == "strider" and "walk" in spec:
+            reach = STRIDER_REACH * spec.get("scale", 1.15) / 1.15
+            for c in _walk_crossings(trk, spec):
+                d = (trk.s - c + trk.length / 2) % trk.length - trk.length / 2
+                cut |= np.abs(d) < reach + 3.0
         if spec["type"] != "train":
             continue
         ang = math.radians(spec.get("angle", 90.0))
@@ -167,6 +181,29 @@ def barrier_cuts(trk, specs):
         d = (trk.s - spec["s"] + trk.length / 2) % trk.length - trk.length / 2
         cut |= np.abs(d) < half
     return cut
+
+
+def _walk_crossings(trk, spec):
+    """Lap metres where a strider's walk steps over the lap (its "cross" legs, in plan)."""
+    def plan(w):
+        if "xz" in w:
+            return np.array([w["xz"][0], w["xz"][1]], float)
+        i = idx(trk, w["s"])
+        q = trk.pos[i] + trk.flat_right[i] * w["side"] * (trk.width[i] / 2 + w["setback"])
+        return q[[0, 2]]
+    out = []
+    wps = [_waypoint(w) for w in spec["walk"]]
+    for a, b in zip(wps[:-1], wps[1:]):
+        if not b.get("cross"):
+            continue
+        pa, pb = plan(a), plan(b)
+        for u in np.linspace(0.0, 1.0, max(2, int(np.linalg.norm(pb - pa)) + 1)):
+            q = pa + (pb - pa) * u
+            i = int(np.argmin(((trk.pos[:, [0, 2]] - q) ** 2).sum(1)))
+            lat = (q[0] - trk.pos[i][0]) * trk.flat_right[i][0] + (q[1] - trk.pos[i][2]) * trk.flat_right[i][2]
+            if abs(lat) < trk.width[i] / 2:
+                out.append(float(trk.s[i]))
+    return out
 
 
 def reserve(ctx, specs):
@@ -185,6 +222,13 @@ def reserve(ctx, specs):
             for end, back in ((a, d), (b, -d)):
                 ctx.reserved.append((np.array([end - back * 13.0, end]), 7.0))
                 ctx.reserved.append((np.array([end - side * 35.0 - back, end + side * 35.0 - back]), 2.5))
+        elif kind == "strider" and "walk" in spec:
+            # the ground its feet reach along the whole walk, and sight lines from it to the road
+            pts, _cross = walk_route(ctx, spec)
+            reach = STRIDER_REACH * spec.get("scale", 1.15) / 1.15
+            ctx.reserved.append((np.array(pts), reach + 1.0))
+            for q in pts[::8]:
+                ctx.reserved.append((np.array([q, t.pos[_near_i(t, q)]]), 3.0))
         elif kind == "strider":
             i = idx(t, spec["s"])
             q = side_point(ctx, i, spec["side"], spec["setback"])
@@ -193,6 +237,14 @@ def reserve(ctx, specs):
         elif kind == "houndeyes":
             pts = np.array([m[:3] for m in _pack(ctx, spec)])
             ctx.reserved.append((pts, 3.0))
+            # the beat each one paces on the verge and its run out to the road's edge
+            walks, spots = _pack_paths(ctx, spec)
+            for w, q in zip(walks, spots):
+                ctx.reserved.append((np.array([w[0], w[-1]]), 1.5))
+                ctx.reserved.append((np.array([w[len(w) // 2], q]), 1.5))
+        elif kind == "bullsquid":
+            q = side_point(ctx, idx(t, spec["s"]), spec["side"], spec.get("setback", 7.0))
+            ctx.reserved.append((np.array([q, q]), 3.5 * spec.get("scale", 1.4)))
         elif kind in ("vortigaunt", "turret") and spec.get("mount", "floor") == "floor":
             q = side_point(ctx, idx(t, spec["s"]), spec["side"], spec.get("setback", 1.6))
             ctx.reserved.append((np.array([q, q]), 2.5 * spec.get("scale", 1.0)))
@@ -316,20 +368,134 @@ _vortigaunt = _turret                          # floor-mounted, same placement r
 
 
 STRIDER_FEET = ((2.308, 3.043), (-2.148, 2.994), (0.0, -3.848))   # combine_strider foot attachments (x, z)
+# plan metres from a walking strider's centre to its farthest foot at scale 1.15 (the feet stand
+# 3.9 m out and step up to 1.5 m further): its walk keeps this far off every road but where it
+# crosses one, and off every wall
+STRIDER_REACH = 5.5
+WALK_STEP = 3.0             # metres between the points of a resolved walk
+
+
+def _waypoint(w):
+    """A walk waypoint as a dict: {"s", "side", "setback"} in track terms, or {"xz": [x, z]} a plan
+    point (a square, a yard), with "cross": True when the leg that ends at it may step over a road.
+    A list [s, side, setback] or [s, side, setback, "cross"] is the short form."""
+    if isinstance(w, dict):
+        return w
+    d = {"s": w[0], "side": w[1], "setback": w[2]}
+    if len(w) > 3 and w[3] == "cross":
+        d["cross"] = True
+    return d
+
+
+def _check_walk(k, walk):
+    if not isinstance(walk, (list, tuple)) or len(walk) < 2:
+        raise ValueError("hazard %d (strider): walk needs two waypoints or more" % k)
+    for w in walk:
+        d = _waypoint(w)
+        if "xz" not in d and not all(key in d for key in ("s", "side", "setback")):
+            raise ValueError("hazard %d (strider): walk waypoint %r needs s, side and setback (or xz)" % (k, w))
+
+
+def _near_i(t, q):
+    """The lap sample nearest q in plan."""
+    return int(np.argmin(((t.pos[:, [0, 2]] - (q[0], q[2])) ** 2).sum(1)))
+
+
+def _wp_point(ctx, w):
+    t = ctx.trk
+    if "xz" in w:
+        q = np.array([w["xz"][0], 0.0, w["xz"][1]], float)
+        q[1] = floor_y(ctx, q, _near_i(t, q))
+        return q
+    return side_point(ctx, idx(t, w["s"]), w["side"], w["setback"])
+
+
+def walk_route(ctx, spec):
+    """A walking strider's route: points every WALK_STEP metres on whatever floor is there, and for
+    each whether it lies on a leg that may cross a road. A leg between two waypoints on the same
+    side follows the road's curve, its setback lerped between theirs; any other leg (a crossing, a
+    plan point) runs straight."""
+    t = ctx.trk
+    wps = [_waypoint(w) for w in spec["walk"]]
+    pts, cross = [], []
+    for a, b in zip(wps[:-1], wps[1:]):
+        if "s" in a and "s" in b and a["side"] == b["side"] and not b.get("cross"):
+            ds = (b["s"] - a["s"] + t.length / 2) % t.length - t.length / 2
+            # as many points as the walk is long out there (a bend's outside is longer than its lap metres)
+            qa, qb = _wp_point(ctx, a), _wp_point(ctx, b)
+            n = max(1, int(round(max(abs(ds), np.linalg.norm((qb - qa)[[0, 2]])) / WALK_STEP)))
+            for j in range(n):
+                u = j / n
+                pts.append(side_point(ctx, idx(t, a["s"] + ds * u), a["side"], a["setback"] + (b["setback"] - a["setback"]) * u))
+                cross.append(False)
+        else:
+            qa, qb = _wp_point(ctx, a), _wp_point(ctx, b)
+            n = max(1, int(round(np.linalg.norm((qb - qa)[[0, 2]]) / WALK_STEP)))
+            for j in range(n):
+                q = qa + (qb - qa) * j / n
+                if j:
+                    q[1] = floor_y(ctx, q, _near_i(t, q))
+                pts.append(q)
+                cross.append(bool(b.get("cross")) and j > 0)
+    pts.append(_wp_point(ctx, wps[-1]))
+    cross.append(False)
+    return pts, cross
+
+
+def _walk_metres(pts):
+    d = np.linalg.norm(np.diff(np.array(pts)[:, [0, 2]], axis=0), axis=1)
+    return np.concatenate([[0.0], np.cumsum(d)])
+
+
+def _road_clearance(ctx, q):
+    """Plan metres from q to the edge of the nearest road (the lap or a branch) that runs from a
+    little under q's ground to a strider's height over it (a road deep under a bridge, or high
+    on a viaduct, does not count); negative on one."""
+    roads = getattr(ctx, "roads", None)
+    R = roads.pos if roads is not None else ctx.trk.pos
+    W = roads.width if roads is not None else ctx.trk.width
+    keep = ~roads.hidden if roads is not None and hasattr(roads, "hidden") else np.ones(len(R), bool)
+    near = keep & (R[:, 1] > q[1] - 6.0) & (R[:, 1] < q[1] + 14.0)
+    if not near.any():
+        return 1e9
+    return float((np.hypot(R[near, 0] - q[0], R[near, 2] - q[2]) - W[near] / 2).min())
 
 
 def _strider(ctx, spec, k):
     t = ctx.trk
-    i = idx(t, spec["s"])
-    q = side_point(ctx, i, spec["side"], spec["setback"])
+    extra = {}
+    if "walk" in spec:
+        # it walks: it starts at the first point, facing the road
+        pts, cross = walk_route(ctx, spec)
+        q = np.array(pts[0], float)
+        i = _near_i(t, q)
+        extra["walk"] = [lst(p) for p in pts]
+        # the stretches of the walk (metres along it) where it steps over a road, its feet in reach of
+        # one: it never halts there
+        um = _walk_metres(pts)
+        reach = STRIDER_REACH * spec.get("scale", 1.15) / 1.15
+        cross = [c and _road_clearance(ctx, q) < reach + 1.0 for c, q in zip(cross, pts)]
+        runs, j = [], 0
+        while j < len(cross):
+            if cross[j]:
+                j0 = j
+                while j < len(cross) and cross[j]:
+                    j += 1
+                runs.append([round(float(um[max(j0 - 1, 0)]), 1), round(float(um[min(j, len(um) - 1)]), 1)])
+            j += 1
+        extra["cross"] = runs
+    else:
+        i = idx(t, spec["s"])
+        q = side_point(ctx, i, spec["side"], spec["setback"])
     yaw = yaw_of(flat(t.pos[i] - q))
     sc = spec.get("scale", 1.15)
     c, s_ = math.cos(yaw), math.sin(yaw)
     # the ground under each foot: the body stands at the middle one, the legs reach the others
     feet = [ctx.ground(q[0] + (x * c + z * s_) * sc, q[2] + (-x * s_ + z * c) * sc) for x, z in STRIDER_FEET]
-    q[1] = sorted(feet)[1]
+    if "walk" not in spec:
+        q[1] = sorted(feet)[1]
     return [entry(ctx, spec, k, spec["s"], spec["zone"], pos=q, yaw=yaw,
-                  feet=[round(float(y - q[1]), 3) for y in feet])]
+                  feet=[round(float(y - q[1]), 3) for y in feet], **extra)]
 
 
 def _apache(ctx, spec, k):
@@ -392,11 +558,36 @@ def _pack(ctx, spec):
     return members
 
 
+HOUNDEYE_BEAT = 4.0          # metres each houndeye paces up and down the verge from its spot
+HOUNDEYE_EDGE = (0.25, 1.15)  # metres between the road's edge and the nose of one at its spot (front and back row)
+# model metres from a houndeye's origin to the front of its body as it stands at its spot turned to the
+# road and charges up (its skinned mesh: at scale 1.5 it reached 1.0-1.1 m in front of the origin)
+HOUNDEYE_NOSE = 0.78
+
+
+def _pack_paths(ctx, spec):
+    """Each pack member's beat on the verge (points every 2 m, HOUNDEYE_BEAT either way of its spot,
+    on whatever floor is there) and the spot at the road's edge it runs out to when a kart comes:
+    3 m up the road towards the karts, just past the edge, its body never over the road."""
+    t = ctx.trk
+    walks, spots = [], []
+    n = spec.get("count", 3)
+    nose = HOUNDEYE_NOSE * spec.get("scale", 1.5)
+    for m in range(n):
+        s = spec["s"] + (m - (n - 1) / 2) * 3.5
+        setback = spec.get("setback", 2.5) + (m % 2) * 1.6
+        walks.append([lst(side_point(ctx, idx(t, s + d), spec["side"], setback))
+                      for d in np.arange(-HOUNDEYE_BEAT, HOUNDEYE_BEAT + 0.1, 2.0)])
+        spots.append(lst(side_point(ctx, idx(t, s - 3.0), spec["side"], nose + HOUNDEYE_EDGE[m % 2])))
+    return walks, spots
+
+
 def _houndeyes(ctx, spec, k):
     members = _pack(ctx, spec)
+    walks, spots = _pack_paths(ctx, spec)
     c = np.mean([m[:3] for m in members], axis=0)
     return [entry(ctx, spec, k, spec["s"], (spec["s"] - 30.0, spec["s"] + 12.0), pos=c,
-                  members=members, side=spec["side"])]
+                  members=members, side=spec["side"], walks=walks, spots=spots)]
 
 
 def _tentacle(ctx, spec, k):
@@ -420,9 +611,51 @@ def _minefield(ctx, spec, k):
                   mines=mines)]
 
 
+CONTROLLER_STEP = 3.0       # metres between the points of a controller's flight
+
+
+def _controller(ctx, spec, k):
+    """A controller's flight: a closed oval over the void on `side` of the road, along the lap metres
+    of `orbit` (its zone less 10 m at each end), `out` metres past the road's edge give or take `wide`
+    (forwards on the near side, back on the far one), `h` metres over the road rising and falling by
+    `rise`. Points every CONTROLLER_STEP metres; the game flies it round them by the hazard clock."""
+    t = ctx.trk
+    z = spec["zone"]
+    a, b = spec.get("orbit", (z[0] + 10.0, z[1] - 10.0))
+    half = ((b - a) % t.length) / 2
+    mid = a + half
+    out, wide = spec.get("out", 12.0), spec.get("wide", 5.0)
+    h, rise = spec.get("h", 11.0), spec.get("rise", 2.0)
+    n = max(24, int(round((4 * half + 2 * math.pi * wide) / CONTROLLER_STEP)))
+    pts = []
+    for j in range(n):
+        u = 2 * math.pi * j / n
+        i = idx(t, mid + half * math.cos(u))
+        q = t.pos[i] + t.flat_right[i] * spec["side"] * (t.width[i] / 2 + out + wide * math.sin(u))
+        q[1] = t.pos[i][1] + h + rise * math.sin(2 * u)
+        pts.append(lst(q))
+    return [entry(ctx, spec, k, mid % t.length, z, pos=pts[0], path=pts)]
+
+
+def _bullsquid(ctx, spec, k):
+    """A bullsquid on the ground `setback` metres past the road's edge (an island's edge), turned to
+    the road point `look` metres before it: the karts coming."""
+    t = ctx.trk
+    setback = spec.get("setback", 7.0)
+    s = clear_spot(ctx, spec["s"], spec["side"], setback, r=3.0)
+    i = idx(t, s)
+    q = side_point(ctx, i, spec["side"], setback)
+    if s != spec["s"]:
+        # moved off its reserved spot: the spectators placed after this keep clear of the new one
+        ctx.reserved.append((np.array([q, q]), 3.5 * spec.get("scale", 1.4)))
+    face = t.pos[idx(t, s - spec.get("look", 25.0))] - q
+    return [entry(ctx, spec, k, s, spec["zone"], pos=q, yaw=yaw_of(flat(face)))]
+
+
 RESOLVERS = {"turret": _turret, "vortigaunt": _vortigaunt, "strider": _strider, "apache": _apache,
              "train": _train, "tripmine": _tripmine, "strike_zone": _strike_zone, "field_gate": _field_gate,
-             "air_strafe": _air_strafe, "houndeyes": _houndeyes, "tentacle": _tentacle, "minefield": _minefield}
+             "air_strafe": _air_strafe, "houndeyes": _houndeyes, "tentacle": _tentacle, "minefield": _minefield,
+             "controller": _controller, "bullsquid": _bullsquid}
 
 
 def resolve(ctx, specs):
@@ -506,7 +739,15 @@ def _parts(e):
     if e["type"] in ("turret", "vortigaunt") and p.get("mount", "floor") == "floor":
         return [(e["pos"], 1.0)]
     if e["type"] == "houndeyes":
-        return [(m[:3], 1.0) for m in p["members"]]
+        # where they stand, the beats they pace and the spots at the road's edge they run out to
+        return [(q[:3], 1.0) for q in p["members"] + [w for ws in p.get("walks", []) for w in ws] + p.get("spots", [])]
+    if e["type"] == "bullsquid":
+        return [(e["pos"], 1.0)]
+    if e["type"] == "strider" and "walk" in p:
+        # every few metres of its walk but where it crosses a road
+        um = _walk_metres(p["walk"])
+        return [(q, 5.0) for q, u in list(zip(p["walk"], um))[::2]
+                if not any(a <= u <= b for a, b in p.get("cross", []))]
     if e["type"] == "strider":
         return [(e["pos"], 5.0)]
     return []
@@ -526,13 +767,74 @@ def _on_branch(ctx, q, clear, names):
     return None
 
 
+def _flight_checks(ctx, e):
+    """A controller's flight: 6 m in plan clear of the edge of every road (the lap and the branches)
+    that runs from 10 m under it to 4 m over it (a road further down passes under it in the open),
+    and 5 m over the ground."""
+    roads = getattr(ctx, "roads", None)
+    R = roads.pos if roads is not None else ctx.trk.pos
+    W = roads.width if roads is not None else ctx.trk.width
+    keep = ~roads.hidden if roads is not None and hasattr(roads, "hidden") else np.ones(len(R), bool)
+    road, ground = (1e9, None), (1e9, None)
+    for q in e["p"]["path"]:
+        near = keep & (R[:, 1] > q[1] - 10.0) & (R[:, 1] < q[1] + 4.0)
+        if near.any():
+            d = float((np.hypot(R[near, 0] - q[0], R[near, 2] - q[2]) - W[near] / 2).min())
+            road = min(road, (d, tuple(q)))
+        g = ctx.ground(q[0], q[2])
+        if g is not None:
+            ground = min(ground, (q[1] - float(g), tuple(q)))
+    msgs = []
+    if road[0] < 6.0:
+        msgs.append("flies %.1f m from a road's edge at (%.0f, %.0f, %.0f)" % ((road[0],) + road[1]))
+    if ground[0] < 5.0:
+        msgs.append("flies %.1f m over the ground at (%.0f, %.0f, %.0f)" % ((ground[0],) + ground[1]))
+    return msgs
+
+
+def _walk_checks(ctx, e):
+    """A walking strider's route: off every road (lap and branches, from a little under its ground
+    to its own height) by its feet's reach but where its spec lets it cross; its legs clear of
+    every wall and building the circuit placed (ctx.boxes); no step steeper than a stair."""
+    p = e["p"]
+    pts = np.array(p["walk"], float)
+    um = _walk_metres(pts)
+    crossing = np.array([any(a <= u <= b for a, b in p.get("cross", [])) for u in um])
+    reach = STRIDER_REACH * p.get("scale", 1.15) / 1.15
+    msgs = []
+    worst = min(((_road_clearance(ctx, q), u) for q, u, c in zip(pts, um, crossing) if not c), default=(1e9, 0.0))
+    if worst[0] < reach:
+        msgs.append("walk %.1f m from a road edge at walk m %.0f (its feet reach %.1f; mark a crossing \"cross\")"
+                    % (worst[0], worst[1], reach))
+    # a leg runs from the body 12 m up out to a foot `reach` metres off: anything over a kerb's
+    # height that close stands in its way
+    for q, u in zip(pts, um):
+        hit = False
+        for cen, half, ax, az, y0, y1 in getattr(ctx, "boxes", []):
+            if y1 < q[1] + 1.5 or y0 > q[1] + 15.0:
+                continue
+            v = np.array([q[0], q[2]]) - cen
+            if abs(v @ ax) < half[0] + reach - 0.5 and abs(v @ az) < half[1] + reach - 0.5:
+                hit = True
+                break
+        if hit:
+            msgs.append("walks into a wall or building at walk m %.0f (%.0f, %.0f)" % (u, q[0], q[2]))
+            break
+    if len(pts) > 1:
+        slope = np.abs(np.diff(pts[:, 1])) / np.maximum(np.diff(um), 0.1)
+        if slope.max() > 0.5:
+            j = int(slope.argmax())
+            msgs.append("steep ground (%.0f%%) at walk m %.0f" % (slope[j] * 100, um[j]))
+    return msgs
+
+
 def _checks(ctx, e, data):
     """Placement problems a still would show: a creature with no floor, a turret in a
     wall, a rail line crossing another part of the circuit, mines on a boost pad..."""
     t = ctx.trk
     p = e["p"]
     msgs = []
-    if e["type"] in ("turret", "vortigaunt", "houndeyes", "strider") and p.get("mount", "floor") == "floor":
+    if e["type"] in ("turret", "vortigaunt", "houndeyes", "strider", "bullsquid") and p.get("mount", "floor") == "floor":
         pts = [m[:3] for m in p["members"]] if e["type"] == "houndeyes" else [e["pos"]]
         i = idx(t, e["s"])
         for q in pts:
@@ -562,8 +864,22 @@ def _checks(ctx, e, data):
                 msgs.append("mine at s %.0f on a boost pad" % m[3])
             if any(np.linalg.norm(q - c) < 8.0 for c in crates):
                 msgs.append("mine at s %.0f on a crate row" % m[3])
-    if e["type"] == "strider" and max(p["feet"]) - min(p["feet"]) > 1.5:
+    if e["type"] == "strider" and "walk" not in p and max(p["feet"]) - min(p["feet"]) > 1.5:
         msgs.append("uneven ground: feet %.1f m apart in height" % (max(p["feet"]) - min(p["feet"])))
+    if e["type"] == "strider" and "walk" in p:
+        msgs += _walk_checks(ctx, e)
+    if e["type"] == "controller":
+        msgs += _flight_checks(ctx, e)
+    if e["type"] == "bullsquid":
+        # its acid lands on the road of its zone: never on a boost pad or a crate row
+        z0, z1 = p["zone"]
+        for b in data.get("boost_pads", []):
+            sb = _s_of(t, b["pos"])
+            if _overlap(sb - 4.0, sb + 4.0, z0 - 3.0, z1 + 3.0, t.length):
+                msgs.append("acid on the boost pad at s %.0f" % sb)
+        for c in sorted({round(_s_of(t, q[:3])) for q in _lap_crates(ctx, data.get("item_boxes", []))}):
+            if _overlap(c - 6.0, c + 6.0, z0 - 3.0, z1 + 3.0, t.length):
+                msgs.append("acid on the crate row at s %.0f" % c)
     if e["type"] == "tentacle" and "path" in data:
         # the racing line's offset from the centre there (the gameplay path keeps every 3rd sample)
         path = data["path"]

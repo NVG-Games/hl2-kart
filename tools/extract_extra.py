@@ -6,7 +6,8 @@ python tools/extract_extra.py --missing
 python tools/extract_extra.py [--models KEY ...] [--sounds PATH ...] [--anims KEY ...] [--force]
     models by their models.json key ("antlion", "props_wasteland/cranemagnet01a", "hl1/bullsquid"), sounds by
     their path under sound/ ("npc/antlion/idle1.wav", or "hl1:bullchicken/bc_idle1.wav" for Half-Life's own),
-    animations by their ANIMS key; --force converts the named HL2 models again even when they are there
+    animations by their ANIMS key ("dog", "hl1/houndeye"); --force converts the named HL2 models again even when
+    they are there
 python tools/extract_extra.py --missing --dry-run
     lists what would be extracted and changes nothing
 
@@ -128,7 +129,7 @@ def plan_missing(fs, index, mat_db):
             want(plan.hl1_sounds, s, os.path.exists(os.path.join(ea.HL1_ROOT, "valve", "sound", s)), "hl1:" + s)
     for k, (src, _names) in ea.ANIMS.items():
         if not os.path.exists(os.path.join(ea.ASSETS, "models", k + ".anims.json")):
-            want(plan.anims, k, fs.exists(src), src)
+            want(plan.anims, k, ea.anims_source_exists(fs, src), src)
     for m in ea.WORLD_MATERIALS:
         if m not in mat_db:
             want(plan.world, m, fs.exists("materials/" + m + ".vmt"), m)

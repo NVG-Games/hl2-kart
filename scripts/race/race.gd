@@ -435,10 +435,12 @@ func _bump_karts() -> void:
 			if -vrel > 3.0 and Time.get_ticks_msec() > int(_bump_cd.get(key, 0)):
 				_bump_cd[key] = Time.get_ticks_msec() + 400
 				a.audio.impact(-vrel * 1.5)
-			# HEV overcharge flattens whoever it touches
-			if a.star_time > 0.0 and b.star_time <= 0.0:
+			# HEV overcharge flattens whoever it touches, once: a kart it has already sent tumbling is
+			# not thrown again on each physics step the two still touch (each throw added its own
+			# push, and a kart held against it was flung on at up to 47 m/s, off a rail-less island)
+			if a.star_time > 0.0 and b.star_time <= 0.0 and b.state != Kart.State.TUMBLE:
 				b.tumble(a, -normal * b.mass * 6.0)
-			elif b.star_time > 0.0 and a.star_time <= 0.0:
+			elif b.star_time > 0.0 and a.star_time <= 0.0 and a.state != Kart.State.TUMBLE:
 				a.tumble(b, normal * a.mass * 6.0)
 
 

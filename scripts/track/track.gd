@@ -71,6 +71,10 @@ func build(track_name: String) -> void:
 		str(data.get("gantry", "combine")), float(data.get("gantry_clear", 0.0)))
 	_spawn_screens(gantry.feed)
 	crowd = CrowdDirector.spawn_for(self)
+	# what shows a low-gravity zone (motes, glowing columns, a hum); the karts read the zones themselves
+	LowGravityField.spawn_for(self)
+	# fires and columns of smoke in a ruined city (data "fires"); none headless or on the dedicated server
+	RuinFires.spawn_for(self)
 
 
 ## The race paths of a track JSON: the main loop with its branches (TrackBranch).
@@ -171,7 +175,9 @@ func _build_geometry(track_name: String) -> void:
 				var src := mi.mesh.surface_get_material(i)
 				if src:
 					var uvs := Vector2.ONE
-					mi.set_surface_override_material(i, SourceMaterials.world_material(src.resource_name, uvs, lit))
+					# (a soft decal, soot or a crater, is blended: see SourceMaterials.decal_material)
+					var dm := SourceMaterials.decal_material(src.resource_name) if kind.begins_with("decal") else null
+					mi.set_surface_override_material(i, dm if dm else SourceMaterials.world_material(src.resource_name, uvs, lit))
 			if kind.begins_with("walls") or kind.begins_with("colonly") or kind.begins_with("ceil"):
 				surface = "wall"
 			elif kind.begins_with("verge"):

@@ -13,8 +13,18 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
   the race. It blasts every kart in a wide cone in front of you high into the air (they keep
   little of their speed and can come down off the road), sets off barrels and bursts
   watermelons.
+- Xen comes alive. Controllers from Half-Life float over the void beside the first root bridge
+  and the arch; once in a while one winds up, an orange glow growing between its hands, and
+  throws a slow orange energy ball at the road where a kart will be. An orange ring marks the
+  spot and your HUD shows the lock: change your line and it bursts behind you, hold it and you
+  spin. Bullsquids sit at the edges of the plateau and the bay, turn to the karts coming and
+  spit acid in a high arc; it leaves a glowing green puddle on the road for a few seconds, and
+  driving through it spins you. All of them move with Half-Life's own animations.
 
 ### Changed
+- The houndeye packs pace up and down the verge now, and when a kart comes they run out to meet
+  it, up to the road's edge but never onto it, before they charge and blast as before. Keep to
+  the far side of the road when they chirp and the blast still cannot reach you.
 - The gravity gun pulls now instead of punting. Its beam grabs the nearest kart ahead (up to
   60 m), lifts it, carries it back over your head and drops it just behind you, spinning:
   the two of you swap places. With nobody in reach it only clicks.
@@ -35,6 +45,42 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
   stride tops out at three a second and the feet slide, instead of the legs blurring. The
   animations are read from your Half-Life 2 when the content is built (tools/mdl_anim.py):
   content built before this keeps the old swinging legs, which no longer blur either.
+- Striders hunt any kart now, not only the leader. A strider can walk its own route beside
+  the road, stepping leg by leg with its feet planted on the ground, sidestepping along the
+  street with its guns on you, and halts at the next spot to crouch and fire its warp cannon
+  at the nearest kart it can see. A blue laser lies on that kart first, slides to where it
+  will be and stays there with the ring, so you have time to swerve. As it walks it rakes the
+  road with its machine gun: a short blue laser sweep and its hunting chirp, then a line of
+  impacts walking down the road towards you; drive into it and you spin. It never aims at a
+  kart being rescued or just put back.
+- Xen has a stretch of its own instead of the cave that rolled you round (the same trick as the
+  pipes elsewhere): a bridge grown of living roots, wrapped in roots and trailing them into
+  the void, climbs out to three small floating islands, and between them you hop the void in
+  Xen's low gravity, floating over it in long slow arcs. Green motes rise round you there,
+  columns of light come up out of the void under each hop and the air hums. Even a kart slowed
+  by a hit still makes it across. A second root bridge curls up to the crystal plateau. The lap
+  is about 150 m longer (2.6 km).
+- CT17's route goes through the ruins of City 17 now. The Combine pipe that rolled you up the
+  wall is gone (the same trick as the pipes elsewhere): out of the underpass you climb onto a
+  broken viaduct over the canal, its jerseys torn out in places, and one of its spans has
+  collapsed, so you drive down its sagging slab and up the next. On the boulevard toward the
+  Citadel the road goes in through a hole blown in a block's facade, across its ground floor
+  between the pillars and out through another, then up a ramp of rubble onto the long roof of
+  a collapsed building and down its fallen floor slab. The rooftops shortcut is a long way over
+  the old town's roofs instead of one jump that needed a boost: a ramp spiralling up off the
+  hill road, three jumps over alleys, a run along the roofs beside the street and down a fallen
+  slab into it, about as quick as the hairpins below. Drop into an alley and you try that jump
+  again. The lap is about 60 m longer (2.6 km).
+- CT17 is the ruined City 17 of Anticitizen One. Rubble is heaped under the collapsed span and
+  along the ramp up to the fallen roof, broken edges hang round the holes blown in the block
+  and soot blackens its facades, craters, burnt-out cars and the burnt hull of an APC line the
+  road, rubble and junk shut the side streets, most street lamps are dead, and gutted and
+  fallen-in blocks and the destroyed dome stand on the skyline under the Citadel. Fires burn
+  in the wrecks, the heaps and the hall of the blasted block, and columns of smoke rise from
+  burning buildings all over the city. Three striders walk the route instead of the one that
+  stood at the canal corner: on the inside of the viaduct's bend, between the canal jump and
+  the canal corner, and beside the flyover's way down to the boulevard. Refugees and rebels
+  watch the race now, fewer of them.
 - Online, everyone needs this version (network protocol 4).
 
 ### Removed
@@ -46,6 +92,11 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
 - CT17's chain-link fences show their wire mesh instead of a blank sheet, and the shield
   panes of the Combine booths and barricades and the shells of Black Mesa's Xen crystals are
   see-through tinted glass instead of opaque white.
+- The HEV overcharge knocks a kart over once per touch. A kart pressed against you was thrown
+  again on every frame the two of you touched and could fly far off the road.
+- On Xen a low rim of rock runs along the outside of the first floating island's bend: a kart
+  spun or knocked over at the end of the first root bridge went straight on there and slid off
+  the island.
 
 ## [0.2.0] - 2026-11-12
 

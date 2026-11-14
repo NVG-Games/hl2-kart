@@ -111,9 +111,25 @@ HL1_CROWD = [
 
 # Animations the game plays on a converted model (<key>.anims.json next to its glTF): the model key,
 # the model that holds them, and our name -> its animation. Dog's run and walk are the forward ("N")
-# pieces of HL2's run_all / walk_all.
+# pieces of HL2's run_all / walk_all. A source starting with "hl1:" is a Half-Life 1 (GoldSrc) model
+# under HL1_ROOT, read by tools/goldsrc_anim.py, and its names are sequence labels. The Xen creatures
+# (scripts/fx/anim_set.gd plays them): the controller floats and flies (forward / up / down) and fires
+# energy balls (attack1, its small burst; shoot, the big head ball; throw, an overarm throw with one arm
+# that HL1 never fires anything from); the houndeye runs, walks (walk2), idles (idle1, idle2 is its
+# looping one), charges its sonic blast (attack, the blast at frame 59), hops back and growls
+# (madidle); the bullsquid idles, walks, runs, spits (range, the spit leaves at frame 11), bites, whips
+# its tail and looks about.
 ANIMS = {
     "dog": ("models/dog_animations.mdl", {"run": "a_run_N", "walk": "a_walk_N", "idle": "idle01"}),
+    "hl1/controller": ("hl1:valve/models/controller.mdl", {
+        "float": "float", "forward": "forward", "up": "up", "down": "down", "attack1": "attack1",
+        "shoot": "shoot", "throw": "throw"}),
+    "hl1/houndeye": ("hl1:valve/models/houndeye.mdl", {
+        "run": "run", "walk": "walk2", "idle": "idle1", "idle2": "idle2", "attack": "attack",
+        "jumpback": "jumpback", "madidle": "madidle"}),
+    "hl1/bullsquid": ("hl1:valve/models/bullsquid.mdl", {
+        "idle": "idle", "walk": "walk", "run": "run", "range": "range", "bite": "bite", "whip": "whip",
+        "look": "look"}),
 }
 
 MODELS = [
@@ -891,19 +907,34 @@ def convert_hl1_prop(lib, name):
                  "aabb_max": meta["aabb_max"], "kind": "props"}
 
 
+def anims_source_exists(fs, src):
+    """Whether this install has the model an ANIMS entry reads (an "hl1:" one under HL1_ROOT)."""
+    if src.startswith("hl1:"):
+        return os.path.exists(os.path.join(HL1_ROOT, src[len("hl1:"):]))
+    return fs.exists(src)
+
+
 def write_anims(fs, keys=None):
-    """assets/models/<key>.anims.json for each ANIMS entry (tools/mdl_anim.py), or only for the given keys."""
+    """assets/models/<key>.anims.json for each ANIMS entry (tools/mdl_anim.py, or tools/goldsrc_anim.py for
+    an "hl1:" source), or only for the given keys."""
     for key, (src, names) in ANIMS.items():
         if keys is not None and key not in keys:
             continue
-        if not fs.exists(src):
+        if not anims_source_exists(fs, src):
             log("  -- missing animations", src)
             continue
         try:
-            got = mdl_anim.anims(fs, src, list(names.values()))
+            if src.startswith("hl1:"):
+                import goldsrc_anim
+                got = goldsrc_anim.anims(os.path.join(HL1_ROOT, src[len("hl1:"):]), list(names.values()))
+            else:
+                got = mdl_anim.anims(fs, src, list(names.values()))
         except Exception as e:  # noqa
             log("  !! animations", src, repr(e))
             continue
+        lost = [theirs for theirs in names.values() if theirs not in got]
+        if lost:
+            log("  -- animations not in", src, ", ".join(lost))
         out = {ours: got[theirs] for ours, theirs in names.items() if theirs in got}
         with open(os.path.join(ASSETS, "models", key + ".anims.json"), "w") as f:
             json.dump(out, f, separators=(",", ":"))

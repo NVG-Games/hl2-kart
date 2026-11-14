@@ -65,6 +65,7 @@ var _override: Array = []
 var _branches: Array = []  # --branches: branch entries to add (rules)
 var _notes: Array = []  # rules: [hazard id, what] noted during the current probe
 var _hit_got: Array = []  # rules: the kart's state and grace the moment a hit was noted
+var _far := false       # rules: the houndeye probe drives the far side of the road (out of reach)
 
 
 func _ready() -> void:
@@ -458,6 +459,11 @@ func _rules(track_id: String) -> void:
 	for h in director.list:
 		for mode in ["hit"] if out != "" else ["hit", "star", "immune", "group"]:
 			await _probe(rig, h, k, mode)
+		# a kart that heeds the houndeyes' chirp and keeps to the far side is out of their reach
+		if h is HoundeyeHazard and out == "":
+			_far = true
+			await _probe(rig, h, k, "far")
+			_far = false
 	await _group_expiry(rig, trk, k)
 	_drop_points(trk, k)
 	if not _branches.is_empty():
@@ -526,6 +532,10 @@ func _probe(rig: Rig, h: Hazard, k: Kart, mode: String) -> void:
 		_expect(landed and got[0] == want[0] and is_equal_approx(float(got[1]), float(want[1])),
 			"%s %s, state %s grace %.2f (want %s %.1f)%s" % [what, "hit" if landed else "NOT HIT", Kart.State.keys()[got[0]],
 			got[1], Kart.State.keys()[want[0]], want[1], "" if fired else ", it never fired"])
+	elif mode == "far":
+		var blasted := _notes.has([h.id, "fire"])
+		_expect(not landed and k.state == Kart.State.NORMAL and blasted, "%s %s%s" % [what,
+			"HIT on the far side" if landed else "not hit on the far side", "" if blasted else " (it never blasted: nothing tested)"])
 	else:
 		_expect(not landed and k.state == Kart.State.NORMAL and fired, "%s %s%s" % [what,
 			"hit through it" if landed else "not hit", "" if fired else " (it never struck: nothing tested)"])
@@ -634,16 +644,47 @@ func _plan_hit(rig: Rig, h: Hazard) -> Dictionary:
 			"ready": func() -> bool: return sh.st == ShooterHazard.S.IDLE}
 	if h is HoundeyeHazard:
 		var hd := h as HoundeyeHazard
+		# along the pack's side of the road, or (_far) where the bots go when they hear the chirp
 		var lat := signf(float(h.p["side"])) * (h.half_width(h.s) - 1.5)
+		if _far:
+			lat = -signf(float(h.p["side"])) * (h.half_width(h.s) - HoundeyeHazard.FAR_LANE)
 		return {"t0": now, "dur": 4.0, "tele_warn": 0.9,
 			"at": func(u: float) -> Transform3D: return _road_pose(p, h.s - 12.0 + 6.0 * u, lat),
 			"ready": func() -> bool: return hd.st == HoundeyeHazard.S.IDLE}
 	if h is StriderHazard:
 		var sd := h as StriderHazard
-		var c := sd._cycle_at(now) + 1
-		var zone: Array = h.p["zone"]
+		var c := sd.next_halt(sd._cycle_at(now) + 1)
+		# through the road point its station looks at (a walking strider halts somewhere else each
+		# cycle, and walks on through a station on a road crossing)
+		var at_s := sd.probe_s(c) - 6.0
 		return {"t0": sd._cycle_start(c) - 0.3, "dur": h.tm("charge") + 1.5, "tele_warn": 1.2,
-			"at": func(u: float) -> Transform3D: return _road_pose(p, float(zone[0]) + 20.0 + 6.0 * u, 0.0)}
+			"at": func(u: float) -> Transform3D: return _road_pose(p, at_s + 6.0 * u, 0.0)}
+	if h is ControllerHazard:
+		# down the middle of the road at 8 m/s, at the road beside its throw as the ball lands
+		var ct := h as ControllerHazard
+		# the other controllers hold their throws (one beside it would hit first and leave the kart
+		# immune to its group); this one throws in any cycle again
+		for o in h.director.list:
+			if o is ControllerHazard:
+				(o as ControllerHazard)._thrown = -1000000 if o == h else 1 << 30
+		var c := ct._cycle_at(now + 1.0) + 1
+		var t_c := ct._cycle_start(c)
+		var lead_t := h.tm("warn") + float(h.p["flight"])
+		var from := ct.throw_point(t_c + h.tm("warn"))
+		var zone: Array = h.p["zone"]
+		var land := clampf(p.progress(from, p.closest(from, p.index_at(h.s))), float(zone[0]) + 10.0, float(zone[1]) - 5.0)
+		var s0 := land - 8.0 * (0.3 + lead_t)
+		return {"t0": t_c - 0.3, "dur": 0.3 + lead_t + 0.8, "tele_warn": 0.8,
+			"at": func(u: float) -> Transform3D: return _road_pose(p, s0 + 8.0 * u, 0.0),
+			"ready": func() -> bool: return ct._aims.is_empty()}
+	if h is BullsquidHazard:
+		# up the road at 10 m/s from short of its zone: it spits as the kart's landing point comes in
+		var bq := h as BullsquidHazard
+		var zone: Array = h.p["zone"]
+		var s0 := float(zone[0]) - 10.0 * (h.tm("warn") + float(h.p["flight"])) - 8.0
+		return {"t0": now, "dur": 6.0, "tele_warn": 0.6,
+			"at": func(u: float) -> Transform3D: return _road_pose(p, s0 + 10.0 * u, 0.0),
+			"ready": func() -> bool: return bq._spits.is_empty() and h.director.clock() >= bq._ready_at}
 	if h is ApacheHazard:
 		var ap := h as ApacheHazard
 		var every := h.tm("every")

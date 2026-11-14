@@ -305,7 +305,7 @@ func _can_make(k: Kart, br: TrackBranch, to_fork: float) -> bool:
 ## The speed this bot runs onto branch br's next jump with, `to_fork` metres before its fork
 ## (negative: past it): up to the commit point no faster than the racing line's corner speeds (as
 ## drive() holds them), from there flat out; the engine as in Kart._integrate_forces at LIP_PACE,
-## against the slope. Without a jump ahead: INF.
+## against the slope (at a low-gravity zone's gravity there). Without a jump ahead: INF.
 func _lip_speed(k: Kart, br: TrackBranch, to_fork: float) -> float:
 	var p := k.track.path
 	var u := -to_fork
@@ -319,7 +319,7 @@ func _lip_speed(k: Kart, br: TrackBranch, to_fork: float) -> float:
 	while u < gap:
 		var g: TrackPath = br if u >= 0.0 else p
 		var i := br.index_at(u) if u >= 0.0 else p.index_at(br.fork_s + u)
-		var a := -grav * g.fwd[i].y
+		var a := -grav * k.gravity_scale_at(br.index if u >= 0.0 else -1, u if u >= 0.0 else br.fork_s + u) * g.fwd[i].y
 		if v < k.max_speed:
 			a += LIP_PACE * 15.0 * k.accel_mult * (0.25 + 0.75 * clampf(1.0 - pow(v / k.max_speed, 2.2), 0.0, 1.0))
 		var du := minf(2.0, gap - u)

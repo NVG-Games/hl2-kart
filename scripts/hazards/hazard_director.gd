@@ -131,6 +131,10 @@ static func script_for(kind: String) -> GDScript:
 			return TentacleHazard
 		"minefield":
 			return MinefieldHazard
+		"controller":
+			return ControllerHazard
+		"bullsquid":
+			return BullsquidHazard
 	return null
 
 

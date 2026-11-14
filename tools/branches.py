@@ -1,6 +1,7 @@
 """Branches of a circuit's lap (shortcuts, jumps, high roads): open splines, the launch speed a
-jump needs, the lap metres a branch's metres count as (s_main) and its track JSON entry. Shared
-by the generators (tools/track_gen.py builds them; tools/build_track.py can use the same pieces).
+jump needs (at the gravity of a low-gravity zone it lies in: gravity_scale), the lap metres a
+branch's metres count as (s_main) and its track JSON entry. Shared by the generators
+(tools/track_gen.py builds them; tools/build_track.py can use the same pieces).
 
 The JSON entry (data["branches"], read by scripts/track/track_branch.gd):
   id, name, index, kind, fork_s / merge_s (lap metres, the game's convention: exported index *
@@ -55,10 +56,27 @@ def catmull_rom_open(pts, pre, post, samples_per_seg=200):
     return np.array(out), np.array(seg), np.array(tt)
 
 
+def gravity_scale(zones, s):
+    """The share of gravity at metres s along a road under its low-gravity zones (the dicts of
+    data["low_gravity"] for that road: s0, s1, scale, ease): 1 outside them, `scale` inside, easing
+    in over `ease` metres from s0 and back out over the last `ease` before s1. The same as the
+    game's LowGravityField.scale_at (scripts/fx/low_gravity_field.gd), without the lap's wrap."""
+    out = 1.0
+    for z in zones:
+        span, d = z["s1"] - z["s0"], s - z["s0"]
+        if d < 0.0 or d > span:
+            continue
+        e = max(min(z.get("ease", 15.0), span * 0.5), 1e-3)
+        u0, u1 = min(d / e, 1.0), min((span - d) / e, 1.0)
+        w = u0 * u0 * (3 - 2 * u0) * u1 * u1 * (3 - 2 * u1)
+        out = min(out, 1.0 + (z["scale"] - 1.0) * w)
+    return out
+
+
 def launch_speed(gap, lift, ramp_len, drop, g=G):
     """Speed at a kicker's lip (a u^2 ramp rising `lift` over `ramp_len` metres) that carries a kart
     over `gap` metres and 2 more to land on, with the far road `drop` metres below the lip
-    (negative: above it), under gravity g."""
+    (negative: above it), under gravity g (a low-gravity zone's: g times gravity_scale)."""
     th = math.atan(2.0 * lift / ramp_len)
     lo, hi = 1.0, 120.0
     for _ in range(60):

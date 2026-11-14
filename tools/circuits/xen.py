@@ -1,10 +1,17 @@
-"""Xen: floating islands in the border world, a figure-8 of about 2.4 km in the void.
+"""Xen: floating islands in the border world, a figure-8 of about 2.6 km in the void.
 
 Start on the island with the healing pool and cross the low root bridge. The east lobe runs
-counter-clockwise: the glowing cave that rolls once round, the fungus islands climbing north,
-the crystal plateau and its chasm, the rail-less ledge down to the arch, which passes 13 m over
-the root bridge. The west lobe runs clockwise round the bay, a big square of void, and back up
-the long bridge to the start.
+counter-clockwise: a grown root bridge climbs away over the void to the first of three small
+floating islands, and in Xen's low gravity (TRACK["low_gravity"], scale LOW_G) the karts hop
+from island to island in long, slow arcs, then a second root bridge curls up onto the crystal
+plateau and its chasm, the rail-less ledge runs down to the arch, which passes 13 m over the low
+root bridge. The west lobe runs clockwise round the bay, a big square of void, and back up the
+long bridge to the start.
+
+The root bridges are decks of living bark between rails of twisted root, roots wrapping them and
+hanging from them into the void (_roots). The low-gravity zone shows itself in the game
+(scripts/fx/low_gravity_field.gd): green motes rising from the void, glowing columns at its start
+and under each hop, and a hum.
 
 Two branches: the high root leaves the plateau right after the chasm for a narrow rail-less root
 over the void that drops onto a deck joining the arch; the island hop leaves the bay's east side
@@ -18,8 +25,21 @@ from crowds import LOD_CYCLE
 from track_gen import UP, carve, noise2, smoothstep
 
 VOID = -75.0
-# metres of wide island past a jump of the lap (see terrain)
+# metres of wide island past the lap's chasm (see terrain)
 LANDING = 110.0
+# metres of void kept between a far floating rock (its whole width) and the edge of every road. The
+# islands reach up to about 55 m past their road's edge, and a far prop has no collision: a rock
+# standing on the road let karts drive into its face and on through its dark inside
+FAR_CLEAR = 60.0
+# the share of the game's gravity a kart feels over the floating islands' hops (TRACK["low_gravity"])
+LOW_G = 0.4
+# a low-gravity hop: 12 m of void after a kicker (2 m over 32 m, a lip of 7 degrees) onto an island
+# a little lower. A kart leaves the lip flatter than it (its nose drops as the front wheels run off
+# it), the faster the flatter: at LOW_G one slowed to 13-15 m/s by a hit still gets across (at the
+# full gravity one at 19 m/s only just catches the far edge and one at 16 falls), and the racing
+# speed of 31-38 m/s carries a kart 40-50 m in a slow arc of 1.3-1.5 s. The islands run straight
+# for 75 m past each hop's far edge, so a kart boosted to 50 m/s still comes down on its island
+HOP_LG = {"gap": True, "gap_span": (0.33, 0.673), "ramp_lift": 2.0, "ramp_len": 32}
 
 CTRL = [
     (0, 20, 0, 18, "island"),
@@ -29,16 +49,34 @@ CTRL = [
     (215, 15, 22, 13, "bridge"),
     (262, 14, 36, 13, "bridge"),
     (318, 15, 50, 17, "island"),
-    (368, 15.5, 64, 15, "cave"),
-    (436, 16.5, 62, 15, "cave"),
-    (488, 17.5, 34, 18, "island"),
-    (512, 19, -36, 18, "island"),
-    (502, 22, -110, 17, "island"),
-    (462, 28, -186, 17, "island"),
+    # the first grown root bridge: on off the island, straight out over the void and climbing
+    (372, 16.5, 64.5, 13, "roots"),
+    (430, 19.5, 80, 13, "roots"),
+    (476, 22, 92, 13, "roots"),
+    # the first floating island: a long bend to the left (radius 60 m) onto the hops' line, a low
+    # rim of rock on its outside
+    (499.4, 23.5, 92.8, 16, "float_rim"),
+    (520.8, 25, 83.3, 16, "float_rim"),
+    (536.2, 26.2, 64.6, 16, "float_rim"),
+    # the low-gravity hops, straight north from island to island (level up to each kicker, the next
+    # island 1.2 m lower)
+    (541.5, 26.6, 41.8, 16, "float"),
+    (541.5, 26.6, 12, 16, "float", HOP_LG),
+    (541.5, 25.4, -18, 16, "float"),
+    (541.5, 25.4, -40.5, 16, "float"),
+    (541.5, 25.4, -63, 16, "float", HOP_LG),
+    (541.5, 24.2, -93, 16, "float"),
+    (541.5, 24.2, -123, 16, "float"),
+    # the second root bridge: round to the left (radius 52 m) and up onto the plateau
+    (541.5, 24.3, -145, 13, "roots"),
+    (537.6, 25.4, -163.3, 13, "roots"),
+    (526.6, 26.8, -178.4, 13, "roots"),
+    (510.4, 28, -187.8, 13, "roots"),
+    (488, 29, -195, 17, "island"),
     # the crystal plateau and its chasm
     # (straight from the kicker to well past the landing: a kart flies on where the road goes. 12 m
     # across and a steep kicker: a kart still slow from a spin clears it at 16 m/s)
-    (430, 30, -214, 17, "island", {"gap": True, "gap_span": (0.40, 0.556), "ramp_lift": 2.4}),
+    (430, 30, -214, 17, "island", {"gap": True, "gap_span": (0.375, 0.55), "ramp_lift": 2.4}),
     (372, 31, -233, 17, "island"),
     (304, 31, -246, 17, "island"),
     (226, 30, -234, 17, "island"),
@@ -108,12 +146,20 @@ TRACK = {
     "music": ['hl1_song3', 'hl1_song5', 'hl1_song6', 'hl1_song9', 'hl1_song19'],
     "name": "Xen",
     "ctrl": CTRL,
+    # (samples 2.0025 m apart: 1287 of them round the lap, a whole number of the game's samples (every
+    # third), so its path runs on evenly over the start line)
+    "step": 2.002,
     # (the plateau's row comes early: what it hands out is used on the wide plateau, not in the
     # bend onto the rail-less ledge, where a gravity gun's punt threw karts into the void; the row
     # before the chasm comes 200 m before its kicker, so less of what it hands out is fired at
-    # karts on the run-up)
-    "items": [0.055, 0.17, 0.30, 0.455, 0.63, 0.71, 0.79, 0.87, 0.955],
-    "boosts": [0.025, 0.115, 0.18, 0.26, 0.37, 0.53, 0.61, 0.74, 0.82, 0.93],
+    # karts on the run-up: on the last floating island, past where the hops land)
+    "items": [0.0519, 0.1603, 0.3415, 0.4868, 0.651, 0.7264, 0.8019, 0.8774, 0.9576],
+    # (none from the first root bridge's bend to past the hops: a boost carries a kart further than
+    # the islands are built for)
+    "boosts": [0.0236, 0.1085, 0.1697, 0.1901, 0.4057, 0.5566, 0.6321, 0.7548, 0.8302, 0.934],
+    # the floating islands' hops: from the end of the first island's bend to the end of the last
+    # island (lap metres 679-895), easing in and out over 15 m
+    "low_gravity": [{"from": (541.5 * K, 41.8 * K), "to": (541.5 * K, -145 * K), "scale": LOW_G, "ease": 15.0}],
     "vmax": 38.0,
     "offtrack": 40.0,
     "kill_y": -25.0,
@@ -129,16 +175,31 @@ TRACK = {
             "fog_begin": 220.0, "fog_end": 1700.0, "fog_sky": 0.0, "exposure": 1.1, "glow": 0.7, "sdfgi": False},
     # lap metres, clear of the junctions: the alien slaves at the far end of the crystal plateau, the
     # tentacle 28 m before the end of the long walled bridge. The houndeye packs sit on the inside
-    # of a long bend on the climbing island after the cave and in the bay, where the racing line
-    # passes them: they notice a kart 45 m off, so their blast comes as it arrives, and a kart that
-    # heeds the chirp and the charge-up and moves to the far side is out of reach
+    # of a long bend, on the first floating island before the hops and in the bay, where the racing
+    # line passes them: they notice a kart 45 m off, so their blast comes as it arrives, and a kart
+    # that heeds the chirp and the charge-up and moves to the far side is out of reach (one spun
+    # there is back up to speed long before the first hop). Controllers float over the void beside
+    # the first root bridge (one each side) and beside the arch, and throw slow orange balls at the
+    # road where a kart will be; bullsquids at the edge of the plateau and of the bay spit acid that
+    # leaves a puddle on the road for a few seconds. None of them reaches the low-gravity hops or
+    # the chasm's run-up, where a spin would send a kart into the void. (The new ones come after
+    # the old: a hazard's seed follows its place in this list.)
     "hazards": [
-        {"type": "houndeyes", "s": 690, "side": -1, "setback": 2.5, "count": 3, "radius": 13.0, "notice": 45.0},
-        {"type": "vortigaunt", "s": 1140, "side": 1, "setback": 2.0, "zone": [1102, 1145]},
-        {"type": "vortigaunt", "s": 1200, "side": -1, "setback": 2.0, "zone": [1160, 1205]},
-        {"type": "houndeyes", "s": 1760, "side": 1, "setback": 2.5, "count": 3, "radius": 13.0, "notice": 45.0},
+        {"type": "houndeyes", "s": 630, "side": -1, "setback": 2.5, "count": 3, "radius": 13.0, "notice": 45.0},
+        {"type": "vortigaunt", "s": 1286, "side": 1, "setback": 2.0, "zone": [1248, 1291]},
+        {"type": "vortigaunt", "s": 1346, "side": -1, "setback": 2.0, "zone": [1306, 1351]},
+        {"type": "houndeyes", "s": 1907, "side": 1, "setback": 2.5, "count": 3, "radius": 13.0, "notice": 45.0},
         # a tentacle rises out of the void beside the walled bridge and slams across the racing line
-        {"type": "tentacle", "s": 2246, "side": 1, "out": 4.0, "depth": 24.0, "reach": 0.2, "scale": 1.5},
+        {"type": "tentacle", "s": 2393, "side": 1, "out": 4.0, "depth": 24.0, "reach": 0.2, "scale": 1.5},
+        {"type": "controller", "zone": [460, 588], "side": 1, "out": 12.0, "h": 11.0},
+        {"type": "controller", "zone": [460, 588], "side": -1, "out": 14.0, "h": 13.0, "phase": 4.0},
+        {"type": "controller", "zone": [1585, 1705], "side": -1, "out": 12.0, "h": 10.0},
+        # on the plateau's right edge, turned to the karts coming off the second root bridge. It spits
+        # less often than the other (6 s between spits, not 4): the pack still bunched off the bridge
+        # gave it the most hits of the new creatures (6 in 24 kart laps on HARD)
+        {"type": "bullsquid", "s": 1032, "side": 1, "setback": 8.0, "zone": [995, 1036], "cool": 6.0},
+        # on the bay's left edge before the crate row
+        {"type": "bullsquid", "s": 2062, "side": -1, "setback": 10.0, "zone": [2012, 2056]},
     ],
 }
 
@@ -174,11 +235,25 @@ def styles(m):
         # the floating rocks a branch hops across: small islands of their own
         "rock": {"kind": "open", "road": road, "road_rep": 5.0, "verge": g("xeno_16b"), "verge_w": 3.0, "pit": True,
                  "skirt": g("c4a1a_swmpwl"), "island_r": (18.0, 30.0)},
-        # the cave is a living tube floating over the void: the road rolls once all the way round
-        # (its lane is back at the bottom 40 m before the exit, so karts leave it upright)
-        "cave": {"kind": "tube", "road": g("xeno_6flr2"), "road_rep": 5.0, "wall": g("xeno_6a"),
-                 "skin": g("xeno_14"), "glow": g("crys_2top", glow=True), "radius": 12.0, "roll": 360.0,
-                 "settle": 14.0, "ring_every": 16.0, "light_color": [0.55, 1.0, 0.65], "light_energy": 1.6},
+        # the lap's floating islands, hopped in low gravity: a little larger than the branch's rocks
+        # and a group of their own (terrain keeps them apart from every other island)
+        "float": {"kind": "open", "road": road, "road_rep": 5.0, "verge": g("xeno_16b"), "verge_w": 4.0, "pit": True,
+                  "skirt": g("c4a1a_swmpwl"), "island_r": (20.0, 32.0)},
+        # the first floating island's bend, which comes straight off the first root bridge where the
+        # controllers throw and the pack is still bunched on the first lap: a kart spun or sent
+        # tumbling there kept going straight, across the outside of the bend and off the island's
+        # edge (on the first lap of several test races). The ledge's low rim of rock on the outside
+        # stops a kart sliding at it, and unseen up to 1.5 m one bouncing in a tumble
+        "float_rim": {"kind": "open", "road": road, "road_rep": 5.0, "verge": g("xeno_16b"), "verge_w": 4.0, "pit": True,
+                      "skirt": g("c4a1a_swmpwl"), "island_r": (20.0, 32.0),
+                      "barrier": {"kind": "wall", "mat": g("c4a1a_swmpwl"), "h": 0.6, "thick": 0.8, "rep": 2.5,
+                                  "col_h": 1.5, "sides": "right"}},
+        # a grown root bridge: a deck of living bark (Interloper's island bark, its grain across the
+        # deck) between rails of twisted root, its sides hung with roots; _roots wraps it in more.
+        # The rails stop karts up to 3 m like the other decks' walls
+        "roots": dict(deck, road=g("c4a1a_isl1"), road_rep=4.0, skirt=g("xeno_6w1"), skirt_h=3.4,
+                      barrier={"kind": "wall", "mat": g("xeno_6w1"), "h": 1.0, "thick": 0.8, "rep": 3.0, "col_h": 3.0},
+                      **over_void),
     }
 
 
@@ -204,14 +279,14 @@ def terrain(trk, m):
         land = np.array([(trk.kind(i) in ("open", "tunnel")) and not trk.gap[i] for i in range(trk.n)])
         # (a branch's deck still lying on the lap at its fork or merge is no void: the island goes on
         # under the lap's road and verge there)
-        void = np.array([(trk.gap[i] or trk.kind(i) in ("bridge", "tube")) and not (trk.route[i] > 0 and trk.junction[i])
+        void = np.array([(trk.gap[i] or trk.kind(i) == "bridge") and not (trk.route[i] > 0 and trk.junction[i])
                          for i in range(trk.n)])
         d_void = f.dist_to(trk, void)
         # each island reaches 28..62 m from its road, a little less toward a chasm, but always
-        # carries its own road and verges right up to where a bridge, the cave or a jump begins.
-        # A style's "island_r" (r0, r1) makes rocks instead (the floating rocks a branch hops
-        # across, see _rock). Islands and rocks stop short of each other as they do of the void,
-        # so the rocks float apart from the islands of the lap
+        # carries its own road and verges right up to where a bridge or a jump begins. A style's
+        # "island_r" (r0, r1) makes rocks instead (the lap's floating islands and the floating rocks
+        # a branch hops across, see _rock). Islands and rocks stop short of each other as they do of
+        # the void, so the rocks float apart from the big islands of the lap
         noise = noise2(P[:, 0] / 70.0, P[:, 1] / 70.0, 9)
         sizes = {trk.styles[s].get("island_r") for s in trk.style}
         groups = []
@@ -232,8 +307,8 @@ def terrain(trk, m):
                 edge = 24.0 + noise * 30.0
                 m_ = smoothstep(edge + 6.0, edge - 6.0, d_land) * smoothstep(6.0, 18.0, d_void - d_land + 4.0)
                 # the road and its verges always on land, which ends a few metres past the last of
-                # them under a deck or the cave (they leave the island's edge instead of resting on a
-                # slope of ground under them)
+                # them under a deck (they leave the island's edge instead of resting on a slope of
+                # ground under them)
                 m_ = np.maximum(m_, smoothstep(22.0, 16.0, d_land) * smoothstep(-2.0, 6.0, d_void - d_land + 8.0))
             else:
                 m_ = _rock(f, trk, mask, size) * smoothstep(0.0, 6.0, d_void - d_land + 3.0)
@@ -242,11 +317,14 @@ def terrain(trk, m):
         # 60 m on the outside of the bend that follows, narrowing back over the last 30 of its 110 m
         # (to the high root's fork): a kart that leaves the kicker crooked, or is thrown wide in the
         # bend after it, still comes down on land (one still tumbling from a hit when it reaches the
-        # kicker flies on straight and comes down 50-60 m out, past the bend)
+        # kicker flies on straight and comes down 50-60 m out, past the bend). The low-gravity hops
+        # land on floating islands of their own (_rock), long and straight past each hop instead
         lap = trk.main
         wide = np.zeros(trk.n)
         outside = np.zeros(trk.n)
         for a, b in lap.gaps:
+            if lap.style[b % lap.n] != "island":
+                continue
             ids = [lap.wrap(b + k) for k in range(int(LANDING / lap.step))]
             outside[ids] = -np.sign(np.mean(lap.curv[ids]))
             for k, i in enumerate(ids):
@@ -270,12 +348,10 @@ def terrain(trk, m):
         top = f.road_h - 0.35 + np.maximum(hills, -2.0)
         nat = top * member + VOID * (1.0 - member)
         h = carve(f, nat, trk, flat=7.0, blend=18.0, gap_floor=VOID)
-        # off the islands nothing rises out of the void: no fins of ground beside a bridge, the
-        # cave or a jump, where the carve's shoulders would otherwise reach
+        # off the islands nothing rises out of the void: no fins of ground beside a bridge or a
+        # jump, where the carve's shoulders would otherwise reach
         keep = smoothstep(0.3, 0.7, member)
         h = h * keep + np.minimum(h, nat) * (1.0 - keep)
-        # nor under the cave once its mouth has rounded: there it floats free of its islands
-        h = np.where(_under_pipe(f, trk), np.minimum(h, VOID), h)
         # and a jump cuts clean through its island: no ledge of half-dug ground at the chasm's ends
         h = np.where(f.gap, np.minimum(h, VOID), h)
         h = h * (1 - pool) + py * pool
@@ -297,7 +373,7 @@ def _verges(f, trk, mask):
     """1 on the cells under the road samples `mask`, their verges and a cell past them (so the ground
     under a verge's edge is the verge's, not half a cliff), fading out over the next two metres:
     each sample's own cross-section, so nothing reaches past the end of an island's road into a
-    jump. Where the road runs on onto a deck or into the cave, the land reaches a cell under it."""
+    jump. Where the road runs on onto a deck, the land reaches a cell under it."""
     out = np.zeros(len(f.P))
     for i in np.flatnonzero(mask):
         reach = trk.width[i] / 2 + trk.styles[trk.style[i]].get("verge_w", 4.5) + f.cell
@@ -312,24 +388,11 @@ def _verges(f, trk, mask):
         for k in (int(trk.ridx[i]) - 1, int(trk.ridx[i]) + 1):
             on = road.closed or 0 <= k < road.n
             k = road.wrap(k)
-            ext.append(f.cell if on and not road.gap[k] and road.kind(k) in ("bridge", "tube") else 0.0)
+            ext.append(f.cell if on and not road.gap[k] and road.kind(k) == "bridge" else 0.0)
         along = d @ fw
         m = (along >= -road.step - ext[0]) & (along <= road.step + ext[1])
         lat = np.abs(d[m] @ trk.flat_right[i, [0, 2]])
         out[sub[m]] = np.maximum(out[sub[m]], smoothstep(reach + 2.0, reach, lat))
-    return out
-
-
-def _under_pipe(f, trk):
-    """Cells under the round part of a tube (past its mouths, within its skin in plan)."""
-    out = np.zeros(len(f.P), bool)
-    for t in trk.trks:
-        for ids, R in t.tube_runs:
-            st = t.styles[t.style[ids[0]]]
-            m = int(round(min(st.get("mouth", 14.0), len(ids) * t.step * 0.2) / t.step)) + 2
-            mid = np.zeros(t.n, bool)
-            mid[ids[m:len(ids) - m]] = True
-            out |= f.dist_to(t, mid) < R + 1.0
     return out
 
 
@@ -431,28 +494,31 @@ def decorate(ctx):
         q[1] = max(gq, ctx.ground(q[0], q[2]) - 0.1) - 0.3
         if ctx.add(m, q, yaw, scale=sc) and k % 2 == 0:
             ctx.light(q + UP * 4.0, col, 20.0, 1.6)
-    # inside the cave: crystals growing from the floor of the pipe wherever the lane has rolled
-    # well away from it. A kart knocked off the lane slides down there: they are seen, never hit
-    for ids, R in t.tube_runs:
-        for k in range(6, len(ids) - 6, 12):
-            near = ids[k - 4:k + 5]
-            off = np.abs((t.theta[near] + np.pi) % (2 * np.pi) - np.pi)
-            if off.min() < (t.width[ids[k]] / 2 + 4.0) / R:
-                continue
-            i = ids[k]
-            if ctx.add("hl1/crystal", t.base[i], rng.uniform(0, 6.28), scale=2.2, tag="deco", ground=False,
-                       solid=False):
-                ctx.light(t.base[i] + t.base_up[i] * 3.0, cry[k % 3][1], 18.0, 1.4)
-    # far away: floating rocks and the Nihilanth over the void
+    _roots(ctx)
+    _hop_crystals(ctx)
+    # far away: floating rocks and the Nihilanth over the void. The layout reaches further than
+    # 420 m from its middle, so a rock is pushed on out, along its own direction from the middle,
+    # until its whole width is FAR_CLEAR metres from the edge of every road (the random draws stay
+    # the same, so nothing else moves)
     lo = t.pos[:, [0, 2]].min(0)
     hi = t.pos[:, [0, 2]].max(0)
     mid = (lo + hi) / 2
+    rk = ctx.models.get("hl1/big_rock")
+    rock_r = max(math.hypot(x, z) for x in (rk["aabb_min"][0], rk["aabb_max"][0])
+                 for z in (rk["aabb_min"][2], rk["aabb_max"][2])) if rk else 0.0
     for k in range(46):
         a = rng.uniform(0, 2 * math.pi)
         r = rng.uniform(420.0, 1100.0)
-        q = [mid[0] + math.cos(a) * r, rng.uniform(-120.0, 220.0), mid[1] + math.sin(a) * r]
-        ctx.add("hl1/big_rock", q, rng.uniform(0, 6.28), scale=rng.uniform(40.0, 140.0), ground=False, tag="far",
-                base=False)
+        y = rng.uniform(-120.0, 220.0)
+        yaw = rng.uniform(0, 6.28)
+        sc = rng.uniform(40.0, 140.0)
+        q = [mid[0] + math.cos(a) * r, y, mid[1] + math.sin(a) * r]
+        for _ in range(300):
+            if ctx.road_gap_to(q) >= rock_r * sc + FAR_CLEAR:
+                break
+            r += 10.0
+            q = [mid[0] + math.cos(a) * r, y, mid[1] + math.sin(a) * r]
+        ctx.add("hl1/big_rock", q, yaw, scale=sc, ground=False, tag="far", base=False)
     ctx.add("hl1/nihilanth", [mid[0] + 150.0, 260.0, mid[1] - 1300.0], math.pi, scale=8.0, ground=False, tag="far",
             base=False)
     for k in range(6):
@@ -534,6 +600,129 @@ def _lap_s(ctx, xz):
     return ctx.s_of(int(np.argmin(((t.pos[:, [0, 2]] - np.asarray(xz)) ** 2).sum(1))))
 
 
+def _frame_at(t, s):
+    """Centre, right, up and width of road t at metres s along it, between its samples."""
+    x = s / t.step
+    i = int(math.floor(x))
+    u = x - i
+    a, b = t.wrap(i), t.wrap(i + 1)
+    r = t.right[a] * (1 - u) + t.right[b] * u
+    up = t.up[a] * (1 - u) + t.up[b] * u
+    return (t.pos[a] * (1 - u) + t.pos[b] * u, r / np.linalg.norm(r), up / np.linalg.norm(up),
+            t.width[a] * (1 - u) + t.width[b] * u)
+
+
+def _both(mesh, mat, a, b, ua, ub, v, n):
+    """A strip seen from both sides (set dressing whose inside shows where it bends round)."""
+    mesh.strip(mat, a, b, ua, ub, v, n, n)
+    mesh.strip(mat, b, a, ub, ua, v, -n, -n)
+
+
+def _roots(ctx):
+    """The grown root bridges' roots, all of it set dressing outside their decks' roads and rails
+    (seen, never hit): a band of root every 6-9 m wrapping each deck, spiralling a little, over the
+    outside of its rails, down its sides and under it; a curtain of fine roots (alpha) hanging 2-6 m
+    from under each edge; and thick roots dangling 14-32 m into the void, bending as they go."""
+    t = ctx.trk
+    rng = ctx.rng
+    g = ctx.mats.goldsrc
+    bark, fine, rope = g("xeno_6w1"), g("{xeno_6b"), g("c4a1a_fnnl2")
+    deco = ctx.meshes["deco"]
+    for ids in t.runs(lambda i: t.style[i] == "roots"):
+        st = t.styles[t.style[ids[0]]]
+        bar, sk = st["barrier"], st["skirt_h"]
+        th, h = bar["thick"], bar["h"]
+        s0 = float(t.s[ids[0]])
+        L = (len(ids) - 1) * t.step
+        # the bands: an outline round the deck's cross-section (lateral, height), from the top of the
+        # right rail's outer face down, under the deck and up to the left rail's top
+        s = s0 + rng.uniform(2.0, 5.0)
+        while s < s0 + L - 3.0:
+            e = rng.uniform(0.08, 0.18)
+            w = rng.uniform(0.7, 1.3)
+            twist = rng.uniform(-2.5, 2.5)
+            p, _, _, wd = _frame_at(t, s)
+            hw = wd / 2
+            side = [(hw + th + e, h + e), (hw + th + e, -0.3), (hw + 0.5 * th + e, -0.8), (hw + e, -1.4),
+                    (hw + e, -sk + 0.6), (hw - 0.3, -sk - e), (hw - 1.2, -sk - e)]
+            prof = side + [(0.0, -sk - e - 0.1)] + [(-x, y) for x, y in side[::-1]]
+            m = len(prof)
+            A, B, N = [], [], []
+            for k, (lat, y) in enumerate(prof):
+                along = s + twist * (k / (m - 1) - 0.5)
+                c, r, up, _ = _frame_at(t, along)
+                c2, r2, up2, _ = _frame_at(t, along + w)
+                A.append(c + r * lat + up * y)
+                B.append(c2 + r2 * lat + up2 * y)
+                n = r * lat + up * (y + sk * 0.5)
+                N.append(n / max(np.linalg.norm(n), 1e-6))
+            A, B, N = np.array(A), np.array(B), np.array(N)
+            v = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(A, axis=0), axis=1))]) / 2.5
+            _both(deco, bark, A, B, 0.0, 1.0, v, N)
+            s += rng.uniform(6.0, 9.0)
+        # the curtains of fine roots under each edge, deeper and shallower as they go
+        ss = s0 + np.arange(0.0, L, 2.0)
+        for sgn in (-1, 1):
+            drop = 2.0 + 4.0 * noise2(ss / 9.0, np.full(len(ss), sgn * 7.0), 51)
+            top, low, nrm = [], [], []
+            for q, d in zip(ss, drop):
+                c, r, up, wd = _frame_at(t, q)
+                a = c + r * sgn * (wd / 2 - 0.15) - up * (sk - 0.2)
+                top.append(a)
+                low.append(a - UP * d)
+                nrm.append(r * sgn)
+            top, low, nrm = np.array(top), np.array(low), np.array(nrm)
+            _both(deco, fine, top, low, 0.0, drop / 4.0, (ss - s0) / 4.0, nrm)
+        # the thick roots dangling into the void, either side in turn
+        s = s0 + rng.uniform(5.0, 10.0)
+        sgn = 1 if rng.random() < 0.5 else -1
+        while s < s0 + L - 5.0:
+            c, r, up, wd = _frame_at(t, s)
+            f = np.cross(up, r)
+            top = c + r * sgn * wd / 2 * rng.uniform(0.25, 0.7) - up * (sk - 0.3)
+            length = rng.uniform(14.0, 32.0)
+            r0 = rng.uniform(0.8, 1.4)
+            bend = r * sgn * rng.uniform(1.0, 6.0) + f * rng.uniform(-4.0, 4.0)
+            rings = []
+            for q in np.linspace(0.0, 1.0, 9):
+                axis = top - UP * length * q + bend * q * q
+                rad = r0 * (1.0 - q) ** 0.8 + 0.06
+                ang = np.linspace(0.0, 2 * math.pi, 8)
+                rings.append([axis + (r * math.cos(a_) + f * math.sin(a_)) * rad for a_ in ang])
+            rings = np.array(rings)
+            for k in range(len(ang) - 1):
+                a, b = rings[:, k], rings[:, k + 1]
+                n = (a + b) / 2 - (top - UP * length * np.linspace(0.0, 1.0, 9)[:, None] + bend * np.linspace(0.0, 1.0, 9)[:, None] ** 2)
+                n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-6)
+                _both(deco, rope, a, b, k / 7.0, (k + 1) / 7.0, np.linspace(0.0, length / 3.0, 9), n)
+            s += rng.uniform(14.0, 24.0)
+            sgn = -sgn
+
+
+def _hop_crystals(ctx):
+    """Tall green crystals either side of the road where the low-gravity zone starts and beside each
+    hop's landing, a little off the road on the floating islands, each lit: the zone's gateposts
+    (the game adds its glowing columns, motes and hum, scripts/fx/low_gravity_field.gd)."""
+    t = ctx.trk
+    rng = ctx.rng
+    zone = TRACK["low_gravity"][0]
+    i0 = int(np.argmin(((t.pos[:, [0, 2]] - np.asarray(zone["from"])) ** 2).sum(1)))
+    i1 = int(np.argmin(((t.pos[:, [0, 2]] - np.asarray(zone["to"])) ** 2).sum(1)))
+    spots = [i0 + 3] + [b + 4 for a, b in t.gaps if i0 <= a <= i1]
+    for i in spots:
+        for sgn in (-1, 1):
+            for off in (7.0, 9.0, 11.0, 13.0):
+                q = ctx.side(t.wrap(i), sgn, off)
+                yaw = rng.uniform(0, 6.28)
+                gq = ctx.site("hl1/crystal", q, yaw, 4.5, tol=0.8)
+                if gq is None or abs(gq - t.pos[t.wrap(i)][1]) > 2.5:
+                    continue
+                q[1] = max(gq, ctx.ground(q[0], q[2]) - 0.1) - 0.3
+                if ctx.add("hl1/crystal", q, yaw, scale=4.5):
+                    ctx.light(q + UP * 5.0, [0.5, 1.0, 0.6], 22.0, 1.8)
+                    break
+
+
 GMAN_ROCK = 4.5  # scale of the G-Man's floating rock (about 3.5 m across)
 
 
@@ -603,20 +792,29 @@ START = (-40.0, 30.0)  # lap metres round the start line
 
 def crowds(ctx):
     """Vortigaunt circles on the islands (3-6 facing the road or each other), denser at the start and
-    after the chasm jump; HL1 alien slaves chanting by the crystals. The game lights the circles
-    nearest the camera (dark models on dark ground vanish otherwise). Only open islands, never on a
-    deck, the ledge or in the cave."""
+    after the chasm jump, and watching the hops from the middle of the floating islands; HL1 alien
+    slaves chanting by the crystals. The game lights the circles nearest the camera (dark models on
+    dark ground vanish otherwise). Only open islands, never on a deck or the ledge."""
     t = ctx.trk
     rng = ctx.crowd_rng
     island = [i for i in range(t.n) if t.kind(i) == "open" and not t.gap[i]]
     hot = set(i for i in ctx.lap_ids(*START) if i in island)
     landing = set()
+    hops = []
     for a, b in t.gaps:
         s = ctx.s_of(b % t.n)
+        if t.style[b % t.n] == "float":
+            # (a floating island is narrow where a hop lands on it: the circles stand 35-45 m on)
+            hops += [i for i in ctx.lap_ids(s + 35.0, s + 45.0) if i in island][:1]
+            continue
         landing |= set(i for i in ctx.lap_ids(s + 5.0, s + 35.0) if i in island)
-    # circles: six at the start, three after the chasm, the rest spread over the islands
+    # circles: six at the start, three after the chasm, a pair on each island a hop lands on, the
+    # rest spread over the islands
     picks = [(i, ["start"]) for i in sorted(hot)[::max(1, len(hot) // 6)][:6]]
-    picks += [(i, ["jump"]) for i in sorted(landing)[::4][:3 * len(t.gaps)]]
+    picks += [(i, ["jump"]) for i in sorted(landing)[::4][:3]]
+    for i in hops:
+        _circle(ctx, i, -1, ["jump"], int(rng.integers(3, 6)), (5.0, 8.0))
+        _circle(ctx, i, 1, ["jump"], int(rng.integers(3, 6)), (5.0, 8.0))
     picks += [(i, []) for i in island[::max(1, len(island) // 36)]]
     for i, tags in picks:
         _circle(ctx, i, 1 if rng.random() < 0.5 else -1, tags, int(rng.integers(3, 7)))
@@ -720,6 +918,6 @@ def eggs(ctx):
                             t.pos[i][1] - 1.0, t.pos[i][1] + 2.0, margin=6.0, tries=60)
         if q is not None and ctx.egg("gnome", pos=q, yaw=math.atan2(*(t.pos[i] - q)[[0, 2]])):
             break
-    # boids circling over the void of each lobe
-    for c in (np.array([420.0, 55.0, -110.0]), np.array([100.0, 45.0, 110.0])):
+    # boids circling over the void of each lobe (the east one's between the high root and the hops)
+    for c in (np.array([480.0, 55.0, -95.0]), np.array([100.0, 45.0, 110.0])):
         ctx.egg("birds", species="boid", center=c, radius=40.0, count=8)
