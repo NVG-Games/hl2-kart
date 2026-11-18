@@ -225,6 +225,16 @@ func broadcast(h: Hazard, kind: String, args: Array) -> void:
 		Net.send_event("hz", [h.id, kind] + args)
 
 
+## A client's "hz" event [id, kind, args...]: one its hazard lets a player's game send (Hazard.client_event).
+## The server passes on no other: a client could otherwise make every peer's train, column or see-saw
+## do what it liked.
+func client_may_send(args: Array) -> bool:
+	if args.size() < 2 or not (args[0] is int or args[0] is float) or not args[1] is String:
+		return false
+	var h: Hazard = _by_id.get(int(args[0]))
+	return h != null and h.client_event(str(args[1]))
+
+
 ## Race.net_event("hz", [id, kind, args...]) from another peer. Malformed events are dropped.
 func net_event(args: Array) -> void:
 	if args.size() < 2 or not (args[0] is int or args[0] is float) or not args[1] is String:

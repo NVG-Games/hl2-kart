@@ -84,6 +84,11 @@ func _rise(m: Array, t: float) -> void:
 		play(_snd["arm"], m[0], 0.0, 10.0)
 
 
+## A kart comes near a mine on its owner's game: that game sends the "pop".
+func client_event(kind: String) -> bool:
+	return kind == "pop"
+
+
 func on_event(kind: String, args: Array) -> void:
 	if kind != "pop" or args.size() < 3:
 		return

@@ -775,8 +775,14 @@ func _send_event_from_server(kind: String, args: Array, except := 0) -> void:
 
 @rpc("any_peer", "call_remote", "reliable")
 func _c_event(kind: String, args: Array) -> void:
-	if is_server:
-		_send_event_from_server(kind, args, multiplayer.get_remote_sender_id())
+	if not is_server:
+		return
+	# a hazard event from a client goes on only when its hazard lets a player's game send it (a mine
+	# its kart set off); the train, the column, the see-saw and the rest are the server's alone
+	if kind == "hz" and not (race and is_instance_valid(race) and race.track and race.track.hazards
+			and race.track.hazards.client_may_send(args)):
+		return
+	_send_event_from_server(kind, args, multiplayer.get_remote_sender_id())
 
 
 @rpc("authority", "call_remote", "reliable")

@@ -159,6 +159,11 @@ func _arm() -> void:
 		_hum.play()
 
 
+## A kart crosses the beam on its owner's game: that game sends the "trip".
+func client_event(kind: String) -> bool:
+	return kind == "trip"
+
+
 func on_event(kind: String, args: Array) -> void:
 	# armed on the sender's clock is armed: a peer a tick behind (or one that waited for a kart
 	# to clear the beam) may not have re-armed it yet

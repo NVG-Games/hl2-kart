@@ -257,6 +257,12 @@ func respawn_s(_at_s: float) -> float:
 	return fposmod(span.x - 15.0, path.length)
 
 
+## May a player's game send this event (a kart it drives set the hazard off)? Every other event
+## only the authority sends: the server drops one a client sends instead of passing it on.
+func client_event(_kind: String) -> bool:
+	return false
+
+
 ## A local kart or the camera came near: start loops and lights.
 func wake() -> void:
 	pass
