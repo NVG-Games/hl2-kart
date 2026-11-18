@@ -27,7 +27,7 @@
 > See [LEGAL.md](LEGAL.md).
 
 <a id="new"></a>
-## What's new
+## New in 0.3.0
 
 <table>
   <tr>
@@ -52,13 +52,13 @@
   </tr>
 </table>
 
-**On the `dev` branch now, coming in the next release.** The download is still 0.2.0, with
-five circuits. The first start after updating builds the content again, once. Online,
-everyone needs the new version.
+The first start after updating builds the content again, once. Online, everyone needs
+0.3.0.
 
 Two new tracks make seven. Highway 17 moved to the coast, CT17 is City 17 in ruins and
-Xen's wildlife is awake. Every track has its own rescue now: a scanner takes your photo, a
-rebel crane lifts you out with its magnet, vortigaunts beam you back. The gravity gun pulls
+Xen's wildlife is awake. Falling off is different on every track now, with six kinds of
+rescue: a scanner takes your photo, a rebel crane lifts you out with its magnet, vortigaunts
+beam you back. The gravity gun pulls
 the kart ahead back over you, Dog gallops with Half-Life 2's own animations and the bathtub
 has two propane-tank thrusters. Every change is in [CHANGELOG.md](CHANGELOG.md#unreleased).
 
@@ -67,7 +67,7 @@ has two propane-tank thrusters. Every change is in [CHANGELOG.md](CHANGELOG.md#u
 Every lap is 2.1 to 2.7 km, with two shortcuts off it, hazards along it and spectators
 at the roadside. The road, walls, tunnels and bridges are built by the track tools, then
 dressed with the games' own textures, models, skies, signs and music. Nova Prospekt and
-White Forest are new on `dev` and come with the next release.
+White Forest are new in 0.3.0.
 
 <table>
   <tr>
