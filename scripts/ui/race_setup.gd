@@ -12,6 +12,8 @@ const PREVIEW_SOUNDS := {
 	"apc": "vehicles/apc/apc_start_loop3.wav", "btr": "vehicles/apc/apc_idle1.wav",
 	"dog": "npc/dog/dog_playfull1.wav", "tub": "physics/metal/metal_barrel_impact_hard1.wav",
 }
+const TRACK_CARD := Vector2(140, 86)  # a track's picture card (two rows of them fit a 900-pixel-high window)
+const TRACK_COLUMNS := 4  # the most track cards in a row
 
 var showroom: Showroom
 var name_label: Label
@@ -20,8 +22,10 @@ var stats_box: GridContainer
 var cards: Array[Button] = []
 var vehicle_cards: Array[Button] = []
 var start_button: Button
+var back_button: Button
 var laps_value: Label
 var track_desc: Label
+var track_cards: Array[Button] = []
 var _racer := 0
 var _vehicle := 0
 var _preview: AudioStreamPlayer
@@ -58,6 +62,7 @@ func _ready() -> void:
 	main.add_child(_preview_column())
 	col.add_child(_rules_row())
 	col.add_child(_buttons_row())
+	_track_focus()
 	_racer = _index_of(Game.CHARACTERS, Game.settings["character"])
 	_vehicle = _index_of(Game.VEHICLES, Game.settings.get("vehicle", "buggy"))
 	cards[_racer].button_pressed = true
@@ -242,19 +247,35 @@ func _rules_row() -> Control:
 	var t := VBoxContainer.new()
 	t.add_theme_constant_override("separation", 8)
 	t.add_child(UiKit.section("TRACK"))
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	t.add_child(row)
+	# the cards in two rows, as many columns as that takes (seven tracks: four over three) up to
+	# TRACK_COLUMNS, so the description keeps its room beside them; past eight a third row starts
+	var tracks := _tracks()
+	var grid := GridContainer.new()
+	grid.columns = clampi(ceili(tracks.size() / 2.0), 1, TRACK_COLUMNS)
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 6)
+	t.add_child(grid)
 	var group := ButtonGroup.new()
-	for tr in Game.TRACKS:
+	# a track this install has not built yet (new content, setup not run again) can not be picked:
+	# the race would build Highway 17 instead (Track.build). The pick falls back to the first one built
+	var have := tracks.filter(func(tr: Dictionary) -> bool: return Game.track_installed(tr["id"]))
+	if not have.is_empty() and not have.any(func(tr: Dictionary) -> bool: return tr["id"] == Game.settings.get("track", "")):
+		Game.settings["track"] = have[0]["id"]
+	for tr: Dictionary in tracks:
 		var id: String = tr["id"]
-		var b := _pic_card(Game.track_thumb(id), tr["short"], Vector2(140, 96), group)
+		var b := _pic_card(Game.track_thumb(id), tr["short"], TRACK_CARD, group)
+		b.name = "Track_" + id
 		b.button_pressed = Game.settings.get("track", "") == id
+		if not have.has(tr):
+			b.disabled = true
+			b.tooltip_text = "Not built on this computer yet: run the setup again to add it."
+			b.modulate.a = 0.45
 		b.pressed.connect(func():
 			Game.settings["track"] = id
 			_refresh_track()
 			Game.play_ui("res://assets/sound/ui/buttonclick.wav", -8.0))
-		row.add_child(b)
+		grid.add_child(b)
+		track_cards.append(b)
 	h.add_child(t)
 	var w := VBoxContainer.new()
 	w.add_theme_constant_override("separation", 8)
@@ -269,17 +290,41 @@ func _rules_row() -> Control:
 	return panel
 
 
-## Description of the picked track.
+## The arrows (keys, a gamepad) round the track cards: along a row and no further at its end (not
+## off to a far button), and down off the grid to START RACE; from START RACE left to BACK (not up
+## into the grid, which is nearer) and up to the picked track's card (_refresh_track).
+func _track_focus() -> void:
+	var cols := (track_cards[0].get_parent() as GridContainer).columns if not track_cards.is_empty() else 1
+	for i in track_cards.size():
+		var b := track_cards[i]
+		if i % cols == cols - 1 or i == track_cards.size() - 1:
+			b.focus_neighbor_right = NodePath(".")
+		if i + cols >= track_cards.size():
+			b.focus_neighbor_bottom = b.get_path_to(start_button)
+	start_button.focus_neighbor_left = start_button.get_path_to(back_button)
+	_refresh_track()
+
+
+## The tracks on the picker: Game.TRACKS (the layout test hands it more, to see how many fit).
+func _tracks() -> Array:
+	return Game.TRACKS
+
+
+## Description of the picked track; up from START RACE goes to its card.
 func _refresh_track() -> void:
-	track_desc.text = Game.track(str(Game.settings.get("track", "")))["desc"]
+	var id := str(Game.settings.get("track", ""))
+	track_desc.text = Game.track(id)["desc"]
+	for b in track_cards:
+		if start_button and b.name == "Track_" + id:
+			start_button.focus_neighbor_top = start_button.get_path_to(b)
 
 
 func _buttons_row() -> Control:
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 14)
-	var b := UiKit.button("BACK", 170)
-	b.pressed.connect(func(): back.emit())
-	h.add_child(b)
+	back_button = UiKit.button("BACK", 170)
+	back_button.pressed.connect(func(): back.emit())
+	h.add_child(back_button)
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	h.add_child(spacer)

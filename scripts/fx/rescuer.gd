@@ -2,7 +2,9 @@ class_name Rescuer
 extends Node3D
 ## Whoever brings a kart back to the road when it sinks, falls off or gets stuck
 ## (Kart.start_respawn). Each track has its own (Game.TRACKS "rescue"): the Combine scanner's photo
-## in City 17 (Scanner), a Black Mesa teleport (TeleportRescue), a Xen portal (XenPortal).
+## in City 17 (Scanner), a Black Mesa teleport (TeleportRescue), a Xen portal (XenPortal), the
+## rebels' crane on Highway 17's coast (CraneRescue), a Combine teleport at Nova Prospekt (CombineTeleport),
+## the vortigaunts' green energy in White Forest (VortigauntRescue).
 ##
 ## Every kind keeps the kart's own clock, so the owner and the other players' copies agree: over
 ## the AIM seconds before the kart's photo_time it gets ready, at photo_time it takes the kart (in
@@ -25,6 +27,9 @@ var _at := Vector3.ZERO  # where the kart was just before the take
 var _moved := false  # the kart has been put on the road since the take
 var _last_kp := Vector3.ZERO  # the kart's place last frame (it may be put on the road before this frame's take)
 static var _quad: QuadMesh
+## A kind every track sends instead of its own while this is set ("" for none): the rescue tests
+## try any kind on any track.
+static var kind_override := ""
 
 
 ## Sends the rescuer of the track `k` races on to it (Kart.start_respawn; on another player's
@@ -36,6 +41,12 @@ static func rescue(k: Kart) -> void:
 			r = TeleportRescue.new()
 		"xen_portal":
 			r = XenPortal.new()
+		"crane":
+			r = CraneRescue.new()
+		"combine_teleport":
+			r = CombineTeleport.new()
+		"vortigaunt":
+			r = VortigauntRescue.new()
 		_:
 			r = Scanner.new()
 	r.add_to_group("rescuers")
@@ -46,8 +57,18 @@ static func rescue(k: Kart) -> void:
 ## Which rescuer this track sends (Game.TRACKS "rescue"; the scanner where none is named). Every
 ## player races the same track, so every peer picks the same one.
 static func kind_of(track: Track) -> String:
+	if kind_override != "":
+		return kind_override
 	var id: String = track.id if track and track.id != "" else str(Game.race_setting("track"))
 	return str(Game.track(id).get("rescue", "scanner"))
+
+
+## The models the rescuer of `track` spawns (Effects.prewarm draws them while the race loads, so
+## the first rescue does not stall on their shaders).
+static func models_of(track: Track) -> Array:
+	if kind_of(track) == "vortigaunt" and Game.models.has("vortigaunt"):
+		return ["vortigaunt"]
+	return []
 
 
 ## A soft glow sprite's material, its own for each user so it can fade on its own: unshaded,

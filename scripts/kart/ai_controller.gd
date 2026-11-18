@@ -44,6 +44,7 @@ var _hz_obey := {}  # hazard id -> [obeys, until]: rolled once per approach
 var _dodged := false  # made this lock's dodge roll
 var _dodge_t := 0.0  # dodging a locked-on gun: a quick lane change
 var _brake_t := 0.0  # ... and sometimes a brake tap
+var _must_hold := 0.0  # stopping for a "must" speed cap (a crossing's arms): no item for a moment
 var _rng := RandomNumberGenerator.new()
 var _plan := {}  # fork decisions: branch index + 1000 * lap -> take it
 var _plan_now := {}  # the decisions for the forks of this lap: branch index -> take it
@@ -112,7 +113,8 @@ func drive(k: Kart, delta: float) -> void:
 	# and a half to an open edge; a speed cap further down
 	_clock += delta
 	var hz := _hazard_advice(k, sp)
-	if int(hz.get("id", -1)) >= 0 and int(a.x) < 0 and _obeys(int(hz["id"])):
+	# (a hazard's body standing in the road, "solid", is driven round whatever the roll)
+	if int(hz.get("id", -1)) >= 0 and int(a.x) < 0 and (bool(hz.get("solid", false)) or _obeys(int(hz["id"]))):
 		var room := ga.width[ti] * 0.5 - (3.5 if ga.pit[ti] == 1 or edge else 2.0)
 		var want := clampf(float(hz["lat"]), -maxf(room, 0.0), maxf(room, 0.0))
 		lane = lerpf(lane, want - ga.lateral(ga.line_at(a.y), ti), minf(1.0, delta * 3.0))
@@ -173,16 +175,20 @@ func drive(k: Kart, delta: float) -> void:
 	# ... and from there on a branch's jump never slower than it needs (the checks above leave the
 	# run-up to a short gap partly at the racing line's corner speed)
 	vt = maxf(vt, _jump_floor(k, commit))
-	# a hazard's speed cap wins even over the jump (the train: stop at the line)
-	if int(hz.get("vid", -1)) >= 0 and _obeys(int(hz["vid"]), 0.1):
+	# a hazard's speed cap wins even over the jump (the train: stop at the line; at a crossing's
+	# arms, "must", every bot stops)
+	if int(hz.get("vid", -1)) >= 0 and (bool(hz.get("must", false)) or _obeys(int(hz["vid"]), 0.1)):
 		vt = minf(vt, float(hz["vmax"]))
+	# (for a "must" cap it brakes harder and never creeps on over the line)
+	var must := int(hz.get("vid", -1)) >= 0 and bool(hz.get("must", false))
+	_must_hold = 1.0 if must else maxf(_must_hold - delta, 0.0)
 	var throttle := 1.0
 	var brake := 0.0
 	if sp > vt + 2.0:
 		throttle = 0.0
-		brake = clampf((sp - vt) / 6.0, 0.0, 1.0)
+		brake = clampf((sp - vt) / (3.0 if must else 6.0), 0.0, 1.0)
 	elif sp > vt:
-		throttle = 0.3
+		throttle = 0.0 if must else 0.3
 	if _brake_t > 0.0:
 		throttle = 0.0
 		brake = 0.6
@@ -248,7 +254,8 @@ func _gap_at(k: Kart, d: float) -> bool:
 ## is called off when the kart could no longer make the jump (hit, bumped, spun, slowed: _can_make)
 ## or swing onto the branch before the roads part (_can_turn_in), and a kart the scanner had to
 ## rescue from a branch does not try that branch again on this lap. The call-off is looked at
-## every 0.1 s (at every call without a `delta`: a test stepping a bot by hand).
+## every 0.1 s (at every call without a `delta`: a test stepping a bot by hand). A cave has no
+## fork: it is never planned.
 func _plan_forks(k: Kart, delta := 0.0) -> void:
 	var p := k.track.path
 	var rescued := k.respawns != _respawns
@@ -259,6 +266,11 @@ func _plan_forks(k: Kart, delta := 0.0) -> void:
 		_lip_t = 0.1
 	for b in p.branches.size():
 		var br := p.branches[b]
+		if br.kind == "cave":
+			# never taken on purpose (it has no fork); one that fell in drives it out, _ahead
+			# following the road it is on
+			_plan_now[b] = false
+			continue
 		var to_fork := fposmod(br.fork_s - k.lap_progress, p.length)
 		var past := fposmod(k.lap_progress - br.fork_s, p.length)
 		if rescued and (k.route == b or (k.lap_progress >= br.fork_s - 5.0 and k.lap_progress <= br.merge_s)):
@@ -570,6 +582,9 @@ func _player(k: Kart) -> Kart:
 
 func _want_item(k: Kart, delta: float) -> bool:
 	if k.item == "" or k.roulette > 0.0:
+		return false
+	# no boost, teleport or anything else while it stops for a crossing's arms
+	if _must_hold > 0.0:
 		return false
 	# a boost saved for a jump that needs one: fired 20-45 m before the gap once out of a bend
 	# (at the latest 26 m before it), so it is not spent turning; where the branch commits later

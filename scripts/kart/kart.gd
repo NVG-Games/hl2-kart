@@ -35,6 +35,11 @@ const TUBE_SLIDE := 24.0
 const TUBE_LAND := 20.0
 ## airborne this far below the road it is tracked on: falling (over a deck's wall, into the void)
 const DROP_FALL := 8.0
+## this far below the main road's edge inside a cave's drop opening it is on the cave's road
+## (_track_route): falling onto its floor, not off the track
+const CAVE_IN := 2.5
+## seconds more the stall watchdog gives a kart that has just come down on a cave's floor
+const CAVE_TURN := 3.0
 ## seconds out past its road's edge with a wall between it and the road before the scanner comes
 const BEHIND_WALL := 2.0
 ## put back less than RUN_UP metres in front of a jump's gap: it lands past the gap instead
@@ -56,6 +61,13 @@ const PULL_BEHIND := 8.0
 const PULL_KEEP := 0.7
 const PULL_SPIN := 0.6  # seconds it spins once dropped
 const BLAST_KEEP := 0.3
+## an antlion guard's shove (hazard_hit "shove") leaves the tyres no grip for this many seconds: the
+## kart slides across the road the way it was thrown instead of its tyres stopping it in a metre
+const SHOVE_SLIDE := 0.6
+## a crane's magnet (magnet_grab) draws a kart up under it over MAGNET_SNAP s; once it lets go the
+## kart drops onto the road and spins for MAGNET_SPIN s
+const MAGNET_SNAP := 0.35
+const MAGNET_SPIN := 0.5
 ## touching anything (a pile-up, a squeeze against a wall, the chassis caught on a kerb or driven up
 ## a steep bank) a kart leaves its road no faster than a tumble's hop (TUMBLE_UP), except this many
 ## metres either side of a jump's gap, where its kicker and landing are
@@ -134,8 +146,12 @@ var _held_by: Kart  # a gravity gun's beam has it (pulled): the kart that fired 
 var _held_t := 0.0
 var _held_len := 0.0
 var _held_from := Vector3.ZERO
+var _magnet: CraneHazard  # a crane's magnet has it (magnet_grab): the crane, which moves it
+var _magnet_t := 0.0
+var _magnet_from := Vector3.ZERO
 var _dripping := false
 var _branch_entry := 0.0  # route_u where it joined the branch it is on (_leave_branch credits from the fork)
+var _cave_landing := false  # fell into a cave and not down on its floor yet (the stall watchdog starts there)
 # round a pipe back to its lane (_tube_gravity): the way along the pipe and round it, the
 # speed round it, how hard it is drawn (0..1) and how far round from the lane it is (radians)
 var _tube_ax := Vector3.ZERO
@@ -146,6 +162,7 @@ var _tube_off := 0.0
 var _tube_stall := false  # stalled up a pipe's wall (TUBE_STALL)
 var _throw_frame := -1  # physics frame of the last tumble's throw ...
 var _thrown := Vector3.ZERO  # ... and what the throws of that frame added (linear_velocity shows them a step later)
+var _shove_time := 0.0  # seconds of SHOVE_SLIDE left (no tyre grip)
 var unstick := Unstick.NONE
 
 # dynamics state
@@ -296,6 +313,10 @@ func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
 	if remote:
 		return
 	var dt := st.step
+	_shove_time = maxf(_shove_time - dt, 0.0)
+	if _magnet != null:
+		_magnet_tick(st)
+		return
 	if _held_by != null:
 		_hold_tick(st)
 		return
@@ -343,6 +364,14 @@ func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
 		var x := rest - dist
 		var rel: Vector3 = hit["position"] - xf.origin
 		var pv := vel + st.angular_velocity.cross(rel)
+		# on a deck that moves (a see-saw's span and flaps: kinematic bodies) the damper works against the
+		# deck's own motion there, not against the ground's standing still: riding a deck that drops away
+		# under it, a kart would otherwise be held up by its dampers and leave the deck
+		if hit["collider"] is AnimatableBody3D:
+			var deck := hit["collider"] as AnimatableBody3D
+			var ds := PhysicsServer3D.body_get_direct_state(deck.get_rid())
+			if ds:
+				pv -= ds.get_velocity_at_local_position((hit["position"] as Vector3) - deck.global_position)
 		var comp_vel := -pv.dot(up)
 		var damp := damp_comp if comp_vel > 0.0 else damp_reb
 		var f := spring_k * x + damp * comp_vel
@@ -505,6 +534,8 @@ func _integrate_forces(st: PhysicsDirectBodyState3D) -> void:
 			grip = 7.0
 		if state == State.SPIN:
 			grip = 5.0
+		if _shove_time > 0.0:
+			grip = 0.0
 		st.linear_velocity = vel - gright * lat * minf(1.0, grip * dt)
 		# speed-scaled downforce keeps the jeep planted over crests
 		st.apply_central_force(-ground_normal * mass * clampf(sp * 0.25, 0.0, 6.0))
@@ -712,7 +743,8 @@ func _physics_process(delta: float) -> void:
 	crab_immune = maxf(crab_immune - delta, 0.0)
 	hazard_grace = maxf(hazard_grace - delta, 0.0)
 	hazard_lock = maxf(hazard_lock - delta, 0.0)
-	if (state == State.NORMAL or state == State.SPIN or state == State.TUMBLE) and not finished:
+	# (hanging under a crane's magnet it is off the road on purpose: the watchdogs wait until it is dropped)
+	if (state == State.NORMAL or state == State.SPIN or state == State.TUMBLE) and not finished and _magnet == null:
 		_check_respawn(delta)
 	if state == State.RESPAWN:
 		if freeze:
@@ -743,10 +775,16 @@ func _check_respawn(delta: float) -> void:
 		return
 	# in the air over a liquid: keep falling until the splash (but not for ever)
 	var to_liquid := liq.y > 0.0 and not grounded and global_position.y - liq.x < 30.0 and air_time < 4.0
+	# over a cave's drop opening, still tracked on the main road: it is falling into the cave, which
+	# takes it over a little way down (_track_route), so no fall, edge or level check counts here
+	var into_cave := route < 0 and not track.path.caves.is_empty() \
+			and track.path.cave_drop(global_position, lap_progress).x >= 0
+	# (in a cave nothing lies behind its rock walls: a kart pressed into their relief is still inside)
+	var in_cave := route >= 0 and (g as TrackBranch).kind == "cave"
 	# thrown over a deck's wall into the void (tumbling or not): falling once it is airborne well
 	# below its road, wherever that road is (not first all the way down at kill_y)
 	if not grounded and air_time > 0.3 and g.mag[ri] <= 0.0 and global_position.y < g.center[ri].y - DROP_FALL \
-			and not to_liquid:
+			and not to_liquid and not into_cave:
 		_watch_time = 0.0
 		_watch_progress = total_progress
 		_behind_time = 0.0
@@ -766,20 +804,21 @@ func _check_respawn(delta: float) -> void:
 		fall = true  # below a converted map's floor
 	# into the pit under a jump or off an open edge (a bridge without railings):
 	# let it drop out of sight instead of freezing it in mid-air
-	if g.pit[ri] == 1 and global_position.y < g.center[ri].y - 5.0 and not to_liquid:
+	if g.pit[ri] == 1 and global_position.y < g.center[ri].y - 5.0 and not to_liquid and not into_cave:
 		fall = true
 	var lat := absf(g.lateral(global_position, ri))
 	var off := maxf(float(track.data.get("offtrack", 60.0)), 30.0)
 	if route >= 0 and (g as TrackBranch).offtrack > 0.0:
 		off = maxf((g as TrackBranch).offtrack, 20.0)
-	if lat > g.width[ri] * 0.5 + off and not to_liquid:
+	if lat > g.width[ri] * 0.5 + off and not to_liquid and not into_cave:
 		if grounded:
 			out = true
 		else:
 			fall = true
 	# thrown over a barrier (a wall, a jersey, a railing) and still behind it after a moment: the
 	# scanner comes (out on an open verge nothing stands between it and the road: that is legal)
-	if lat > g.width[ri] * 0.5 + 1.0 and g.mag[ri] <= 0.0 and g.gap[ri] == 0 and _behind_wall(g, ri):
+	if lat > g.width[ri] * 0.5 + 1.0 and g.mag[ri] <= 0.0 and g.gap[ri] == 0 and not into_cave and not in_cave \
+			and _behind_wall(g, ri):
 		_behind_time += delta
 	else:
 		_behind_time = 0.0
@@ -787,7 +826,8 @@ func _check_respawn(delta: float) -> void:
 		out = true
 	# wrong level: on another road well above / below the one it is tracked on, for half a
 	# second (off a flyover onto the street below; the route tracker found no road there)
-	if grounded and not offroad and g.mag[ri] <= 0.0 and g.gap[ri] == 0 and absf(global_position.y - g.center[ri].y) > 6.0:
+	if grounded and not offroad and g.mag[ri] <= 0.0 and g.gap[ri] == 0 and not into_cave \
+			and absf(global_position.y - g.center[ri].y) > 6.0:
 		_level_time += delta
 	else:
 		_level_time = 0.0
@@ -803,10 +843,21 @@ func _check_respawn(delta: float) -> void:
 	# (a computer driver backing off a wall gets to finish that try, and the time it takes does not
 	# count; once it gave up the scanner comes)
 	var racing_now: bool = race == null or race.racing
+	# down on a cave's floor after the fall into it: the watchdog counts from here, CAVE_TURN seconds
+	# later than usual (a kart that came down facing the wall, the wrong way or bounced back off the
+	# opening's end turns round first, a long one in three goes in the cave's narrow road)
+	if _cave_landing and grounded and route >= 0:
+		_cave_landing = false
+		_watch_time = -CAVE_TURN
+		_watch_progress = total_progress
 	if racing_now and (not is_player or speed < 3.0) and unstick != Unstick.TRYING:
 		_watch_time += delta
 	if total_progress > _watch_progress + 8.0:
 		_watch_progress = total_progress
+		_watch_time = 0.0
+	# waiting at a level crossing's arms (a hazard every driver must stop for) is no stall: the
+	# watchdog waits with the kart, or it would be rescued in the middle of a wait of up to ~8 s
+	if _watch_time > 0.0 and speed < 3.0 and route < 0 and _held_by_hazard():
 		_watch_time = 0.0
 	var stalled := _watch_time > (6.0 if is_player else 5.0) and unstick != Unstick.TRYING
 	if fall or out or _flip_time > 2.0 or _stuck_time > 4.0 or stalled or unstick == Unstick.GAVE_UP:
@@ -814,6 +865,15 @@ func _check_respawn(delta: float) -> void:
 		_watch_progress = total_progress
 		_behind_time = 0.0
 		start_respawn(Rescue.FALL if fall else Rescue.SCAN)
+
+
+## Does a hazard ahead hold this kart where it is (a level crossing's arms coming down, down or about
+## to rise: HazardDirector.advice's "must")?
+func _held_by_hazard() -> bool:
+	var hz: HazardDirector = track.hazards if track else null
+	if hz == null or not is_instance_valid(hz) or hz.list.is_empty():
+		return false
+	return bool(hz.advice(self, lap_progress, speed).get("must", false))
 
 
 ## Is a wall (a barrier, a jersey, a railing, a building) between the kart and the road it is
@@ -840,6 +900,7 @@ func start_respawn(mode := Rescue.SCAN, liq := Vector2(-1e9, 0.0)) -> void:
 	respawns += 1
 	rescue = mode
 	unstick = Unstick.NONE
+	_magnet = null  # a crane's magnet lets go of a kart its rescuer takes
 	_scanned = false
 	_back = false
 	_dripping = false
@@ -1009,6 +1070,11 @@ func _put_back(lift: float, release := true) -> void:
 	path_index = p.index_at(p.branches[r].main_s(s)) if r >= 0 else route_index
 	linear_velocity = Vector3.ZERO
 	angular_velocity = Vector3.ZERO
+	# the stall watchdog counts from where it is put back, not from where it stopped: the scanner may
+	# put it well behind that (out of a hazard's way: HazardDirector.safe_respawn), and it would be
+	# taken again for not getting back there in time (_check_respawn sets it on its next check)
+	_watch_time = 0.0
+	_watch_progress = -INF
 	if release:
 		freeze = false
 		state = State.NORMAL
@@ -1100,8 +1166,11 @@ func _update_progress(delta := 0.0) -> void:
 			_crossed_half = false
 			_complete_lap()
 	elif _last_s < p.length * 0.25 and s > p.length * 0.75:
-		# drove backwards over the line
+		# drove backwards over the line (or a gravity gun pulled it back): the lap it takes back had
+		# passed the half, so crossing forwards again gives it back (Race.on_lap ignores a lap it
+		# has already timed: _best_lap)
 		lap -= 1
+		_crossed_half = true
 	if s > p.length * 0.4 and s < p.length * 0.6:
 		_crossed_half = true
 	_last_s = s
@@ -1120,6 +1189,14 @@ func _track_route(delta: float) -> void:
 	route_index = g.closest(global_position, route_index)
 	if p.branches.is_empty() or state == State.RESPAWN:
 		return
+	# into a cave through one of its drops: on its road once well inside the opening (it falls onto
+	# its floor there; its lap metres carry on from the main road's beside it)
+	if route < 0 and not p.caves.is_empty():
+		var dv := p.cave_drop(global_position, lap_progress)
+		if dv.x >= 0 and global_position.y < float(p.branches[dv.x].drops[dv.y]["top"]) - CAVE_IN:
+			var cb := p.branches[dv.x]
+			_set_route(dv.x, cb.closest(global_position, maxi(cb.index_at(cb.u_at_main(lap_progress)) - 2, 0)))
+			return
 	if not grounded and global_position.y < g.center[route_index].y - 3.0:
 		return
 	var pos := global_position
@@ -1136,7 +1213,8 @@ func _track_route(delta: float) -> void:
 	else:
 		var br := p.branches[route]
 		var near_end := route_u > br.merge_nose_u - 12.0
-		if near_end or route_u < br.fork_nose_u + 12.0:
+		# (a cave has no fork: its start lies under the main road, which it never turns back into)
+		if near_end or (route_u < br.fork_nose_u + 12.0 and br.kind != "cave"):
 			var i := p.closest(pos, br.merge_i - 4 if near_end else br.fork_i - 4)
 			var past_end := near_end and route_index >= br.n - 1 and (pos - br.center[br.n - 1]).dot(br.fwd[br.n - 1]) > 0.0
 			if past_end or p.on_road(pos, i) + 0.75 < here:
@@ -1181,18 +1259,43 @@ func _set_route(r: int, i: int) -> void:
 	if r >= 0:
 		route_u = track.path.branches[r].progress(global_position, i)
 		_branch_entry = route_u
+		var nb := track.path.branches[r]
+		_cave_landing = nb.kind == "cave" and route_u <= nb.fell_in_u
+		if _cave_landing and race and race.has_method("on_cave"):
+			race.on_cave(self, r)
+	else:
+		_cave_landing = false
 
 
 ## The kart leaves its branch (`done`: through to the merge): stats and HUD (Race.on_branch) for
 ## a pass that took the branch at its fork (joined it no more than 15 m past the fork nose: a
 ## kart thrown or dropped onto it further on has not taken it), then the branch's respawn
-## policy starts afresh for the next pass.
+## policy starts afresh for the next pass. A cave counts for a kart that fell into it (got onto
+## it before the end of its last drop, not backwards down its way out), and out through its
+## merge that kart earns the cave's bonus (cave_bonus).
 func _leave_branch(done: bool) -> void:
 	if route < 0:
 		return
-	if race and race.has_method("on_branch") and _branch_entry <= track.path.branches[route].fork_nose_u + 15.0:
+	var br := track.path.branches[route]
+	var counts := _branch_entry <= (br.fell_in_u if br.kind == "cave" else br.fork_nose_u + 15.0)
+	if counts and done and br.kind == "cave":
+		cave_bonus(br)
+	if race and race.has_method("on_branch") and counts:
 		race.on_branch(self, route, done)
 	_branch_fails.erase(route)
+
+
+## Out of a cave it fell into (TrackBranch "bonus"): a boost and, holding nothing, an item from the
+## crates' pool (Items.roll, by its place, or as the last kart draws with the bonus's "best_item").
+## Its owner decides; online its item and its boost reach the others in its streamed state.
+func cave_bonus(br: TrackBranch) -> void:
+	if br.bonus_boost > 0.0:
+		boost(br.bonus_boost, br.bonus_power)
+	if br.bonus_item and item == "" and roulette <= 0.0:
+		var karts := get_tree().get_nodes_in_group("karts")
+		var n := maxi(karts.size(), 1)
+		var id := Items.roll(n if br.bonus_best else place, n, karts)
+		give_item(id, 3 if id.ends_with("3") else 1)
 
 
 var _best_lap := -99
@@ -1332,10 +1435,12 @@ func tumble(by: Kart = null, impulse := Vector3.ZERO) -> void:
 
 
 ## A GRAVITY GUN's beam has it (Items._pull): it spins out, is lifted and drawn back over the
-## gun's kart `by` and dropped behind it (_hold_tick). Only its owner decides (never on a proxy).
+## gun's kart `by` and dropped behind it (_hold_tick). The beam takes a kart off a crane's magnet
+## too (the gun never fires for nothing). Only its owner decides (never on a proxy).
 func pulled(by: Kart) -> void:
 	if star_time > 0.0 or state == State.RESPAWN or remote or _held_by != null:
 		return
+	_magnet = null
 	spin_out(by)
 	_held_by = by
 	_held_t = 0.0
@@ -1371,6 +1476,47 @@ func _hold_tick(st: PhysicsDirectBodyState3D) -> void:
 	var p := _held_from.lerp(over, s).lerp(over.lerp(behind, s), s)
 	st.linear_velocity = ((p - st.transform.origin) / st.step).limit_length(120.0)
 	st.angular_velocity = up * 7.0
+
+
+## A crane's MAGNET caught this kart (CraneHazard): it spins out (its spin's clock standing still
+## while it hangs), is drawn up under the magnet and hangs there level, its own drive ignored,
+## wherever the crane takes it (_magnet_tick) until the magnet lets go. Only its owner decides
+## (never on a proxy); a kart down, charged, being rescued, just hit or in a gravity gun's beam is
+## left alone. True if it took effect.
+func magnet_grab(by: CraneHazard) -> bool:
+	if remote or finished or star_time > 0.0 or hazard_grace > 0.0 or state != State.NORMAL or _held_by != null \
+			or _magnet != null:
+		return false
+	spin_out(null)
+	_magnet = by
+	_magnet_t = 0.0
+	_magnet_from = global_position
+	hazard_grace = 1.6
+	return true
+
+
+## Under a crane's magnet: drawn up from where it was caught over MAGNET_SNAP s, then kept at the
+## crane's hold point (CraneHazard.hold_point, a function of the shared clock), level. When the
+## magnet lets go (or the crane is gone) it drops onto the road below with what speed the magnet
+## had, spinning for MAGNET_SPIN s, and the stall watchdog starts afresh.
+func _magnet_tick(st: PhysicsDirectBodyState3D) -> void:
+	grounded = false
+	wheels_on_ground = 0
+	if not is_instance_valid(_magnet) or not _magnet.holding(self):
+		_magnet = null
+		st.linear_velocity = st.linear_velocity.limit_length(6.0) - Vector3.UP
+		st.angular_velocity = Vector3.ZERO
+		state = State.SPIN
+		state_time = 1.2 - MAGNET_SPIN  # (a spin lasts 1.2 s)
+		hazard_grace = maxf(hazard_grace, 1.6)
+		_watch_time = 0.0
+		_watch_progress = total_progress
+		return
+	_magnet_t += st.step
+	var a := clampf(_magnet_t / MAGNET_SNAP, 0.0, 1.0)
+	var to := _magnet_from.lerp(_magnet.hold_point(self), a * a * (3.0 - 2.0 * a))
+	st.linear_velocity = ((to - st.transform.origin) / st.step).limit_length(60.0)
+	st.angular_velocity = st.transform.basis.y.cross(Vector3.UP) * 8.0
 
 
 ## A SUPERCHARGED GRAVITY GUN's blast (Items._super_punt): most of its own speed gone and thrown
@@ -1410,7 +1556,7 @@ func _throw(dv: Vector3) -> Vector3:
 
 ## A track hazard hit this kart (scripts/hazards). Only the kart's owner decides (never on a
 ## remote proxy); a kart already down, charged, being rescued or just hit is left alone.
-## kind: "spin" | "tumble" | "shock" | "bounce". Returns true if it took effect.
+## kind: "spin" | "tumble" | "shock" | "bounce" | "shove". Returns true if it took effect.
 func hazard_hit(kind: String, impulse := Vector3.ZERO) -> bool:
 	if remote or finished or star_time > 0.0 or hazard_grace > 0.0 or state != State.NORMAL:
 		return false
@@ -1428,6 +1574,13 @@ func hazard_hit(kind: String, impulse := Vector3.ZERO) -> bool:
 			spin_out(null)
 			Effects.sparks(get_parent(), global_position + grav_up, 1.4, Color(0.55, 0.8, 1.0))
 			hazard_grace = 1.6
+		"shove":
+			# an antlion guard's ram (AntlionGuardHazard): thrown as a supercharged gravity gun throws
+			# (blasted), well past a tumble's limits, so where the road has an open edge it goes over; its
+			# tyres slide for SHOVE_SLIDE s, so they do not stop it within a metre of where it was hit
+			blasted(null, impulse / mass)
+			_shove_time = SHOVE_SLIDE
+			hazard_grace = 2.4
 		_:
 			spin_out(null)
 			apply_central_impulse(impulse)
@@ -1520,6 +1673,10 @@ func make_local_bot(skill: float) -> void:
 	route_index = at.y
 	if route >= 0:
 		route_u = track.path.branches[route].progress(global_position, route_index)
+	# its owner's record of how it came onto a branch went with the owner: taken over on one it has
+	# not taken from its fork, nor fallen into if it is a cave (no stats, no cave bonus)
+	_branch_entry = route_u if route >= 0 else 0.0
+	_cave_landing = false
 	if _net_t < 0.0:
 		# its owner dropped before streaming a state: still on its grid slot (Race._place_on_grid)
 		lap_progress = _last_s

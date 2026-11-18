@@ -1,6 +1,8 @@
 extends Node
 ## Fast headless AI race for tuning: prints lap times, respawns, places and, on tracks with
-## branches, how often each branch was taken, completed and fallen off.
+## branches, how often each branch was taken, completed and fallen off. A cave (kind "cave": entered
+## only by falling in, never taken on purpose) gets its own line: falls in, drives out, rescues down
+## there; it is no shortcut, so the criteria never ask for it to be taken.
 ## usage: godot --headless --path . res://tests/race_stats.tscn -- <seconds> <time_scale> <laps> [difficulty] [track] [hazards] [--seed N] [--why] [--branches <track.json>] [--hazards <list.json>]
 ## --branches adds another track JSON's branches to the running track before the start: no
 ## road is built for them, so it only smoke-tests the route, AI and respawn code on them.
@@ -173,7 +175,7 @@ func _watch(k: Kart) -> void:
 			if k.rescue != Kart.Rescue.SCAN:
 				b["falls"] += 1
 	if r != st["route"]:
-		if st["route"] >= 0:
+		if st["route"] >= 0 and st.get("counted", true):
 			var br: TrackBranch = race.track.path.branches[st["route"]]
 			var ob := _branch(st, st["route"])
 			if st["u"] >= br.merge_nose_u - 5.0:
@@ -181,7 +183,12 @@ func _watch(k: Kart) -> void:
 			else:
 				ob["left"] += 1
 		if r >= 0:
-			_branch(st, r)["take"] += 1
+			# a cave counts only a kart that fell into it (as Kart._leave_branch and Race.cave_log do):
+			# not one that came down its way out backwards or ran wide onto its exit lane at the merge
+			var nb: TrackBranch = race.track.path.branches[r]
+			st["counted"] = nb.kind != "cave" or k.route_u <= nb.fell_in_u
+			if st["counted"]:
+				_branch(st, r)["take"] += 1
 	st["state"] = k.state
 	st["route"] = r
 	st["u"] = k.route_u if r >= 0 else 0.0
@@ -223,6 +230,9 @@ func _report() -> void:
 			if not b.is_empty():
 				per += " %s:%d/%d/%d/%d" % [k.character_id.left(4), b["take"], b["done"], b["falls"], b["respawns"]]
 				worst = maxi(worst, int(b["respawns"]))
+		if branches[bi].kind == "cave":
+			print("CAVE %s fell_in=%d drove_out=%d left=%d rescued_down_there=%d  (kart:in/out/falls/rescues)%s" % [branches[bi].id, tot["take"], tot["done"], tot["left"], tot["respawns"], per])
+			continue
 		print("BRANCH %s takes=%d done=%d left=%d falls=%d respawns=%d  (kart:take/done/falls/respawns)%s" % [branches[bi].id, tot["take"], tot["done"], tot["left"], tot["falls"], tot["respawns"], per])
 		if tot["take"] == 0 or tot["done"] == 0:
 			unused.append(branches[bi].id)

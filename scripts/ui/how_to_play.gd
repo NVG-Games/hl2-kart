@@ -22,6 +22,7 @@ const ITEM_TEXT := {
 	"headcrab": "Headcrabs leap onto the faces of up to three racers just ahead of you. For a couple of seconds they can't see a thing.",
 	"xenport": "A Xen portal: you come out 140 metres further down the road, at full speed.",
 }
+const COUNTS := ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"]
 
 var tabs: TabBar
 var pages: Array[Control] = []
@@ -205,14 +206,18 @@ func _track() -> Control:
 	v.add_theme_constant_override("separation", 20)
 	v.add_child(_track_card("res://assets/ui/items/crate.png", "Supply crates",
 		"Drive through a row of HL2 supply crates to get a random item. The further back you are, the stronger the items."))
-	v.add_child(_track_card("res://assets/ui/portraits/breen.png", "Five tracks",
-		"Highway 17, CT17, Black Mesa, Xen and Surface Tension rebuild City 17, the Research Facility, the border world and the desert from the games' own textures, models, signs and music."))
+	# every track the game has (Game.TRACKS), by name
+	var names: Array = Game.TRACKS.map(func(tr: Dictionary) -> String: return tr["name"])
+	var count: String = COUNTS[names.size()] if names.size() < COUNTS.size() else str(names.size())
+	v.add_child(_track_card("res://assets/ui/portraits/breen.png", count + " tracks",
+		"%s and %s: Half-Life's places rebuilt from the games' own textures, models, signs and music." % [
+			", ".join(PackedStringArray(names.slice(0, -1))), names[-1]]))
 	v.add_child(_track_card("res://assets/ui/portraits/police.png", "Spectators",
 		"Citizens, metrocops, scientists, marines and vortigaunts cheer, flinch at explosions and hop out of your way. Some know your racer; the G-Man may be watching. OPTIONS > VIDEO > Spectators."))
 	v.add_child(_track_card("res://assets/ui/items/barrel.png", "Physics everywhere",
 		"Cones, drums, crates and melons are real props: knock them over. Red barrels explode, and some lie right on the road."))
-	v.add_child(_track_card("res://assets/ui/items/xenport.png", "Tubes and open edges",
-		"Inside a glowing tube you stick to the wall: the road rolls up the side and over the ceiling. Some bridges and cliff roads have no railings: run wide and you fall."))
+	v.add_child(_track_card("res://assets/ui/items/xenport.png", "A tube and open edges",
+		"In Highway 17's tunnel through the headland you stick to the wall: the road rolls up the side and over the ceiling. Some bridges and cliff roads have no railings: run wide and you fall."))
 	return v
 
 
@@ -222,9 +227,9 @@ func _shortcuts() -> Control:
 	v.add_child(_track_card("res://assets/ui/vehicles/buggy.png", "Two shortcuts on every track",
 		"Chevron boards stand before each fork, the HUD names the shortcut the first time you come up to it, and the minimap draws shortcuts as dashes. The results count the ones you got through."))
 	v.add_child(_track_card("res://assets/ui/items/battery.png", "Jumps take speed",
-		"Most shortcuts end in a jump: come at it flat out. Some have a boost pad on the run-up, and the CT17 rooftops need a battery or HEV boost. A DANGER sign stands before the risky ones. Land it and you get SHORTCUT!"))
+		"Most shortcuts end in a jump: come at it flat out. Some have a boost pad on the run-up. A DANGER sign stands before the risky ones. Land it and you get SHORTCUT!"))
 	v.add_child(_track_card("res://assets/ui/items/scanner.png", "Fell off or stuck?",
-		"Sink, fall off or get stuck and help comes: the scanner's photo in City 17, a teleport at Black Mesa and Surface Tension, a portal on Xen. In its flash you're back on the road. Miss a shortcut's jump and you retry from its run-up if it can be made. R calls it."))
+		"Sink, fall off or get stuck and help comes: the scanner's photo in CT17, a teleport at Black Mesa and Surface Tension, a portal on Xen, the rebels' crane on Highway 17, a Combine teleport at Nova Prospekt, the vortigaunts' green energy in White Forest. In its flash you're back on the road. Drop through a hole in Nova Prospekt's floor (or get shoved in by the guard) and you are in the antlion caves: drive out. Miss a shortcut's jump and you retry from its run-up if it can be made. R calls it."))
 	v.add_child(_track_card("res://assets/ui/vehicles/jalopy.png", "Wrong way",
 		"Drive back along the road and a red WRONG WAY flashes under the item box, with a beep, until you turn round."))
 	return v
@@ -234,9 +239,9 @@ func _hazards() -> Control:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 20)
 	v.add_child(_track_card("res://assets/ui/items/hopper.png", "Track hazards",
-		"Every track has its own: a force field, turrets, a Combine train, a strider, a gunship, hopper mines, laser tripmines, houndeyes, alien slaves, controllers, bullsquids, a tentacle, an Apache, mortars. Each one warns before it strikes: a flicker, a bell, a beam, a charge, red marks where the shots land."))
+		"Every track has its own: turrets, a Combine train and a freight train at level crossings, a Combine column on a bridge, striders, a gunship, antlions, an antlion guard, a magnet crane, laser tripmines, the Lambda core's discharges, houndeyes, alien slaves, controllers, bullsquids, a tentacle, an Apache, mortars. Each one warns before it strikes: a bell, a horn, a beam, a charge, a rumble in the sand, red marks where the shots land."))
 	v.add_child(_track_card("res://assets/ui/items/manhack.png", "Locked on",
-		"A red chevron at the edge of the screen points at a turret or an alien slave that has locked on you, beeping faster as the shot nears. Hold your line and it hits: brake, boost or change lane."))
+		"A red chevron at the edge of the screen points at whatever has locked on you (a turret, an alien slave, a strider, the crane, the column...), beeping faster as the shot nears. Hold your line and it hits: brake, boost or change lane."))
 	v.add_child(_track_card("res://assets/ui/items/hev.png", "One hit per gauntlet",
 		"Once a hazard has hit you, the others in its group leave you alone until you are through. On EASY they warn longer and fire less often."))
 	v.add_child(_track_card("res://assets/ui/items/gravgun.png", "On the minimap, or off",

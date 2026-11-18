@@ -1,5 +1,12 @@
 """Procedural race track built from Half-Life 2 materials and props.
 
+Legacy: this built the first Highway 17 (City 17, the Combine checkpoint, the coast road, the
+canal) until phase D, when Highway 17 became the coast desert of tools/circuits/city17_circuit.py
+(built by tools/track_gen.py like the other circuits). Nothing builds this layout any more; it
+writes city17_legacy by default so a run by habit does not overwrite the game's Highway 17.
+track_gen.py still imports its geometry helpers (Mesh, catmull_rom_closed, cyc_runs, noise2,
+smoothstep, racing_line), so the file stays.
+
 Writes hl2kart/assets/track/<name>.gltf (+.bin) with visual+collision meshes (and pins its
 import options in <name>.gltf.import) and <name>.json with the racing line, the shortcuts
 (branches), spawn grid, item rows, hazards, spectators and prop placements. Coordinates are
@@ -2294,7 +2301,7 @@ def import_options(path, options):
 
 
 def main():
-    name = sys.argv[1] if len(sys.argv) > 1 else "city17_circuit"
+    name = sys.argv[1] if len(sys.argv) > 1 else "city17_legacy"
     os.makedirs(OUT_DIR, exist_ok=True)
     fs = srcfs.GameFS()
     lib = materials.MaterialLib(fs, ASSETS)

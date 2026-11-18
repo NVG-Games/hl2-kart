@@ -31,6 +31,8 @@ var item_holder: Node3D
 var item_tex: TextureRect
 var big: Label
 var big_t := 0.0
+## the big message's type size, for a message that fits its box (big_text sets a longer one smaller)
+const BIG_FONT := 92
 var rescue_hint: Label
 var _rescue_t := 0.0
 var standings: VBoxContainer
@@ -89,11 +91,12 @@ func setup(r) -> void:
 	big.position = Vector2(-500, -220)
 	big.size = Vector2(1000, 160)
 	big.label_settings.font = Hl2Style.text_font(true)
-	big.label_settings.font_size = 92
+	big.label_settings.font_size = BIG_FONT
 	root.add_child(big)
 	# R calls the track's own rescuer (Rescuer.kind_of)
-	var how: String = {"teleport": "TO TELEPORT OUT", "xen_portal": "TO OPEN A PORTAL"}.get(
-		Rescuer.kind_of(race.track), "TO CALL A SCANNER")
+	var how: String = {"teleport": "TO TELEPORT OUT", "xen_portal": "TO OPEN A PORTAL", "crane": "TO CALL THE CRANE",
+		"combine_teleport": "TO CALL A TELEPORT", "vortigaunt": "TO CALL THE VORTIGAUNTS"}.get(Rescuer.kind_of(race.track),
+		"TO CALL A SCANNER")
 	rescue_hint = Hl2Style.label("STUCK?  PRESS  R  " + how, 13 * U, Hl2Style.BRIGHT)
 	rescue_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	rescue_hint.anchor_left = 0.5
@@ -360,6 +363,8 @@ func _update_fork_hint(k: Kart, delta: float) -> void:
 	var p: TrackPath = race.track.path
 	if race.racing and k.is_player and k.route < 0 and k.state == Kart.State.NORMAL and not k.finished:
 		for br in p.branches:
+			if br.kind == "cave":
+				continue  # (no fork: a kart falls into a cave)
 			var d := fposmod(br.fork_s - k.lap_progress, p.length)
 			if d > 30.0 and d < 160.0 and not _hinted.has(br.index):
 				_hinted[br.index] = true
@@ -531,6 +536,11 @@ func liquid_flash(kind: int) -> void:
 
 func big_text(t: String, seconds: float) -> void:
 	big.text = t
+	# a long message ("ANTLION CAVES: DRIVE OUT!") is set smaller, so it fits the box across the
+	# screen's middle instead of running off its edge (92 px fits about 16 letters)
+	var ls := big.label_settings
+	var w := ls.font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, BIG_FONT).x + 2.0 * ls.outline_size
+	ls.font_size = BIG_FONT if w <= big.size.x * 0.96 else maxi(int(BIG_FONT * big.size.x * 0.96 / w), 32)
 	big_t = seconds
 	big.modulate.a = 1.0
 	big.scale = Vector2.ONE

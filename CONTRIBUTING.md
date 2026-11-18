@@ -40,7 +40,7 @@ then tells players about it.
    - menus fit the window: `godot --path . --resolution 1280x720 res://tests/ui_fit.tscn -- out`
 
    After changing a circuit in `tools/`, rebuild its track and import it before testing:
-   `python tools/track_gen.py <circuit>` (Highway 17: `python tools/build_track.py`), then
+   `python tools/track_gen.py <circuit>` (Highway 17 too: `city17_circuit`), then
    `godot --headless --path . --import`.
 4. Open the pull request against **`dev`** and describe what changed and how you tested it.
 
@@ -57,8 +57,8 @@ then tells players about it.
   plus an entry in `TRACKS` in `scripts/core/game.gd` and in `CIRCUITS` in
   `tools/setup_assets.py` (so the first start builds it). The module gives the road as a spline
   of styled stretches (`CTRL`), its shortcuts (`BRANCHES`), its hazards (`TRACK["hazards"]`)
-  and its spectators (`crowds()`). Ravenholm, the Coast, Nova Prospekt, White Forest or the
-  Citadel would all be great.
+  and its spectators (`crowds()`). Ravenholm or the Citadel would
+  both be great.
 - **More animation**: `tools/mdl_anim.py` reads a model's animations (Dog's run, walk and
   idle are listed in `ANIMS` in `tools/extract_all.py`); the scanner, the strider or the
   spectators could play theirs too.

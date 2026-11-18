@@ -515,6 +515,9 @@ class Branch:
     the branch climbs from the road's edge over the hall's floor, its nose where it is 2.5 m up."""
 
     PAD = 16
+    # the ends where it meets the main road (a cave, CaveBranch, meets it at its merge only)
+    ENDS = ("fork", "merge")
+    cave = False
 
     def __init__(self, main, spec, styles, step, index, g=branches.G):
         self.main, self.spec, self.index = main, spec, index
@@ -617,7 +620,7 @@ class Branch:
         say. How far its heights were moved is kept for the printout (moved)."""
         lift = 0.02 if self.in_hall else 0.0
         total = np.zeros(t.n)
-        for end in ("fork", "merge"):
+        for end in self.ENDS:
             pairs = self._overlap(t, end)
             if not pairs:
                 continue
@@ -754,6 +757,13 @@ class Branch:
             out.append((a, b, gap, lift, ramp, drop, branches.launch_speed(gap, lift, ramp, drop, g)))
         return out
 
+    def _lane_before(self, P):
+        """The P samples the racing line sees before the branch's first one (and their right): the
+        main road's before the fork, moved onto the branch's centre there."""
+        m = self.main
+        pre = [m.wrap(j) for j in range(self.i0 - P, self.i0)]
+        return self._shifted(range(self.i0 - P, self.i0), self.lat0), m.right[pre]
+
     def racing(self, defn):
         """The branch's racing line and target speeds (build_track.racing_line on the branch with the
         main road's samples beyond its ends): the first and last 6 samples stay on its centre line,
@@ -761,15 +771,14 @@ class Branch:
         it keeps to the middle, as on the lap."""
         m, t = self.main, self.trk
         P, pins = self.PAD, 6
-        pre = [m.wrap(j) for j in range(self.i0 - P, self.i0)]
         post = [m.wrap(j) for j in range(self.i1 + 1, self.i1 + 1 + P)]
         held = t.gap.copy()
         held[:pins] = held[-pins:] = True
+        pre_pos, pre_right = self._lane_before(P)
         lane = SimpleNamespace(
             n=t.n + 2 * P, step=t.step,
-            pos=np.vstack([self._shifted(range(self.i0 - P, self.i0), self.lat0), t.pos,
-                           self._shifted(range(self.i1 + 1, self.i1 + 1 + P), self.lat1)]),
-            right=np.vstack([m.right[pre], t.right, m.right[post]]),
+            pos=np.vstack([pre_pos, t.pos, self._shifted(range(self.i1 + 1, self.i1 + 1 + P), self.lat1)]),
+            right=np.vstack([pre_right, t.right, m.right[post]]),
             width=np.concatenate([np.full(P, t.width[0]), t.width, np.full(P, t.width[-1])]),
             gap=np.concatenate([np.ones(P, bool), held, np.ones(P, bool)]))
         line, off, vt = racing_line(lane)
@@ -839,6 +848,330 @@ class Branch:
                     t.s[self.nose_k("fork")], t.length - t.s[self.nose_k("merge")],
                     ", ".join("%.0f m" % j[2] for j in jumps) or "none", need,
                     " (boost)" if need > branches.TOP_SPEED else ""))
+
+
+# ---------------------------------------------------------------- caves
+# a cave's near wall stands under the main road's edge over each drop: at most this far in under
+# it, or out past it (metres)
+CAVE_WALL_IN, CAVE_WALL_OUT = 1.0, 0.5
+# a drop's opening is at least this wide, from the main road's edge to the cave's far wall
+CAVE_HOLE_MIN = 3.0
+# room behind the first drop (the dead end stands at least this far before it, cave metres) and up
+# from the last one (its far end lies at least this far before the merge's nose)
+CAVE_BEHIND, CAVE_CLIMB = 6.0, 25.0
+# a cave's sample counts as under a drop only within this far of the main road's centre in plan
+CAVE_NEAR = 40.0
+
+
+class CaveBranch(Branch):
+    """A cave (a BRANCHES entry with "kind": "cave", see tools/branches.py): a road under the lap
+    that a kart gets into only by falling through one of its drops, openings beside the main road
+    with the cave's floor right under them, and that climbs back up to the main road ahead of all of
+    them, where it merges like any branch. It has no fork: its first control point is its dead end,
+    underground in a tunnel style, before the first drop. Over each drop the main road's side
+    treatment is left out on that side (an open edge, pit) and the cave has no roof (the style
+    "<its style>@open<side>": "roof" False, its walls up to the main road's edge, the rim of the
+    hole only on its far side), so a kart pushed off the edge there falls straight onto the cave's
+    road. The game tracks it on the cave from the opening on (Kart._track_route) and gives a bonus
+    to whoever drives it out (data "bonus")."""
+
+    ENDS = ("merge",)
+    cave = True
+
+    def __init__(self, main, spec, styles, step, index, g=branches.G):
+        self.main, self.index = main, index
+        # never signposted, and a kart stuck down there goes back to the main road unless it says
+        # otherwise ("respawn")
+        self.spec = dict(spec, signs=False)
+        self.spec.setdefault("respawn", "main")
+        self.g = g
+        self.low_gravity = []
+        self.id = spec["id"]
+        self.in_hall = False
+        self.drop = False
+        ctrl = [c if len(c) > 5 else tuple(c) + ({},) for c in spec["ctrl"]]
+        if len(ctrl) < 2:
+            raise ValueError("cave %s: it needs two control points or more" % self.id)
+        start = np.array(ctrl[0][:3], float)
+        # the lap's sample abreast of the dead end: the nearest in space (a lap of two levels has
+        # another stretch near it in plan), or its "fork" ((x, z) or a lap fraction) when given
+        near0 = int(np.argmin(((main.pos - start) ** 2).sum(1)))
+        self.i0 = self._resolve(spec.get("fork", near0 / main.n))
+        self.i1 = self._resolve(spec["merge"])
+        self.side0 = self._side_of(self.i0, ctrl[0])
+        self.side1 = spec.get("merge_side") or self._side_of(self.i1, ctrl[-1])
+        self.lat0 = 0.0
+        self.lat1 = self.side1 * (main.width[self.i1] - ctrl[-1][3]) / 2
+        b = main.pos[self.i1] + main.right[self.i1] * self.lat1
+        # behind the dead end the road's line runs straight on backwards (its phantom point and the
+        # samples its frames and racing line see there)
+        d = np.array(ctrl[1][:3], float) - start
+        back = -d / max(np.linalg.norm(d), 1e-6)
+        self._pad0 = np.array([start + back * step * k for k in range(self.PAD, 0, -1)])
+        pad = (self._pad0, self._shifted(range(self.i1 + 1, self.i1 + 1 + self.PAD), self.lat1))
+        last = (b[0], b[1], b[2], ctrl[-1][3], ctrl[-1][4], {})
+        self.moved = {}
+        self.trk = Trk(ctrl + [last], styles, step, closed=False, pre=start - d,
+                       post=self._phantom(b, ctrl[-1], self.i1), pad=pad, follow=self._follow)
+        self.trk.dead_end = True
+        k = self.trk.n - 1
+        for key in ("fwd", "right", "up", "flat_right", "base_up", "base_right"):
+            getattr(self.trk, key)[k] = getattr(main, key)[self.i1]
+        self.trim_seg = {}
+        self.zones = {"merge": self._junction("merge")}
+        self._cut_sides()
+        self.problems = []
+        self.drops = [self._drop(n, dd, styles) for n, dd in enumerate(spec.get("drops", []))]
+        # (what the lap's props and the hazards keep out of: Ctx.junctions)
+        self.keep_off = [dd["outline"] for dd in self.drops if "outline" in dd]
+
+    def _drop(self, n, spec, styles):
+        """One drop ({"s": lap metres of its middle, "side": +1 right of the main road or -1 left,
+        "length": metres along it}): the main road's samples it spans lose their side treatment on
+        that side (capped where it stops) and become an open edge (pit); the cave's samples under it
+        lose their roof, their walls reaching up to the main road's edge. Returns what the export and
+        the lint need: the main samples (ids), the cave's (ks) and the opening as the game tests it
+        (s0..s1 lap metres, lat0..lat1 metres out from the main road's centre on its side, top: the
+        edge's height, floor: the cave road's; u0..u1 cave metres)."""
+        m, t = self.main, self.trk
+        side = int(spec.get("side", self.side0))
+        length = float(spec.get("length", branches.CAVE_DROP_LEN))
+        s = float(spec["s"])
+        tag = "drop %d (s %.0f)" % (n, s)
+        ids = np.flatnonzero(np.abs(m.s - s) <= length / 2)
+        out = {"n": n, "tag": tag, "side": side, "ids": ids, "ks": np.zeros(0, int)}
+        if len(ids) < 2:
+            self.problems.append("%s: shorter than two of the lap's samples" % tag)
+            return out
+        col = (side + 1) // 2
+        m.side_off[ids, col] = True
+        m.noses.add((m.wrap(int(ids[0]) - 1), col))
+        m.noses.add((m.wrap(int(ids[-1]) + 1), col))
+        m.pit[ids] = True
+        inside = set(int(i) for i in ids)
+        ks, near = [], {}
+        for k in range(t.n):
+            if t.kind(k) != "tunnel":
+                continue
+            i = m.nearest(t.pos[k], int(ids[len(ids) // 2]), len(ids) + 10)
+            # (only the cave's samples within CAVE_NEAR of the drop in plan: another stretch of the
+            # cave far off, whose nearest main sample in this window still lies in the drop, is not
+            # under it)
+            far = float(np.hypot(*(t.pos[k, [0, 2]] - m.pos[i, [0, 2]]))) > CAVE_NEAR
+            if not far and i in inside and float((t.pos[k] - m.pos[i]) @ m.flat_right[i]) * side > 0.0:
+                ks.append(k)
+                near[k] = i
+        if not ks:
+            self.problems.append("%s: no tunnel of the cave lies beside the main road's side %+d there" % (tag, side))
+            return out
+        ks = np.arange(min(ks), max(ks) + 1)
+        edge_y, far_lat, floor, edges, fars = [], [], [], [], []
+        for k in ks:
+            i = near.get(int(k)) or m.nearest(t.pos[k], int(ids[len(ids) // 2]), len(ids) + 10)
+            base = t.style[k].split("@")[0]
+            st = styles[base]
+            sk = 1 if float((m.pos[i] - t.pos[k]) @ t.flat_right[k]) > 0.0 else -1
+            hwk = t.width[k] / 2 + t.wall_gap[k]
+            near_w = t.pos[k] + t.flat_right[k] * sk * hwk
+            far_w = t.pos[k] - t.flat_right[k] * sk * hwk
+            e = m.pos[i] + m.right[i] * side * m.width[i] / 2
+            off = float((near_w - m.pos[i]) @ m.flat_right[i]) * side - m.width[i] / 2
+            if not -CAVE_WALL_IN <= off <= CAVE_WALL_OUT:
+                self.problems.append("%s: the cave's near wall stands %+.1f m from the main road's edge at u %.0f "
+                                     "(%.1f .. %+.1f: under the edge)" % (tag, off, t.s[k], -CAVE_WALL_IN, CAVE_WALL_OUT))
+            depth = float(e[1] - t.pos[k, 1])
+            need = t.height[k] + st.get("cover", 0.0) + 0.2
+            if st.get("roof", True) and depth < need:
+                self.problems.append("%s: the cave lies only %.1f m under the main road's edge at u %.0f (its roof "
+                                     "and cover need %.1f)" % (tag, depth, t.s[k], need))
+            if t.kind(k) != "tunnel" or t.gap[k]:
+                self.problems.append("%s: the cave is no tunnel at u %.0f" % (tag, t.s[k]))
+            name = "%s@open%+d" % (base, -sk)
+            if name not in styles:
+                styles[name] = dict(st, roof=False, collar=(-sk,), lamps=False, cover=0.05, portals=False)
+            t.style[k] = name
+            t.height[k] = depth
+            edge_y.append(float(e[1]))
+            far_lat.append(float((far_w - m.pos[i]) @ m.flat_right[i]) * side)
+            floor.append(float(t.pos[k, 1]))
+            edges.append(e)
+            fars.append(far_w)
+        # the opening as the game tests it: where the main road's edge is open and the cave's roof too
+        def lap_s(p):
+            i = m.nearest(p, int(ids[len(ids) // 2]), len(ids) + 20)
+            return float(m.s[i] + (p - m.pos[i]) @ m.fwd[i])
+        k_end = min(int(ks[-1]) + 1, t.n - 1)
+        s0 = max(float(m.s[ids[0]] - m.step), lap_s(t.pos[ks[0]]))
+        s1 = min(float(m.s[ids[-1]] + m.step), lap_s(t.pos[k_end]))
+        lat0 = float(np.min(m.width[ids]) / 2)
+        lat1 = float(np.min(far_lat))
+        if lat1 - lat0 < CAVE_HOLE_MIN:
+            self.problems.append("%s: the opening is only %.1f m wide (at least %.1f)" % (tag, lat1 - lat0, CAVE_HOLE_MIN))
+        if s0 > float(m.s[ids[0]]) + m.step or s1 < float(m.s[ids[-1]]) - m.step:
+            self.problems.append("%s: the cave's open roof (s %.0f-%.0f) does not reach under all of the opening "
+                                 "(s %.0f-%.0f)" % (tag, s0, s1, m.s[ids[0]], m.s[ids[-1]]))
+        for i in ids:
+            if m.gap[i] or m.junction[i] or m.mag[i] > 0.0 or m.kind(i) not in JUNCTION_KINDS:
+                self.problems.append("%s: the main road there is a %s%s (a drop opens beside a street, an open road "
+                                     "or a deck)" % (tag, m.kind(i), ", a jump" if m.gap[i] else
+                                                     ", a junction" if m.junction[i] else ""))
+                break
+        out.update(ks=ks, s0=s0, s1=s1, lat0=lat0, lat1=lat1, top=float(min(edge_y)), floor=float(min(floor)),
+                   u0=float(t.s[ks[0]]), u1=float(t.s[k_end]))
+        poly = np.array([p[[0, 2]] for p in edges] + [p[[0, 2]] for p in fars[::-1]])
+        out["outline"] = (poly, float(min(floor)), float(max(edge_y)))
+        return out
+
+    def lint(self):
+        """The cave's own rules (validate() adds them): its road starts in a covered tunnel and has no
+        jump or pipe; every drop has the cave's floor under its whole opening, the cave deep enough
+        there for its roof and cover; the merge lies ahead of every drop (its lid: lid_lint)."""
+        m, t = self.main, self.trk
+        tag = "cave %s:" % self.id
+        out = ["%s %s" % (tag, p) for p in self.problems]
+        st0 = t.styles[t.style[0]]
+        if st0["kind"] != "tunnel" or st0.get("cover", 0.0) <= 0.0:
+            out.append("%s its dead end (the first control point) must be in a tunnel style with a cover" % tag)
+        if t.gap.any() or (t.mag > 0.0).any():
+            out.append("%s a cave has no jump and no pipe" % tag)
+        if not self.drops:
+            out.append("%s no drops (nothing leads into it)" % tag)
+        done = [d for d in self.drops if "u0" in d]
+        if done:
+            first = min(d["u0"] for d in done)
+            if first < CAVE_BEHIND:
+                out.append("%s the dead end stands only %.0f m before the first drop (at least %.0f)" % (tag, first, CAVE_BEHIND))
+            last = max(d["u1"] for d in done)
+            nose_u = float(t.s[self.nose_k("merge")])
+            if nose_u < last + CAVE_CLIMB:
+                out.append("%s the merge's nose (u %.0f) is only %.0f m past the last drop (at least %.0f)" % (
+                    tag, nose_u, nose_u - last, CAVE_CLIMB))
+            if any(int(d["ids"][-1]) >= self.i1 for d in done):
+                out.append("%s the merge (s %.0f) must lie ahead of every drop on the lap" % (tag, m.s[self.i1]))
+        return out
+
+    def lid_lint(self, lid_min):
+        """The lid over the cave's covered stretches (and a drop's rim), as wide as the terrain's
+        slot needs (lid_min, Ctx.lid_min), must stay under the ground the main road's carve leaves
+        under it and its verges (0.35 m under its surface, Field._road_cap): else it rises out of the
+        ground there. build() checks it once the terrain's grid is known."""
+        m, t = self.main, self.trk
+        tag = "cave %s:" % self.id
+        out = []
+        reach = m.width / 2 + np.array([m.styles[s].get("verge_w", 4.5) if m.styles[s]["kind"] == "open" else 0.0
+                                        for s in m.style]) + 0.5
+        fl = np.maximum(np.hypot(m.fwd[:, 0], m.fwd[:, 2]), 1e-9)
+        rl = np.maximum(np.hypot(m.right[:, 0], m.right[:, 2]), 1e-9)
+        worst = None
+        for k in range(t.n):
+            st = t.styles[t.style[k]]
+            if st["kind"] != "tunnel" or st.get("cover", 0.0) <= 0.0 or t.junction[k]:
+                continue
+            hw = t.width[k] / 2 + t.wall_gap[k]
+            lid_w = max(st.get("lid_w", 7.0), lid_min)
+            lid_y = t.pos[k, 1] + t.height[k] + st["cover"] - 0.15
+            lats = np.arange(-(hw + lid_w), hw + lid_w + 0.01, 1.0)
+            if not st.get("roof", True):
+                lats = lats[[any(la * sg >= hw for sg in st.get("collar", (-1, 1))) for la in lats]]
+            for la in lats:
+                d = t.pos[k] + t.flat_right[k] * la - m.pos
+                along = (d[:, 0] * m.fwd[:, 0] + d[:, 2] * m.fwd[:, 2]) / fl
+                lat = (d[:, 0] * m.right[:, 0] + d[:, 2] * m.right[:, 2]) / rl
+                under = (np.abs(along) <= m.step * 0.6) & (np.abs(lat) <= reach)
+                if not under.any():
+                    continue
+                ground = (m.pos[:, 1] + along * m.fwd[:, 1] / fl + lat * m.right[:, 1] / rl - 0.35)[under]
+                over = float(lid_y - ground.min())
+                if over > 0.1 and (worst is None or over > worst[0]):
+                    worst = (over, float(t.s[k]))
+        if worst:
+            out.append("%s its lid rises %.2f m out of the ground beside the main road at u %.0f: lay the cave deeper" % (
+                tag, worst[0], worst[1]))
+        return out
+
+    def lid_map(self, field, lid_min):
+        """Per terrain cell, the height of the cave's lid over it (its covered stretches' lids, the
+        rims of its openings, the lid behind its dead end; see _tunnel), -inf where there is none:
+        what a skirt under the main road's verge beside it stands on (ground_geometry), instead of
+        the cave's floor the terrain is cut down to there (ground_cap)."""
+        t = self.trk
+        out = np.full(len(field.P), -np.inf)
+        for k in range(t.n):
+            st = t.styles[t.style[k]]
+            if st["kind"] != "tunnel" or st.get("cover", 0.0) <= 0.0:
+                continue
+            hw = t.width[k] / 2 + t.wall_gap[k]
+            reach = hw + max(st.get("lid_w", 7.0), lid_min)
+            c = t.pos[k, [0, 2]]
+            r = reach * (2.0 if k == 0 else 1.0) + t.step
+            i0, i1 = np.searchsorted(field.xs, [c[0] - r, c[0] + r])
+            j0, j1 = np.searchsorted(field.zs, [c[1] - r, c[1] + r])
+            sub = (np.arange(j0, j1)[:, None] * field.nx + np.arange(i0, i1)[None, :]).ravel()
+            d = field.P[sub] - c
+            f = t.fwd[k, [0, 2]] / np.linalg.norm(t.fwd[k, [0, 2]])
+            along = d @ f
+            lat = d @ t.flat_right[k, [0, 2]]
+            msk = (np.abs(lat) <= reach) & (along >= (-reach if k == 0 else -0.75 * t.step)) & (along <= 0.75 * t.step)
+            if not st.get("roof", True) and k > 0:
+                msk &= np.isin(np.sign(lat), st.get("collar", (-1, 1))) & (np.abs(lat) >= hw)
+            out[sub[msk]] = np.maximum(out[sub[msk]], t.pos[k, 1] + t.height[k] + st["cover"] - 0.15)
+        return out
+
+    def ground_cap(self, field):
+        """The highest the ground may reach along the cave's tunnels: its floor (0.35 m under its
+        road) inside its walls and a grid cell and a half beyond, whatever road is nearer (the main
+        road's bed beside it), so no terrain triangle that spans a wall line rises through it into
+        the cave; its lid, the rim of a drop's opening or the main road above closes that slot."""
+        t = self.trk
+        cap = np.full(len(field.P), np.inf)
+        for k in range(t.n):
+            if t.kind(k) != "tunnel":
+                continue
+            reach = t.width[k] / 2 + t.wall_gap[k] + field.cell + 0.5
+            c = t.pos[k, [0, 2]]
+            r = reach * (2.0 if k == 0 else 1.0) + t.step
+            i0, i1 = np.searchsorted(field.xs, [c[0] - r, c[0] + r])
+            j0, j1 = np.searchsorted(field.zs, [c[1] - r, c[1] + r])
+            sub = (np.arange(j0, j1)[:, None] * field.nx + np.arange(i0, i1)[None, :]).ravel()
+            d = field.P[sub] - c
+            f = t.fwd[k, [0, 2]] / np.linalg.norm(t.fwd[k, [0, 2]])
+            along = d @ f
+            msk = (np.abs(d @ t.flat_right[k, [0, 2]]) <= reach) & (along >= (-reach if k == 0 else -0.75 * t.step)) & \
+                (along <= 0.75 * t.step)
+            cap[sub[msk]] = np.minimum(cap[sub[msk]], t.pos[k, 1] - 0.35)
+        return cap
+
+    def nose_k(self, end):
+        return 0 if end == "fork" else super().nose_k(end)
+
+    def nose_i(self, end):
+        return self.i0 if end == "fork" else super().nose_i(end)
+
+    def outline(self, end):
+        return None if end == "fork" else super().outline(end)
+
+    def _lane_before(self, P):
+        t = self.trk
+        return self._pad0[-P:], np.tile(t.right[0], (P, 1))
+
+    def export(self, lap):
+        """Branch.export plus what the game needs of a cave: its drops (the openings as Kart tests
+        them, see _drop) and the bonus for driving out (branches.CAVE_BONUS and the spec's "bonus");
+        computer drivers never take it on purpose (ai take 0)."""
+        e = Branch.export(self, lap)
+        e["ai"]["take"] = 0.0
+        e["drops"] = [{k: round(d[k], 2) if isinstance(d[k], float) else d[k]
+                       for k in ("s0", "s1", "side", "lat0", "lat1", "top", "floor", "u0", "u1")}
+                      for d in self.drops if "u0" in d]
+        e["bonus"] = dict(branches.CAVE_BONUS, **self.spec.get("bonus", {}))
+        return e
+
+    def summary(self):
+        m, t = self.main, self.trk
+        drops = ", ".join("s %.0f-%.0f (side %+d, %.0f m wide, %.1f m down)" % (
+            d["s0"], d["s1"], d["side"], d["lat1"] - d["lat0"], d["top"] - d["floor"]) for d in self.drops if "u0" in d)
+        return "  cave   %-13s dead end at s %.0f, merge at s %.0f (nose %.0f m before it), %4.0f m; drops %s" % (
+            self.id, m.s[self.i0], m.s[self.i1], t.length - t.s[self.nose_k("merge")], t.length, drops or "none")
 
 
 def lap_line(trk, defn, brs=()):
@@ -1038,6 +1371,8 @@ def validate(trk, brs, defn):
                 out.append("%s too tight at u %.0f: radius %.0f m, needs %.0f" % (tag, t.s[k], 1 / abs(t.curv[k]),
                                                                               t.width[k] / 2 + tr + 2.0))
                 break
+        if br.cave:
+            out += br.lint()
     for what in ("items", "boosts", "barrels"):
         for f in defn.get(what, []):
             i = int((f if np.isscalar(f) else f[0]) * n) % n
@@ -1104,9 +1439,10 @@ def build_geometry(trk, mats, meshes, ctx):
     """A road's geometry, style run by style run; the lap's start line (a branch has none)."""
     S = trk.styles
 
-    # road surface, per style (a tube builds its own, all the way round)
+    # road surface, per style (a tube builds its own, all the way round; a see-saw bridge's deck, a
+    # style with "seesaw": True, is the hazard's: scripts/hazards/seesaw_hazard.gd)
     for name, st in S.items():
-        if st["kind"] == "tube":
+        if st["kind"] == "tube" or st.get("seesaw"):
             continue
         for ids in trk.runs(lambda i, nm=name: trk.style[i] == nm):
             hw = trk.width[ids] / 2
@@ -1138,7 +1474,7 @@ def build_geometry(trk, mats, meshes, ctx):
                 _open(trk, ids, st, meshes)
             elif k == "tunnel":
                 _tunnel(trk, ids, st, meshes, ctx)
-            elif k == "bridge":
+            elif k == "bridge" and not st.get("seesaw"):
                 _bridge(trk, ids, st, meshes, ctx)
             elif k == "trench":
                 _trench(trk, ids, st, meshes)
@@ -1484,6 +1820,12 @@ def _tunnel(trk, ids, st, meshes, ctx):
                     rf = trk.flat_right[ids][sub] * sgn
                     E = trk.pos[ids][sub] + rf * (trk.width[ids][sub] / 2)[:, None] - UP * depth
                     _barrier_runs(trk, ids[sub], meshes, bar, E, rf, v[sub], sgn)
+    # a cave's (CaveBranch): rough rock walls and roof ("rough": metres of relief, see _rough_wall),
+    # no roof over a drop into it ("roof": False, its rim only on the sides listed in "collar") and,
+    # where an open road begins inside a tunnel (Trk.dead_end), a rock face closing that end
+    roof = st.get("roof", True)
+    rough = float(st.get("rough", 0.0))
+    dead = bool(getattr(trk, "dead_end", False)) and int(ids[0]) == 0
     for sgn in (-1, 1):
         rf = trk.flat_right[ids] * sgn
         base = trk.pos[ids] + trk.right[ids] * sgn * hw[:, None] - UP * (0.2 + drop)
@@ -1494,20 +1836,25 @@ def _tunnel(trk, ids, st, meshes, ctx):
             mid = base + UP * band
             wall_strip(meshes["walls"], st["band"], base, mid, v, sgn, _uvlen(st, "band", 2.0))
             wall_strip(meshes["walls"], st["wall"], mid, top, v, sgn, rep)
+        elif rough > 0.0:
+            _rough_wall(meshes["walls"], st["wall"], base, top, rf, v, sgn, rep, rough)
         else:
             wall_strip(meshes["walls"], st["wall"], base, top, v, sgn, rep)
     Ltop = trk.pos[ids] - trk.flat_right[ids] * hw[:, None] + UP * H[:, None]
     Rtop = trk.pos[ids] + trk.flat_right[ids] * hw[:, None] + UP * H[:, None]
     crep = _uvlen(st, "ceil", 4.0)
-    meshes["ceil"].strip(st["ceil"], Rtop, Ltop, hw / crep, -hw / crep, v / crep, -UP[None].repeat(len(ids), 0),
-                         -UP[None].repeat(len(ids), 0))
+    if roof and rough > 0.0:
+        _rough_roof(meshes["ceil"], st["ceil"], Rtop, Ltop, hw, v, crep, rough)
+    elif roof:
+        meshes["ceil"].strip(st["ceil"], Rtop, Ltop, hw / crep, -hw / crep, v / crep, -UP[None].repeat(len(ids), 0),
+                             -UP[None].repeat(len(ids), 0))
     # light panels in the ceiling (glowing material) and real lights for the karts
     every = st.get("light_every", 12.0)
     lw = st.get("light_w", 1.6)
     ll = st.get("light_l", 4.0)
     rows = st.get("light_rows", [0.0])
     slot = np.floor((v - v[0]) / every)
-    for k in range(len(ids)):
+    for k in range(len(ids) if roof else 0):
         if k > 0 and slot[k] == slot[k - 1]:
             continue
         i = ids[k]
@@ -1530,8 +1877,37 @@ def _tunnel(trk, ids, st, meshes, ctx):
         Lc[:, 1:2] = trk.pos[ids][:, 1:2] + lid_y
         Rc[:, 1:2] = trk.pos[ids][:, 1:2] + lid_y
         lrep = _uvlen(st, "lid", 4.0)
-        meshes["walls"].strip(st.get("lid_mat", st["ceil"]), Lc, Rc, -(hw + lid_w) / lrep, (hw + lid_w) / lrep,
-                              v / lrep, UP[None].repeat(len(ids), 0), UP[None].repeat(len(ids), 0))
+        lmat = st.get("lid_mat", st["ceil"])
+        upv = UP[None].repeat(len(ids), 0)
+        # (a cave beside a road: its lid is the ground a kart running wide drives onto, "lid_mesh": "verge")
+        lmesh = meshes[st.get("lid_mesh", "walls")]
+        if roof:
+            lmesh.strip(lmat, Lc, Rc, -(hw + lid_w) / lrep, (hw + lid_w) / lrep, v / lrep, upv, upv)
+        else:
+            # open: only the rim beyond the walls (over the slot the heightfield leaves there)
+            for sgn in st.get("collar", (-1, 1)):
+                inner = trk.pos[ids] + trk.flat_right[ids] * (sgn * hw)[:, None]
+                inner[:, 1:2] = trk.pos[ids][:, 1:2] + lid_y
+                outer = Rc if sgn > 0 else Lc
+                a, b = (inner, outer) if sgn > 0 else (outer, inner)
+                ua, ub = (hw / lrep, (hw + lid_w) / lrep) if sgn > 0 else (-(hw + lid_w) / lrep, -hw / lrep)
+                lmesh.strip(lmat, a, b, ua, ub, v / lrep, upv, upv)
+        if dead:
+            # over the dead end the lid runs on behind it as far as it reaches sideways, over the pit
+            # the heightfield leaves round the road's first sample (lid_caps keeps the ground under it)
+            f0 = trk.fwd[ids[0]] * np.array([1.0, 0.0, 1.0])
+            back = f0 / np.linalg.norm(f0) * (hw[0] + lid_w)
+            q = [Lc[0], Rc[0], Rc[0] - back, Lc[0] - back]
+            face(lmesh, lmat, q, UP, [[p[0] / lrep, p[2] / lrep] for p in q])
+    if dead:
+        # the dead end's rock face, from under the floor up to the lid
+        c = trk.pos[ids[0]]
+        rr = trk.flat_right[ids[0]]
+        f0 = trk.fwd[ids[0]] * np.array([1.0, 0.0, 1.0])
+        top_y = H[0] + cover - 0.15 if cover > 0.0 else H[0]
+        q = [c - rr * hw[0] - UP * (0.2 + drop), c + rr * hw[0] - UP * (0.2 + drop), c + rr * hw[0] + UP * top_y,
+             c - rr * hw[0] + UP * top_y]
+        face(meshes["walls"], st["wall"], q, f0 / np.linalg.norm(f0), plane_uv(q, c, rr, rep))
     # portals: an end wall above and around the opening, when the next stretch is not a tunnel
     # (those meet in _tunnel_steps); next to a pipe it stands just behind the pipe's bulkhead
     for end, sgn_f in ((ids[0], -1.0), (ids[-1], 1.0)):
@@ -1560,6 +1936,55 @@ def _tunnel(trk, ids, st, meshes, ctx):
             uv = [[np.dot(p - c, rr) / 4.0, -p[1] / 4.0] for p in q]
             tri = [0, 1, 2, 0, 2, 3] if sgn_f < 0 else [0, 2, 1, 0, 3, 2]
             meshes["walls"].add(mat, q, [f] * 4, uv, tri)
+
+
+def _rough_taper(v):
+    """0 over the first and last 2 m of a run's metres v, 1 from 4 m in: a rough surface meets the
+    next stretch's flat one on its own line."""
+    d = np.minimum(v - v[0], v[-1] - v)
+    return smoothstep(2.0, 4.0, d)
+
+
+def _rough_wall(mesh, mat, base, top, rf, v, sgn, rep, rough):
+    """wall_strip for a cave's rock wall: rows of points pushed out away from the road (rf: outward
+    on the plan) by smooth noise up to `rough` metres, back on the wall's line at its foot, its top
+    and the run's ends, so it meets the floor, the roof and the next stretch without a crack and
+    never stands in the road's way."""
+    hgt = float(np.max(np.linalg.norm(top - base, axis=1)))
+    rows = max(2, int(math.ceil(hgt / 1.2)) + 1)
+    t = np.linspace(0.0, 1.0, rows)
+    along = _rough_taper(v)
+    lines = []
+    for r in range(rows):
+        p = base + (top - base) * t[r]
+        n = noise2(v / 3.5, p[:, 1] / 3.5 + (40.0 if sgn > 0 else 0.0), 11)
+        k = smoothstep(0.0, 0.2, t[r]) * smoothstep(1.0, 0.8, t[r])
+        lines.append(p + rf * (rough * n * k * along)[:, None])
+    vv = v / rep
+    for r in range(rows - 1):
+        h0 = np.linalg.norm(lines[r] - base, axis=1) / rep
+        h1 = np.linalg.norm(lines[r + 1] - base, axis=1) / rep
+        if sgn > 0:
+            mesh.strip(mat, lines[r], lines[r + 1], h0, h1, vv)
+        else:
+            mesh.strip(mat, lines[r + 1], lines[r], h1, h0, vv)
+
+
+def _rough_roof(mesh, mat, R, L, hw, v, rep, rough):
+    """The ceiling strip of a cave (R to L across, facing down) in columns hung down by smooth noise
+    up to `rough` metres, flat along its edges (where the walls meet it) and the run's ends."""
+    cols = max(2, int(math.ceil(float(np.max(hw)) * 2.0 / 1.5)) + 1)
+    t = np.linspace(0.0, 1.0, cols)
+    along = _rough_taper(v)
+    lines = []
+    for c in range(cols):
+        p = R + (L - R) * t[c]
+        n = noise2(v / 3.5, (t[c] - 0.5) * hw * 2.0 / 3.5 + 80.0, 13)
+        k = smoothstep(0.0, 0.25, t[c]) * smoothstep(1.0, 0.75, t[c])
+        lines.append(p - UP * (rough * n * k * along)[:, None])
+    for c in range(cols - 1):
+        u0, u1 = hw * (1.0 - 2.0 * t[c]) / rep, hw * (1.0 - 2.0 * t[c + 1]) / rep
+        mesh.strip(mat, lines[c], lines[c + 1], u0, u1, v / rep)
 
 
 def _section(trk, i, st, h):
@@ -2717,9 +3142,11 @@ def lid_caps(roads, field, lid_min):
             for ids in trk.runs(lambda i, nm=name: trk.style[i] == nm, with_gaps=True):
                 reach = trk.width[ids] / 2 + _wall_gap(trk, ids, st) + lid_w
                 top = trk.pos[ids, 1] + _run_heights(trk, ids) + st["cover"] - 0.15 - 0.2
+                # (a cave's dead end: its lid runs on behind it as far as it reaches sideways, see _tunnel)
+                dead = bool(getattr(trk, "dead_end", False)) and int(ids[0]) == 0
                 for q, i in enumerate(ids):
                     c = trk.pos[i, [0, 2]]
-                    r = reach[q] + trk.step
+                    r = reach[q] * (2.0 if dead and q == 0 else 1.0) + trk.step
                     i0, i1 = np.searchsorted(field.xs, [c[0] - r, c[0] + r])
                     j0, j1 = np.searchsorted(field.zs, [c[1] - r, c[1] + r])
                     sub = (np.arange(j0, j1)[:, None] * field.nx + np.arange(i0, i1)[None, :]).ravel()
@@ -2728,7 +3155,7 @@ def lid_caps(roads, field, lid_min):
                     along = d @ f
                     # (over the lid only: not beyond its ends)
                     m = (np.abs(d @ trk.flat_right[i, [0, 2]]) <= reach[q]) & \
-                        (along >= (0.0 if q == 0 else -0.75) * trk.step) & \
+                        (along >= (-reach[q] if dead and q == 0 else 0.0 if q == 0 else -0.75 * trk.step)) & \
                         (along <= (0.0 if q == len(ids) - 1 else 0.75) * trk.step)
                     cap[sub[m]] = np.minimum(cap[sub[m]], top[q])
     return cap
@@ -2867,9 +3294,11 @@ class Ctx(crowds.CrowdMixin):
         return c
 
     def add(self, model, pos, yaw=0.0, physics=False, scale=1.0, tag=None, ground=True, pitch=0.0, base=True,
-            solid=True, on_road=False):
+            solid=True, on_road=False, roll=0.0):
         """Place a model. base: pos is where its bottom stands (most HL2 props are centred on their
-        origin), so it is lifted by its own depth below the origin. A static prop is refused (False)
+        origin), so it is lifted by its own depth below the origin. pitch and roll (radians, Godot's
+        rotation order YXZ with yaw) tilt a static prop: a derailed wagon (hazards.lay_consist).
+        A static prop is refused (False)
         when its origin is on the road, or, when solid, when it would pass through something placed
         before it; it then blocks later ones. Any prop but those meant for the road (on_road: barrels,
         cones, a junction's cushion) is refused where it would stand on a branch's road or in a
@@ -2898,6 +3327,9 @@ class Ctx(crowds.CrowdMixin):
                 self.boxes.append(box)
         self.props.append({"model": model, "pos": [float(c) for c in p], "yaw": float(yaw), "physics": physics,
                            "scale": float(scale), "tag": tag, "ground": ground, "pitch": float(pitch)})
+        if roll:
+            # (only a tilted prop carries it: every other track's data stays as it was)
+            self.props[-1]["roll"] = float(roll)
         return True
 
     def _box(self, model, p, yaw, scale):
@@ -2995,7 +3427,11 @@ class Ctx(crowds.CrowdMixin):
 
     def yaw_along(self, model, dirv):
         """Yaw that lays a model's long side along dirv (wagons on a siding)."""
-        m = self.models[model]
+        m = self.models.get(model)
+        if m is None:
+            # (not extracted: a game the player lacks, e.g. Episode Two; ctx.add refuses it after)
+            self.missing.add(model)
+            return self.yaw_facing(dirv)
         long_x = m["aabb_max"][0] - m["aabb_min"][0] > m["aabb_max"][2] - m["aabb_min"][2]
         return self.yaw_facing(dirv) - (math.pi / 2 if long_x else 0.0)
 
@@ -3070,7 +3506,7 @@ class Ctx(crowds.CrowdMixin):
 
     def footprint(self, model, q, yaw, step=4.0, scale=1.0):
         """Ground outline of a model placed at q with yaw (points every `step` metres)."""
-        m = self.models[model]
+        m = self.models.get(model) or {"aabb_min": [-0.5, 0.0, -0.5], "aabb_max": [0.5, 1.0, 0.5]}
         x0, x1 = m["aabb_min"][0] * scale, m["aabb_max"][0] * scale
         z0, z1 = m["aabb_min"][2] * scale, m["aabb_max"][2] * scale
         c, s_ = math.cos(yaw), math.sin(yaw)
@@ -3094,6 +3530,9 @@ class Ctx(crowds.CrowdMixin):
     def fits(self, model, q, yaw, margin):
         """True when the whole ground outline stays `margin` metres off every part of every road, out
         of the hazards' corridors and the stands' plots."""
+        if model not in self.models:
+            self.missing.add(model)
+            return False
         if self._reserved_hit(model, q, yaw):
             return False
         rp = self.roads.pos[:, [0, 2]]
@@ -3173,7 +3612,10 @@ class Ctx(crowds.CrowdMixin):
         return range(int(start / self.trk.step) % k, self.trk.n, k)
 
     def model_size(self, model):
-        m = self.models[model]
+        m = self.models.get(model)
+        if m is None:
+            self.missing.add(model)
+            return np.ones(3)
         return np.array(m["aabb_max"]) - np.array(m["aabb_min"])
 
     def row_along(self, styles, choices, sgn, setback, gap=1.0, max_curv=0.02, align=True, extra=0.0,
@@ -3515,9 +3957,12 @@ def write_gltf(name, meshes, mats, terrain_layers):
             return mat_ids[mname]
         if mname == "terrain":
             base = mats.info(terrain_layers["base"])
-            m = {"name": "terrain", "extras": {"source": {"shader": "hl2kart_terrain"}},
-                 "pbrMetallicRoughness": {"metallicFactor": 0, "roughnessFactor": 1,
-                                          "baseColorTexture": {"index": b.image(rel(base["albedo"]))}}}
+            pbr = {"metallicFactor": 0, "roughnessFactor": 1}
+            # (a layer from a game the player lacks, e.g. Episode Two: no texture; the game draws the
+            # terrain with its own shader and its default layers anyway)
+            if "albedo" in base:
+                pbr["baseColorTexture"] = {"index": b.image(rel(base["albedo"]))}
+            m = {"name": "terrain", "extras": {"source": {"shader": "hl2kart_terrain"}}, "pbrMetallicRoughness": pbr}
         elif mname == "colonly":
             m = {"name": "colonly", "extras": {"source": {"shader": "colonly"}}}
         else:
@@ -3610,7 +4055,8 @@ def build(module_name):
             print("  %-10s %.3f-%.3f  %4.0f m" % (nm, ids[0] / trk.n, ids[-1] / trk.n, len(ids) * trk.step))
     for a, b in trk.gaps:
         print("  jump       %.3f-%.3f" % (a / trk.n, b / trk.n))
-    brs = [Branch(trk, spec, styles, step, k, defn.get("gravity", branches.G))
+    # (a cave, "kind": "cave", is a road under the lap entered by falling in: CaveBranch)
+    brs = [(CaveBranch if spec.get("kind") == "cave" else Branch)(trk, spec, styles, step, k, defn.get("gravity", branches.G))
            for k, spec in enumerate(getattr(mod, "BRANCHES", []))]
     lowg = low_gravity(trk, brs, defn.get("low_gravity", []))
     for br in brs:
@@ -3640,6 +4086,8 @@ def build(module_name):
     models = json.load(open(os.path.join(ASSETS, "data", "models.json")))
     ctx = Ctx(trk, models, np.random.default_rng(defn.get("seed", 17)), roads)
     ctx.junctions = [o for br in brs for o in (br.outline("fork"), br.outline("merge")) if o is not None]
+    # (and a cave's drop openings, CaveBranch.keep_off)
+    ctx.junctions += [o for br in brs if br.cave for o in br.keep_off]
     ctx.mats = mats
     ctx.startline = mod.STARTLINE(mats) if hasattr(mod, "STARTLINE") else mats.hl2("concrete/concretefloor033y")
     meshes = {k: Mesh() for k in MESH_KINDS}
@@ -3649,6 +4097,12 @@ def build(module_name):
     if tdef:
         # the ground climbs a cell and a half beyond a tunnel's wall: its lid must reach that far
         ctx.lid_min = tdef.get("cell", 3.0) * 2.5 + 1.0
+    # (a cave's lid at that width must stay under the ground beside the main road)
+    lids = [p for br in brs if br.cave for p in br.lid_lint(ctx.lid_min)]
+    for p in lids:
+        print("  !!", p)
+    if lids and STRICT:
+        raise ValueError("%s: %d cave lid(s) out of the ground, see above" % (name, len(lids)))
     build_geometry(trk, mats, meshes, ctx)
     for br in brs:
         build_geometry(br.trk, mats, meshes, ctx)
@@ -3660,11 +4114,23 @@ def build(module_name):
         H, col = tdef["build"](field, roads)
         # whatever the circuit's terrain did, none of it through a tunnel's lid
         field.H = np.minimum(H, lid_caps(roads, field, ctx.lid_min)).reshape(field.nz, field.nx)
+        for br in brs:
+            if br.cave:
+                # a cave's floor a cell and a half past its walls, under the main road's edge too
+                field.H = np.minimum(field.H, br.ground_cap(field).reshape(field.nz, field.nx))
         field.col = col
         layers = tdef["layers"]
         terrain_mesh(meshes["terrain"], field, field.H, col, tdef.get("void"))
     ctx.field = field
     ground = (lambda x, z: field.sample(x, z)) if field else (lambda x, z: None)
+    if field is not None and any(br.cave for br in brs):
+        # over a cave its lid is the ground (CaveBranch.lid_map): no skirt hangs into the cave
+        lid = np.max([br.lid_map(field, ctx.lid_min) for br in brs if br.cave], axis=0).reshape(field.nz, field.nx)
+
+        def ground(x, z, below=ground):
+            i = int(round(min(max((x - field.xs[0]) / field.cell, 0), field.nx - 1)))
+            j = int(round(min(max((z - field.zs[0]) / field.cell, 0), field.nz - 1)))
+            return max(below(x, z), float(lid[j, i]))
     for t in trks:
         ground_geometry(t, meshes, ground, defn.get("water", {}).get("level"))
     pillar_meshes(roads, meshes, ctx.pillars, ground)
@@ -3732,14 +4198,15 @@ def build(module_name):
     if hasattr(mod, "crowds"):
         data.update(ctx.crowd_export())
     for k in ("sky", "env", "water", "waters", "background", "gantry", "gantry_clear", "kill_y", "music", "offtrack",
-              "citadel"):
+              "citadel", "seagulls"):
         if k in defn:
             data[k] = defn[k]
     data["sea_level"] = defn.get("water", {}).get("level", -1000.0)
     if field is not None:
         data["terrain"] = {"x0": float(field.xs[0]), "z0": float(field.zs[0]), "cell": field.cell,
                            "nx": field.nx, "nz": field.nz}
-        data["terrain_layers"] = {k: mats.info(v).get("albedo", "") for k, v in layers.items()}
+        # (a layer the player's games lack is left out: the game falls back to its own default for it)
+        data["terrain_layers"] = {k: mats.info(v)["albedo"] for k, v in layers.items() if mats.info(v).get("albedo")}
         field.H.astype(np.float32).tofile(os.path.join(OUT_DIR, name + "_height.bin"))
     with open(os.path.join(OUT_DIR, name + ".json"), "w") as f:
         json.dump(data, f)

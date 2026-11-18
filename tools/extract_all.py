@@ -130,6 +130,34 @@ ANIMS = {
     "hl1/bullsquid": ("hl1:valve/models/bullsquid.mdl", {
         "idle": "idle", "walk": "walk", "run": "run", "range": "range", "bite": "bite", "whip": "whip",
         "look": "look"}),
+    # the beach antlions (scripts/hazards/antlion_hazard.gd): they dig out of the sand (digout, which
+    # carries them 4.4 m forward), run (RunAgitated; a_RunN is the calm run), pounce (an 8 m leap), bite
+    # (attack1), stand about (Idle) and dig back in (digin)
+    "antlion": ("models/antlion.mdl", {
+        "digout": "digout", "digin": "digin", "digidle": "digidle", "run": "RunAgitated", "run_calm": "a_RunN",
+        "walk": "a_WalkN", "idle": "Idle", "pounce": "pounce", "attack": "attack1"}),
+    # the Combine thumpers that keep a beach's antlions asleep: their one sequence lifts the hammer
+    # slowly and drops it at its end
+    "props_combine/combinethumper002": ("models/props_combine/combinethumper002.mdl", {"idle": "idle"}),
+    "props_combine/combinethumper001a": ("models/props_combine/combinethumper001a.mdl", {"idle": "idle"}),
+    # the antlion guard, Nova Prospekt's boss (scripts/hazards/antlion_guard_hazard.gd): it comes up through
+    # the floor (floor_break), stands about (alertidle, a complete idle; its long idle is not needed), crouches
+    # and roars before a charge (charge_anticipate, roar, bark), charges (charge_startfast, then charge_loop),
+    # rams a kart (charge_hit) or pulls up (charge_stop), trots aside (run1) and walks home (a_walkN)
+    "antlion_guard": ("models/antlion_guard.mdl", {
+        "floor_break": "floor_break", "idle": "alertidle", "anticipate": "charge_anticipate", "roar": "roar",
+        "bark": "bark", "charge_start": "charge_startfast", "charge": "charge_loop", "hit": "charge_hit",
+        "stop": "charge_stop", "run": "run1", "walk": "a_walkN"}),
+    # the Combine column marching across White Forest's bridge (scripts/hazards/combine_column_hazard.gd). The
+    # plain soldier, the elite and the prison guard share this skeleton, so one set serves all three: the march
+    # (a_WalkN, 1.8 m a cycle), standing at ease on watch (Idle1), the rifle up (CombatIdle1, the aim), a shot's
+    # kick (shootAR2s, looped while it fires) and the leader's halt signal (signal_halt)
+    "combine_soldier": ("models/combine_soldier_anims.mdl", {
+        "march": "a_WalkN", "idle": "Idle1", "aim": "CombatIdle1", "shoot": "shootAR2s", "halt": "signal_halt"}),
+    # the vortigaunts who pull a kart back to the road in White Forest (scripts/fx/vortigaunt_rescue.gd): their
+    # stance (ActionIdle) and their zap (zapattack1: they rear back with the arms spread, thrust the hands forward
+    # at 1.35 s and hold them there to 2.2 s, then are back in the stance at 3 s)
+    "vortigaunt": ("models/vortigaunt_anims.mdl", {"idle": "ActionIdle", "zap": "zapattack1"}),
 }
 
 MODELS = [
@@ -224,6 +252,8 @@ MODELS = [
     # models/hunter_animations.mdl, the soldiers' in models/combine_soldier_anims.mdl.
     "antlion", "antlion_worker", "antlion_guard", "antlion_grub", "grub_nugget_small", "grub_nugget_medium",
     "grub_nugget_large", "combine_super_soldier", "combine_soldier_prisonguard", "hunter",
+    # the marching column's rifle (the AR2 a soldier holds: its root bone is the hand it is held in)
+    "weapons/w_irifle",
     # the desert's magnet crane: the Highway 17 dock crane (crane_docks has the boom and cab bones,
     # crane_body_lod is the same body in one piece, crane_frame the tower under it) and its magnet
     "cranes/crane_docks", "cranes/crane_body_lod", "cranes/crane_frame", "props_wasteland/cranemagnet01a",
@@ -603,6 +633,7 @@ SOUNDS += (
 SOUNDS += (
     _seq("npc/combine_soldier/gear%d.wav", 1, 6) + _in("npc/combine_soldier", "pain1", "pain2", "pain3", "die1") +
     _seq("npc/footsteps/hardboot_generic%d.wav", 1, 6) + ["npc/footsteps/hardboot_generic8.wav"] +
+    ["weapons/ar2/fire1.wav"] +
     _in("ambient/levels/streetwar", "marching_distant1", "marching_distant2") +
     _in("npc/combine_soldier/vo", "on1", "on2", "off1", "off2", "off3", "movein", "gosharp", "prepforcontact",
         "readyweapons", "affirmative", "copy", "sectorisnotsecure", "stayalert", "engaging",

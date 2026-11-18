@@ -65,7 +65,18 @@ static func _read_cfg(path: String, o: Dictionary) -> void:
 		if sp < 0:
 			continue
 		var key := line.left(sp).to_lower()
-		var value := line.substr(sp + 1).strip_edges().trim_prefix("\"").trim_suffix("\"")
+		# the value: a quoted one up to its closing quote, else up to a comment after a space (" //"
+		# or " #": the example file has one on every line)
+		var value := line.substr(sp + 1).strip_edges()
+		if value.begins_with("\""):
+			var q := value.find("\"", 1)
+			value = value.substr(1, q - 1) if q > 0 else value.substr(1)
+		else:
+			for mark in [" //", "	//", " #", "	#"]:
+				var c := value.find(mark)
+				if c >= 0:
+					value = value.left(c)
+			value = value.strip_edges()
 		if CVARS.has(key):
 			set_option(o, CVARS[key], value)
 
@@ -100,7 +111,12 @@ static func set_option(o: Dictionary, key: String, value: String) -> bool:
 			for t in Game.TRACKS:
 				if t["id"] == value.to_lower() or t["name"].to_lower() == value.to_lower():
 					found = t["id"]
+			# (a track this install has not built yet is refused, not raced as Highway 17 while the
+			# server announces it: Game.track_installed)
 			if found == "":
+				return false
+			if not Game.track_installed(found):
+				printerr("track %s is not built on this machine (run the setup again): kept %s" % [found, o.get(key, "the current track")])
 				return false
 			o[key] = found
 		_:

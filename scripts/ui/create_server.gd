@@ -65,8 +65,12 @@ func _ready() -> void:
 	right.add_child(UiKit.row("Track hazards", UiKit.segmented(["OFF", "ON"], int(s.get("hazards", 1)),
 		func(i: int): _put("hazards", i)), 220))
 	var track_names: Array = Game.TRACKS.map(func(t: Dictionary) -> String: return t["name"])
-	right.add_child(UiKit.row("Track", UiKit.dropdown(track_names, Game.track_index(str(s.get("track", ""))), func(i: int):
-		_put("track", Game.TRACKS[i]["id"])), 220))
+	var track_pick := UiKit.dropdown(track_names, Game.track_index(str(s.get("track", ""))), func(i: int):
+		_put("track", Game.TRACKS[i]["id"]))
+	# (a track this install has not built yet can not be hosted: Game.track_installed)
+	for i in Game.TRACKS.size():
+		track_pick.set_item_disabled(i, not Game.track_installed(Game.TRACKS[i]["id"]))
+	right.add_child(UiKit.row("Track", track_pick, 220))
 	var note := UiKit.label("Friends on your network find the server under FIND SERVERS > LAN. Over the internet they type "
 		+ "your public address (UPnP opens UDP %d-%d on the router, or forward them by hand). With bots off, "
 		% [int(s.get("host_port", 27015)), int(s.get("host_port", 27015)) + 1] + "only people race: 1 on 1, three friends, any mix.", 15, UiKit.TEXT_DIM)

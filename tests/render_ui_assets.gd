@@ -5,7 +5,10 @@ extends Node
 
 const OUT := "res://assets/ui/"
 ## Where on each lap (fraction) the menu background still is taken.
-const BG_AT := {"ct17": 0.04, "black_mesa": 0.74, "xen": 0.3, "surface_tension": 0.8}
+## (Nova Prospekt: on the walkway north over the inner yard, the depot ahead; White Forest: on the
+## gorge road, the see-saw bridge over the river gorge ahead)
+const BG_AT := {"ct17": 0.04, "black_mesa": 0.74, "xen": 0.3, "surface_tension": 0.8, "nova_prospekt": 0.4,
+	"white_forest": 0.235}
 var race: Node
 var cam: Camera3D
 var shots_done := {}
@@ -177,6 +180,10 @@ func _track_thumbs() -> void:
 			await get_tree().process_frame
 		for f in 30:
 			await get_tree().process_frame
+		# the race's loading card (LOADING... in the corner) is gone and its 0.3 s fade over
+		while r.get("_card") != null:
+			await get_tree().process_frame
+		await get_tree().create_timer(0.5).timeout
 		r.hud.visible = false
 		if r.hud.get("root"):
 			r.hud.root.visible = false
@@ -254,16 +261,21 @@ func _process(delta: float) -> void:
 		cam.global_position = tr.origin + tr.basis.x * 2.5 + Vector3.UP * 2.6
 		cam.look_at(p.center_at(6.0) + Vector3.UP * 7.5, Vector3.UP)
 		_shot("grid")
-	elif race.racing and not shots_done.has("city") and s > 130.0 and s < 400.0:
-		cam.global_position = L.global_position - L.global_basis.x * 7.0 - L.global_basis.z * 16.0 + Vector3.UP * 3.2
-		cam.look_at(L.global_position + L.global_basis.z * 4.0 + Vector3.UP * 1.5, Vector3.UP)
+	# Highway 17: the leader on the bay bridge, seen from over the inlet on its seaward side (the
+	# road's left there), the inlet's valley and Highway 17's big bridge behind
+	elif race.racing and not shots_done.has("city") and s > 430.0 and s < 470.0:
+		var b := p.index_at(s + 6.0)
+		cam.global_position = p.center[b] - p.right[b] * 30.0 + Vector3.UP * 3.0
+		cam.look_at(L.global_position + Vector3.UP * 1.0, Vector3.UP)
 		_shot("city")
-	elif race.racing and not shots_done.has("coast") and s > 760.0 and s < 1000.0:
+	# the cliff road down the headland, from over the sea on its right
+	elif race.racing and not shots_done.has("coast") and s > 1160.0 and s < 1290.0:
 		var i := p.index_at(s + 35.0)
 		cam.global_position = p.center[i] + p.right[i] * 22.0 + Vector3.UP * 9.0
 		cam.look_at(L.global_position + Vector3.UP * 1.0, Vector3.UP)
 		_shot("coast")
-	elif race.racing and not shots_done.has("canal") and s > 1560.0 and s < 1840.0:
+	# the boardwalk over the antlion beach, the leader coming along the planks
+	elif race.racing and not shots_done.has("canal") and s > 1680.0 and s < 1790.0:
 		var c2 := p.index_at(s + 28.0)
 		cam.global_position = p.center[c2] + p.right[c2] * 4.0 + Vector3.UP * 4.0
 		cam.look_at(L.global_position + Vector3.UP * 1.0, Vector3.UP)

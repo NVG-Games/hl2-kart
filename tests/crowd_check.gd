@@ -12,7 +12,7 @@ extends Node
 ## Exits 1 on a failure.
 ## usage: godot --headless --path . res://tests/crowd_check.tscn -- [track [crowd.json]]
 
-const TRACKS := ["city17_circuit", "ct17", "xen", "black_mesa", "surface_tension"]
+const TRACKS := ["city17_circuit", "ct17", "xen", "black_mesa", "surface_tension", "nova_prospekt", "white_forest"]
 const MAX_PEOPLE := 450
 ## most people one view sees per preset: [lod, range, max]
 const VIEWS := [[0, 110.0, 90], [1, 150.0, 160], [2, 150.0, 220]]

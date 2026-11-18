@@ -18,7 +18,10 @@ func _ready() -> void:
 	trk.build("city17_circuit")
 	await _stance()
 	await _item_box()
-	for c in [[1250.0, "coast"], [1420.0, "dirt"], [1500.0, "dirt"], [900.0, "coast"], [1350.0, "dirt"], [1495.0, "dirt"], [1890.0, "canal-exit"]]:
+	# (Highway 17 since phase D: the cliff-top highway's inland verge, the docks' apron (clear of the
+	# crates stacked on it from s 1445 on), the antlion sand beside the boardwalk and the slope above
+	# the sea beside the headland's cliff road)
+	for c in [[150.0, "highway"], [1435.0, "quay"], [1780.0, "beach"], [700.0, "highway"], [1950.0, "beach"], [2470.0, "highway"], [1240.0, "cliff"]]:
 		await _offroad_return(c[0], c[1])
 	await _bump()
 	get_tree().quit()
@@ -45,6 +48,9 @@ func _place(k: Kart, s: float, lateral: float, yaw := 0.0) -> void:
 ## moves karts along the track, where the windowed search is enough).
 func _sync(k: Kart) -> void:
 	k.path_index = trk.path.closest(k.global_position)
+	# (on the main loop: the road it is tracked on, which the level and edge watchdogs read)
+	k.route = -1
+	k.route_index = k.path_index
 	k._last_s = trk.path.progress(k.global_position, k.path_index)
 	k._watch_progress = k._last_s
 	k._watch_time = 0.0

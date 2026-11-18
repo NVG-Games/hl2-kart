@@ -5,7 +5,8 @@ floods washed out and drops into the red-rock canyon by a hairpin on its wall; a
 dirt road stays up on the rim instead and drops back in at the hairpin's foot (rim_drop).
 The road runs north up the west bank of the river, where the washed-out ford jumps it
 (washout), crosses the gorge on a steel bridge and comes back south through the HECU camp by
-a landed Osprey, rolls twice round the dam's water main, climbs a cliff road and crosses the
+a landed Osprey, runs down the dam's dry spillway (a concrete channel cut through the
+mountain, the dam's water main on its lip crossing over it), climbs a cliff road and crosses the
 crest of the dam. A viaduct then carries it over the start straight, Suzuka style, and a loop
 to the north brings it home. An Apache guards the canyon's edge, sentry guns the camp and
 mortars the dam; Black Mesa's survivors and the marines watch from the roadside.
@@ -14,7 +15,7 @@ import math
 
 import numpy as np
 
-from track_gen import UP, carve, face, noise2, smoothstep
+from track_gen import UP, carve, face, noise2, smoothstep, wall_strip
 
 RIVER = [(320.0, 70.0), (400.0, -60.0), (470.0, -160.0), (478.0, -300.0), (476.0, -420.0), (470.0, -560.0),
          (440.0, -760.0)]
@@ -26,6 +27,12 @@ RIM_TOP = 31.5  # the mesa top beside the rim road
 # level run-off past the carve's own on the outside of bends below a canyon wall (lap metres from,
 # to, side, metres): out of the hairpin's foot
 APRONS = [(520.0, 610.0, -1, 12.0)]
+# the dam's dry spillway: its walls' height and the lip along their tops; the water main on its
+# lip (radius, metres from the road's edge to its axis), crossing over the channel at its middle
+# over CROSS metres; the wing walls flaring out from its mouth over WING metres of the camp road
+SPILL_H, SPILL_LIP = 5.0, 7.0
+MAIN_R, MAIN_OFF, CROSS = 2.0, 3.6, 30.0
+WING = 30.0
 
 CTRL = [
     # the start straight on the mesa (the viaduct crosses it at s 120), then out to the canyon's edge
@@ -62,8 +69,9 @@ CTRL = [
     (638, 17, -344, 18, "camp"),
     (654, 18, -284, 18, "camp", {"gap": True, "gap_span": (0.005, 0.14), "ramp_lift": 2.2}),
     (662, 20, -212, 17, "camp"),
-    (642, 22, -122, 14, "pipe"),
-    (602, 24, -42, 14, "pipe"),
+    # the dam's dry spillway, its walls SPILL_H high
+    (642, 22, -122, 14, "spillway", {"height": SPILL_H}),
+    (602, 24, -42, 14, "spillway", {"height": SPILL_H}),
     (566, 28, 30, 15, "cliffrail"),
     (488, 32, 84, 15, "cliff"),
     (390, 34, DAM_Z, 16, "dam"),
@@ -142,7 +150,7 @@ TRACK = {
         # to speed
         {"type": "apache", "zone": [62, 178], "hover": [[184, -12, 16], [198, 10, 20], [176, 6, 14]],
          "max_d": 140.0, "every": 3.5},
-        # HECU sentry guns among the camp's barricades (clear of the camp jump and the water main,
+        # HECU sentry guns among the camp's barricades (clear of the camp jump and the spillway,
         # the first one well before the jump's kicker, so a kart it spins gets back up to speed):
         # one camp, so a kart one of them spins is left alone by the others on that pass
         {"type": "turret", "s": 1095, "side": 1, "setback": 2.5, "zone": [1055, 1100], "model": "hl1/sentry",
@@ -212,16 +220,15 @@ def styles(m):
         # the cliff road has no barrier: over the left edge it falls to the lake's beach (dry, just
         # above the water, which ends at the lake's rectangle) ...
         "cliff": cliff,
-        # ... except on the bend out of the water main, where a kart still finding its feet after
-        # the pipe's rolls would run off it
+        # ... except on the bend out of the spillway, where a kart that comes out of the channel
+        # wide would run off it
         "cliffrail": dict(cliff, barrier=dict(parapet, sides="left")),
-        # the dam's water main, laid in a cut through the mountain: two rolls round the pipe, the
-        # lane back at the bottom well before the exit ("settle")
-        "pipe": {"kind": "tube", "road": m.hl2("nature/dirtroad001b"), "road_u": "full", "road_len": 2.0,
-                 "ground": "rest", "settle": 16.0,
-                 "wall": m.hl2("metal/metalpipe010a"), "skin": m.hl2("metal/metalpipe010a"),
-                 "glow": m.hl2("lights/fluorescent001a"), "radius": 12.0, "roll": 720.0,
-                 "ring_every": 14.0, "light_color": [1.0, 0.85, 0.6], "light_energy": 1.8},
+        # the dam's dry spillway, cut through the mountain: a concrete channel, water-stained walls
+        # both sides (no kart gets out of it), the water main on its lip (_water_main), wing walls
+        # flaring out from its mouth across the camp road's verges (_spill_wings)
+        "spillway": {"kind": "trench", "road": m.hl2("concrete/concretefloor034a"), "road_rep": 5.0,
+                     "wall": m.hl2("concrete/concretewall004c"), "wall_rep": 5.0, "lip": SPILL_LIP,
+                     "lip_mat": concrete},
         # the crest of the dam: its ends (the west one bends round onto the shore) rest on the land
         "dam": {"kind": "bridge", "road": asphalt, "road_u": "full", "skirt": concrete, "skirt_h": 2.0,
                 "barrier": parapet, "pillar_every": 1e9, "dip_fade": 34.0},
@@ -486,6 +493,126 @@ def _flare(ctx, i, back, sgn, wide=2.5):
                 rep=bar.get("rep", 3.0))
 
 
+def _spill_wings(ctx, ids, thick=0.7):
+    """The spillway's wing walls: from its mouth, where they meet the channel's walls at their full
+    height, back WING metres along the camp road and out across its verges to 2.5 m past them,
+    falling to 1.2 m at their far ends. A kart out wide on a verge is led in along one instead of
+    meeting the end of a channel wall head on (and none is left in a slot between the two)."""
+    t = ctx.trk
+    mat = t.styles["spillway"]["wall"]
+    i0 = ids[0]
+    n = int(round(WING / t.step))
+    vw = t.styles[t.style[t.wrap(i0 - n)]].get("verge_w", 0.0)
+    for sgn in (-1, 1):
+        inner, tops = [], []
+        for k in range(n + 1):
+            j = t.wrap(i0 - n + k)
+            u = k / n
+            out = (vw + 2.5) * (1.0 - smoothstep(0.0, 1.0, u))
+            inner.append(t.pos[j] + t.right[j] * sgn * t.width[j] / 2 + t.flat_right[j] * sgn * out)
+            tops.append(t.pos[j][1] + 1.2 + (t.height[i0] - 1.2) * u)
+        inner = np.array(inner)
+        along = np.gradient(inner, axis=0)
+        along[:, 1] = 0.0
+        along /= np.linalg.norm(along, axis=1, keepdims=True)
+        outer = inner + np.array([t.flat_right[t.wrap(i0 - n + k)] for k in range(n + 1)]) * sgn * thick
+        foot = np.array([min(ctx.ground(p[0], p[2]), p[1]) - 0.4 for p in inner])
+        bi, bo = inner.copy(), outer.copy()
+        bi[:, 1] = foot
+        bo[:, 1] = foot
+        ti, to = inner.copy(), outer.copy()
+        ti[:, 1] = tops
+        to[:, 1] = tops
+        v = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(inner, axis=0), axis=1))])
+        m = ctx.meshes["walls"]
+        # the face toward the road, the back and the top; the far end closed
+        wall_strip(m, mat, bi, ti, v, sgn, 5.0)
+        wall_strip(m, mat, bo, to, v, -sgn, 5.0)
+        a, b = (ti, to) if sgn > 0 else (to, ti)
+        m.strip(mat, a, b, 0.0, thick / 5.0, v / 5.0)
+        q = [bi[0], bo[0], to[0], ti[0]]
+        face(m, mat, q, -along[0], [[0, 0], [thick / 5.0, 0], [thick / 5.0, 1], [0, 1]])
+        # (props and spectators keep out of it)
+        for k in range(n):
+            c = (inner[k] + outer[k + 1]) / 2
+            c[1] = (foot[k] + max(tops[k], tops[k + 1])) / 2
+            ctx.block(c, [thick, max(tops[k], tops[k + 1]) - foot[k], v[k + 1] - v[k] + 0.1], ctx.yaw_facing(along[k]))
+
+
+def _pipe_along(mesh, mat, P, r, segs=16, rep=4.0):
+    """A pipe of radius r along the polyline P (n, 3), its outside facing out and its texture
+    wrapped round it, open at its ends (they stand in anchor blocks)."""
+    F = np.gradient(P, axis=0)
+    F /= np.maximum(np.linalg.norm(F, axis=1, keepdims=True), 1e-9)
+    R = np.cross(F, UP)
+    R /= np.maximum(np.linalg.norm(R, axis=1, keepdims=True), 1e-9)
+    U = np.cross(R, F)
+    along = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(P, axis=0), axis=1))])
+    phi = np.linspace(0.0, 2 * math.pi, segs + 1)
+    rings = [np.cos(a) * U + np.sin(a) * R for a in phi]
+    for k in range(segs):
+        mesh.strip(mat, P + rings[k] * r, P + rings[k + 1] * r, phi[k] * r / rep, phi[k + 1] * r / rep, along / rep,
+                   rings[k], rings[k + 1])
+
+
+def _water_main(ctx, ids):
+    """The dam's water main along the spillway: a riveted steel pipe MAIN_R in radius on concrete
+    saddles on the right lip, MAIN_OFF metres from the road's edge, that crosses over the channel
+    at its middle (a span of CROSS metres from lip to lip, its underside half a metre over the
+    walls' tops) and runs on along the left lip; flanges between the saddles, concrete anchor
+    blocks closing both ends. It collides (only a kart thrown far over the walls could reach it)
+    and props, saguaros and spectators keep out of it."""
+    t = ctx.trk
+    hl2 = ctx.mats.hl2
+    concrete = hl2("concrete/concretewall008a")
+    m = len(ids)
+    kc = int(round(CROSS / 2 / t.step))
+    if m < 4 * kc:
+        return
+
+    def lip(k, sgn):
+        i = ids[k]
+        return (t.pos[i] + t.right[i] * sgn * t.width[i] / 2 + t.flat_right[i] * sgn * MAIN_OFF +
+                UP * (t.height[i] + 0.5 + MAIN_R))
+
+    # (its ends 4 m inside the channel, where the anchor blocks stand on the ground behind the walls)
+    a, b = m // 2 - kc, m // 2 + kc
+    first = [lip(k, 1) for k in range(2, a + 1)]
+    second = [lip(k, -1) for k in range(b, m - 2)]
+    span = [first[-1] + (second[0] - first[-1]) * u for u in np.linspace(0.0, 1.0, 9)[1:-1]]
+    P = np.array(first + span + second)
+    walls = ctx.meshes["walls"]
+    _pipe_along(walls, hl2("metal/metalpipe010a"), P, MAIN_R)
+    # flanges every 8 m, saddles between them on the lips (the span rests on its two end piers)
+    along = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(P, axis=0), axis=1))])
+    for s_ in np.arange(4.0, along[-1] - 4.0, 8.0):
+        j = int(np.searchsorted(along, s_))
+        fw = P[min(j + 1, len(P) - 1)] - P[max(j - 1, 0)]
+        fw /= np.linalg.norm(fw)
+        _pipe_along(ctx.meshes["deco"], hl2("metal/metalpipe002a"), np.array([P[j] - fw * 0.25, P[j] + fw * 0.25]),
+                    MAIN_R + 0.12, rep=2.0)
+    for k in list(range(6, a - 1, 4)) + [a, b] + list(range(b + 4, m - 5, 4)):
+        sgn = 1 if k <= a else -1
+        i = ids[k]
+        c = lip(k, sgn)
+        top = c[1] - MAIN_R + 0.4
+        base = t.pos[i][1] + t.height[i] - 0.3
+        size = [2 * MAIN_R + 1.4, top - base, 1.2 if k not in (a, b) else 3.0]
+        ctx.box(concrete, [c[0], (top + base) / 2, c[2]], size, ctx.yaw_facing(t.fwd[i]), rep=4.0)
+    # the anchor blocks at both ends
+    for k, sgn in ((2, 1), (m - 3, -1)):
+        i = ids[k]
+        c = lip(k, sgn)
+        base = t.pos[i][1] + t.height[i] - 1.0
+        size = [2 * MAIN_R + 2.2, c[1] + MAIN_R + 1.0 - base, 5.0]
+        ctx.box(concrete, [c[0], base + size[1] / 2, c[2]], size, ctx.yaw_facing(t.fwd[i]), rep=4.0)
+    # (props, saguaros and spectators keep out of the pipe)
+    for k in range(len(P) - 1):
+        c = (P[k] + P[k + 1]) / 2
+        d = P[k + 1] - P[k]
+        ctx.block(c, [2 * MAIN_R, 2 * MAIN_R, float(np.linalg.norm(d[[0, 2]])) + 0.2], ctx.yaw_facing(d))
+
+
 def decorate(ctx):
     t = ctx.trk
     g = ctx.mats.goldsrc
@@ -510,6 +637,11 @@ def decorate(ctx):
                     _flare(ctx, ids[0], 40.0, sgn, wide=0.0 if sgn == drop else 2.5)
     if by.get("turnin"):
         _flare(ctx, by["turnin"][0], 30.0, 1)
+    # the spillway: its mouth's wing walls and the water main on its lip, before the camp's props
+    # and the saguaros, which keep out of them
+    if by.get("spillway"):
+        _spill_wings(ctx, by["spillway"])
+        _water_main(ctx, by["spillway"])
     # the dam body under the crest road (its upstream face a metre into the lake, past the water's
     # edge), and lamps along it standing on the parapet, over the road
     dam = by.get("dam", [])
@@ -626,10 +758,11 @@ def decorate(ctx):
     # of the verges by a run-off (a solid trunk there catches every kart that runs wide): 24 m
     # where the ground lies level with the nearest road (a kart drives on into it), 6 m up a slope
     # or down a drop; each trunk goes down to the lowest ground round it
+    # (none from the spillway's own samples: its lips carry the water main)
     placed = 0
     for k in range(3000):
         i = int(rng.integers(0, t.n))
-        if t.kind(i) in ("tunnel", "bridge", "tube"):
+        if t.kind(i) in ("tunnel", "bridge", "trench"):
             continue
         sgn = 1 if rng.random() < 0.5 else -1
         q = ctx.side(i, sgn, rng.uniform(6.0, 70.0))
@@ -747,6 +880,20 @@ def crowds(ctx):
         ctx.crowd_cluster(gid, ctx.shoulder_spot(i, inner, 2.0, 4.0), 3, 2.5, "scientist", t.pos[i] + UP,
                           ref_y=t.pos[i][1], dy=(-0.5, 3.0), margin=4.0)
     eggs(ctx)
+    # the spillway: marines and a few survivors on its lips looking down into it, on the side the
+    # water main is not (it runs on the right lip, crosses over at the middle, then on the left),
+    # close to the edge, so the karts down in the channel see more of them than their heads
+    # (after the eggs: everyone placed before stands where they always did)
+    spill = [i for i in range(t.n) if t.style[i] == "spillway"]
+    if spill:
+        half = len(spill) // 2
+        edge = (0.4, SPILL_LIP - 1.3)
+        for part, sgn in ((spill[6:half - 10], -1), (spill[half + 10:-6], 1)):
+            if len(part) > 4:
+                gid = ctx.crowd_group(part[len(part) // 2], sgn, "lip", "hecu", tags=["lip"])
+                for role, every in (("hecu", 6.0), ("scientist", 9.0)):
+                    ctx.crowd_line(gid, part, sgn, every, lambda i, s: ctx.lip_spot(i, s, edge), role,
+                                   mood="military" if role == "hecu" else "fan", chance=0.5, margin=0.3, on="geom")
     _feet_on_faces(ctx)
 
 

@@ -488,6 +488,10 @@ def _yard(ctx):
         _rails(ctx, P)
         for k, i in enumerate(ids[3::12]):
             m = WAGONS[(k + int(dist)) % len(WAGONS)]
+            if m not in ctx.models:
+                # (Episode Two's wagons: a player without it gets an empty siding)
+                ctx.missing.add(m)
+                continue
             q = ctx.side(i, sgn, max(dist, fence + min(ctx.model_size(m)[[0, 2]]) / 2 + 1.0))
             yaw = ctx.yaw_along(m, t.fwd[i])
             g = ctx.site(m, q, yaw, tol=0.5)

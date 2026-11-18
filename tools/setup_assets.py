@@ -5,7 +5,7 @@ belong to Valve and are extracted here, on the player's machine.
 
 usage: python tools/setup_assets.py [--godot <path to Godot 4.7>] [--from <step>] [--only <step>]
                                     [--hl2 <folder>] [--hl1 <folder>] [--status <file>] [--log <file>]
-steps: extract, music, skies, highway17, tracks, import, ui
+steps: extract, music, skies, tracks, import, ui
 
 The game's first-start screen (scenes/boot.tscn) runs this with --status (a JSON
 progress file it polls) and --log (all output, for when something goes wrong).
@@ -24,15 +24,17 @@ ROOT = os.path.normpath(os.path.join(HERE, ".."))
 ASSETS = os.path.join(ROOT, "assets")
 sys.path.insert(0, HERE)
 
-# circuits built by track_gen.py (tools/circuits/<name>.py)
-CIRCUITS = ["ct17", "black_mesa", "xen", "surface_tension"]
+# circuits built by track_gen.py (tools/circuits/<name>.py); Highway 17 (city17_circuit) is one of them
+# since phase D (tools/build_track.py, its old builder, is legacy)
+CIRCUITS = ["city17_circuit", "ct17", "black_mesa", "xen", "surface_tension", "nova_prospekt", "white_forest"]
 HL1_SKIES = ["desert", "alien1", "xen8", "neb7"]
-STEPS = ["extract", "music", "skies", "highway17", "tracks", "import", "ui"]
+STEPS = ["extract", "music", "skies", "tracks", "import", "ui"]
 # share of the total time each step takes (for the progress bar)
-WEIGHTS = {"extract": 30, "music": 1, "skies": 6, "highway17": 8, "tracks": 15, "import": 22, "ui": 18}
+WEIGHTS = {"extract": 30, "music": 1, "skies": 6, "tracks": 31, "import": 22, "ui": 19}
 LABELS = {"extract": "Extracting models, textures, sounds and music", "music": "Indexing the soundtrack",
-          "skies": "Building the skies", "highway17": "Building Highway 17",
-          "tracks": "Building CT17, Black Mesa, Xen and Surface Tension", "import": "Importing everything into Godot",
+          "skies": "Building the skies",
+          "tracks": "Building Highway 17, CT17, Black Mesa, Xen, Surface Tension, Nova Prospekt and White Forest",
+          "import": "Importing everything into Godot",
           "ui": "Rendering portraits, icons and menu pictures"}
 
 LOG = None  # open file when --log is given: all output goes there
@@ -193,8 +195,6 @@ def build(a, steps):
         elif step == "skies":
             py("make_skies.py")
             py("hl1_skies.py", *HL1_SKIES)
-        elif step == "highway17":
-            py("build_track.py")
         elif step == "tracks":
             py("track_gen.py", *CIRCUITS)
         elif step == "import":

@@ -12,6 +12,8 @@ const SCALE := {
 	"warn": [1.25, 1.0, 0.85], "lock": [1.25, 1.0, 0.85], "charge": [1.2, 1.0, 0.85],
 	"period": [1.25, 1.0, 0.85], "cycle": [1.25, 1.0, 0.85], "every": [1.3, 1.0, 0.85],
 	"cool": [1.3, 1.0, 0.8], "stale": [1.3, 1.0, 0.85], "rearm": [1.2, 1.0, 0.8], "step": [1.3, 1.0, 0.85],
+	# a window a hazard is dangerous for (the crane's magnet down and catching): shorter on EASY
+	"active": [0.8, 1.0, 1.15],
 }
 const WAKE_AHEAD := 220.0
 const WAKE_BEHIND := 40.0
@@ -54,6 +56,15 @@ func setup(trk: Track, defs: Array) -> void:
 			h.setup(d, trk, self)
 			list.append(h)
 			_by_id[h.id] = h
+	else:
+		# a see-saw bridge is road, not a trap: with hazards OFF it still spans its gap, level and still
+		# (SeesawHazard.still), outside the list (no ticks, no advice, no rescue band)
+		for d in defs:
+			if str(d.get("type", "")) == "seesaw":
+				var span_still := SeesawHazard.new()
+				span_still.still = true
+				add_child(span_still)
+				span_still.setup(d, trk, self)
 	_group()
 	set_physics_process(not list.is_empty())
 
@@ -135,6 +146,16 @@ static func script_for(kind: String) -> GDScript:
 			return ControllerHazard
 		"bullsquid":
 			return BullsquidHazard
+		"antlion":
+			return AntlionHazard
+		"crane":
+			return CraneHazard
+		"antlion_guard":
+			return AntlionGuardHazard
+		"column":
+			return CombineColumnHazard
+		"seesaw":
+			return SeesawHazard
 	return null
 
 
@@ -191,8 +212,9 @@ func step(t: float, dt: float) -> void:
 
 
 func _near(h: Hazard, cam: Camera3D) -> bool:
+	var w := h.span if h.wake_span == Vector2.ZERO else h.wake_span
 	for k in karts if h.aims_all and authority() else local_karts:
-		if in_span(k.lap_progress, h.span.x - WAKE_AHEAD, h.span.y + WAKE_BEHIND):
+		if in_span(k.lap_progress, w.x - WAKE_AHEAD, w.y + WAKE_BEHIND):
 			return true
 	return cam != null and cam.global_position.distance_to(h.global_position) < WAKE_CAMERA
 
@@ -236,9 +258,11 @@ func kart_at(slot: int) -> Kart:
 ## The most urgent steering advice and the lowest speed cap of the hazards ahead. The hazards
 ## stand on the main loop, so one only advises a kart that will be on the main loop where it
 ## is: TrackPath.walk along `plan` (the AI's fork decisions) from where the kart is now, so a
-## kart on a branch, or turning into one round the hazard, gets nothing from it.
+## kart on a branch, or turning into one round the hazard, gets nothing from it. "solid": the lane
+## taken goes round a hazard's body standing in the road (the bots take it whatever they roll).
+## "must": the speed cap comes from a hazard every bot obeys (a level crossing's arms coming down).
 func advice(k: Kart, at_s: float, speed: float, plan := {}) -> Dictionary:
-	var out := {"lat": NAN, "w": 0.0, "id": -1, "vmax": INF, "vid": -1}
+	var out := {"lat": NAN, "w": 0.0, "id": -1, "vmax": INF, "vid": -1, "solid": false, "must": false}
 	var L := track.path.length
 	for h in list:
 		if not in_span(at_s, h.span.x - 170.0, h.span.y):
@@ -252,10 +276,12 @@ func advice(k: Kart, at_s: float, speed: float, plan := {}) -> Dictionary:
 		if float(a.get("vmax", INF)) < out["vmax"]:
 			out["vmax"] = float(a["vmax"])
 			out["vid"] = h.id
+			out["must"] = bool(a.get("must", false))
 		if a.has("lat") and float(a.get("w", 0.5)) > out["w"]:
 			out["lat"] = float(a["lat"])
 			out["w"] = float(a.get("w", 0.5))
 			out["id"] = h.id
+			out["solid"] = bool(a.get("solid", false))
 	return out
 
 
@@ -265,7 +291,7 @@ func safe_respawn(at_s: float) -> float:
 		var moved := false
 		for h in list:
 			if h.blocks_respawn(at_s):
-				at_s = fposmod(h.span.x - 15.0, track.path.length)
+				at_s = h.respawn_s(at_s)
 				moved = true
 		if not moved:
 			break

@@ -75,6 +75,8 @@ func build(track_name: String) -> void:
 	LowGravityField.spawn_for(self)
 	# fires and columns of smoke in a ruined city (data "fires"); none headless or on the dedicated server
 	RuinFires.spawn_for(self)
+	# the wind in the pines and distant birds in a forest (background "forest"); none headless either
+	ForestLife.spawn_for(self)
 
 
 ## The race paths of a track JSON: the main loop with its branches (TrackBranch).
@@ -424,6 +426,11 @@ func _spawn_props() -> void:
 		body.add_child(model)
 		body.global_position = pos
 		body.rotation.y = yaw
+		# a tilted prop (a derailed wagon): pitch and roll in radians, rotation order YXZ with the yaw
+		var pitch := float(p.get("pitch", 0.0))
+		var roll := float(p.get("roll", 0.0))
+		if pitch != 0.0 or roll != 0.0:
+			body.rotation = Vector3(pitch, yaw, roll)
 		if p.get("tag", "") == "float":
 			body.global_position.y = sea_level - aabb.size.y * 0.25
 		# distant set dressing (floating rocks, the Nihilanth) is never reached, and decoration a

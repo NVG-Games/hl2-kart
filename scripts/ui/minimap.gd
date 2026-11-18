@@ -2,7 +2,8 @@ class_name Minimap
 extends Control
 ## Top-down track outline with racer blips (HUD yellow; player bright). Branches are drawn
 ## first, as bright dashes on the same dark edge as the main loop, so a shortcut stands out
-## from the lap, and forks, merges and crossings read. Track hazards are small triangles on it.
+## from the lap, and forks, merges and crossings read (a cave, under the lap, is left out).
+## Track hazards are small triangles on it.
 
 const DASH := 5.0  # branch dash and gap lengths (px)
 const DASH_GAP := 3.0
@@ -36,6 +37,10 @@ func _prepare() -> void:
 		_pts.append(_map(c))
 	_pts.append(_pts[0])
 	for b in path.branches:
+		# a cave is no shortcut (dashes mark those): it lies under the lap and is got into only by
+		# falling in, so it is not drawn (a kart down there is still a blip)
+		if b.kind == "cave":
+			continue
 		var line := PackedVector2Array()
 		for c in b.center:
 			line.append(_map(c))
@@ -77,6 +82,8 @@ func _draw_hazards() -> void:
 	var t := hz.clock()
 	var blink := int(Time.get_ticks_msec() / 150.0) % 2 == 0
 	for h in hz.list:
+		if not h.on_map():
+			continue
 		var col := Color8(255, 140, 0, 220)
 		if h.is_active(t):
 			col = Color(1.0, 0.15, 0.1, 1.0 if blink else 0.35)

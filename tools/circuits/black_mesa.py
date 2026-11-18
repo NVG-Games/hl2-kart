@@ -2,8 +2,10 @@
 reactor room twice.
 
 The Sector C lobby, then a high walk straight across the reactor room beside the glowing core,
-the office switchback, the Anomalous Materials lab wing, the tram tunnel and the accelerator
-pipe, a high-security storage hall (a slime-pit jump, a toxic spill and ceiling turrets on the
+the office switchback, the Anomalous Materials lab wing, the tram tunnel and the accelerator's
+service tunnel (the road runs flat between its beam line, the glowing beam pipe through its
+blue magnets, and its cooling lines, under the ring magnets' yellow arches), a high-security
+storage hall (a slime-pit jump, a toxic spill and ceiling turrets on the
 floor, the crane gantry along its north wall above them: you drop off its end back onto the
 road), waste processing with toxic channels and a second slime jump, then down at coolant level
 round the core (under the high walk) and back up to the lobby. The broken maintenance catwalk
@@ -32,6 +34,11 @@ ROOF_Y = 22.0
 WALK_X, WALK_Y = 85.0, 5.0   # the high walk across the room, west of the core
 HALL_Z, HALL_Y = -40.0, -12.0  # the storage hall, heading west
 GANTRY_Z = HALL_Z - 14.0       # the crane gantry over the hall's north floor, 5.6 m up, by the wall
+# the accelerator's service tunnel: its trenches beside the road (metres wide, deep), the beam
+# line's axis (metres past the road's edge, over the road) and its ring magnets' arches (every)
+ACCEL_TRENCH, ACCEL_DEPTH = 4.5, 1.4
+BEAM_OFF, BEAM_Y = 2.3, 1.25
+ARCH_EVERY = 24.0
 
 
 def _loop():
@@ -92,7 +99,8 @@ CTRL = [
     (320, -2.0, 236, 16, "lab"),
     (368, -3.2, 250, 16, "lab_end"),
     (399, -4.5, 237, 16, "lab_end"),
-    # the tram tunnel turns north into the accelerator pipe, then east and round a hairpin
+    # the tram tunnel turns north into the accelerator's service tunnel, then east and round a
+    # hairpin
     (412, -6, 206, 15, "tram"),
     (412, -7, 182, 15, "accel"),
     (414, -9.5, 110, 15, "accel"),
@@ -242,11 +250,18 @@ def styles(m):
                  "wall_rep": 4.0, "band": g("c1a4_w5"), "band_h": 2.0, "band_rep": 2.0, "ceil": g("crete3_ceil01"),
                  "ceil_rep": 3.0, "light": g("~tracklite"), "light_every": 14.0, "light_rows": [-0.85, 0.85],
                  "light_w": 0.8, "light_l": 3.0, "light_color": [1.0, 0.82, 0.55], "light_energy": 1.4, "wall_gap": 1.0},
-        # the anomalous materials accelerator: the road rolls once round the pipe, back at its bottom
-        # 40 m before the exit (a kart still up the wall there met the exit's bulkhead)
-        "accel": {"kind": "tube", "road": g("tnnl_flr4"), "road_rep": 4.0, "wall": g("metal_wall04"),
-                  "skin": g("metal_wall04"), "glow": g("skkylite", glow=True), "radius": 11.0, "roll": -360.0,
-                  "settle": 14.0, "ring_every": 14.0, "light_color": [0.75, 0.88, 1.0], "light_energy": 1.6},
+        # the Anomalous Materials accelerator's service tunnel: the road runs flat between two
+        # trenches behind railings, the beam line in the left one and the cooling lines in the right
+        # (_accelerator dresses both, with the ring magnets' arches over it all). The railings stop a
+        # kart up to 3.5 m, like the waste's: one thrown over them lands on a trench floor, and the
+        # trenches' ends close where the tram tunnel's walls run in or out
+        "accel": {"kind": "tunnel", "road": g("tnnl_flr4b"), "road_rep": 4.0, "height": 10.0, "wall": g("c3a2a_w1"),
+                  "wall_rep": 4.0, "band": g("c3a2a_tnk1b"), "band_h": 3.0, "band_rep": 2.0, "ceil": g("drkmtlt_ceil01"),
+                  "ceil_rep": 4.0, "light": g("~light3b"), "light_every": 9.0, "light_rows": [-0.25, 0.25],
+                  "light_w": 0.8, "light_l": 3.2, "light_color": [0.75, 0.88, 1.0], "light_energy": 1.6,
+                  "wall_gap": ACCEL_TRENCH, "portals": False,
+                  "pit": {"mat": g("tnnl_flr3b"), "depth": ACCEL_DEPTH}, "pit_wall": g("drkmtlt_wall07"),
+                  "barrier": {"kind": "fence", "mat": g("{grate2"), "h": 1.1, "rep": 2.0, "col_h": 3.5}},
         "storage": {"kind": "tunnel", "road": g("crete4_flr01"), "road_rep": 4.0, "height": 16.0, "wall": g("silo2_wall1"),
                     "side_floor": g("crete2_flr01"),
                     "wall_rep": 4.0, "band": stripe, "band_h": 1.0, "band_rep": 1.0, "ceil": g("drkmtlt_ceil01"),
@@ -696,6 +711,141 @@ def decorate(ctx):
     for i in cor[33::50]:
         ctx.add("hl1/sentry", ctx.side(i, 1, 0.5), ctx.yaw_facing(-t.flat_right[i]), ground=False)
         ctx.against_wall(cor[(cor.index(i) + 6) % len(cor)], -1, "props_c17/lockers001a", ground=False)
+    # (last: it takes no random numbers, so everything above is dressed as it always was)
+    _accelerator(ctx)
+
+
+def _pipe_along(mesh, mat, P, r, segs=12, rep=2.0, glow_rep=None):
+    """A pipe of radius r along the polyline P (n, 3), its outside facing out, open at its ends
+    (they stand in walls). glow_rep: a glowing pipe shows its texture's middle row the whole way
+    round, repeated every glow_rep metres along it (a light strip lit end to end); else the
+    texture wraps round it and runs along it every rep metres."""
+    F = np.gradient(P, axis=0)
+    F /= np.maximum(np.linalg.norm(F, axis=1, keepdims=True), 1e-9)
+    R = np.cross(F, UP)
+    R /= np.maximum(np.linalg.norm(R, axis=1, keepdims=True), 1e-9)
+    U = np.cross(R, F)
+    along = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(P, axis=0), axis=1))])
+    phi = np.linspace(0.0, 2 * math.pi, segs + 1)
+    rings = [np.cos(a) * U + np.sin(a) * R for a in phi]
+    for k in range(segs):
+        a, b = P + rings[k] * r, P + rings[k + 1] * r
+        if glow_rep:
+            mesh.strip(mat, a, b, along / glow_rep, along / glow_rep, np.full(len(P), 0.5), rings[k], rings[k + 1])
+        else:
+            mesh.strip(mat, a, b, phi[k] * r / rep, phi[k + 1] * r / rep, along / rep, rings[k], rings[k + 1])
+
+
+def _accelerator(ctx):
+    """The accelerator's service tunnel (style "accel"). In the left trench the beam line: the
+    glowing blue beam pipe at BEAM_Y over the road, BEAM_OFF metres past its edge, through a long
+    blue dipole magnet with copper coil ends and a short yellow quadrupole in turn, each on its
+    stand on the trench floor; in the right one three cooling lines along the wall. Every
+    ARCH_EVERY metres, midway between the roof's light panels, a ring magnet's yellow arch: a
+    pillar in each trench against the wall with a blue light strip down its face, a beam under the
+    roof with one along its underside. HL1 signs on the walls between the arches. All of it stands
+    behind the railings or up under the roof, out of a kart's reach, and draws no collision."""
+    t = ctx.trk
+    g = ctx.mats.goldsrc
+    ids = [i for i in range(t.n) if t.style[i] == "accel"]
+    if len(ids) < 10:
+        return
+    st = t.styles["accel"]
+    floor = -st["pit"]["depth"]
+    deco = ctx.meshes["deco"]
+    for run in ctx.runs_of(ids, t.n):
+        run = np.array(run) % t.n
+        hw = t.width[run] / 2
+        H = t.height[run]
+
+        def line(sgn, off, y, r):
+            """The polyline `off` metres past the road edge on side sgn, y over the road, over the
+            samples whose walls stand clear of a pipe of radius r there (the run's ends, where the
+            walls run in to the tram tunnel's, cut it off inside them)."""
+            ok = t.wall_gap[run] >= off + r + 0.05
+            k = np.flatnonzero(ok)
+            if len(k) < 2:
+                return None, None
+            sub = slice(k[0], k[-1] + 1)
+            P = t.pos[run[sub]] + t.flat_right[run[sub]] * (sgn * (hw[sub] + off))[:, None] + UP * y
+            return P, run[sub]
+
+        # the beam line: the beam pipe end to end, the magnets on it from where the trench is full width
+        beam, b_ids = line(-1, BEAM_OFF, BEAM_Y, 0.3)
+        if beam is not None:
+            _pipe_along(ctx.meshes["glow"], g("~generic88"), beam, 0.28, segs=10, glow_rep=3.0)
+            full = np.flatnonzero(t.wall_gap[b_ids] >= ACCEL_TRENCH - 0.05)
+            if len(full) > 4:
+                P = beam[full[0]:full[-1] + 1]
+                along = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(P, axis=0), axis=1))])
+                # (a dipole 3.2 m long, 0.7 m of pipe, a quadrupole 1 m long, 1.5 m of pipe, and again)
+                spots = [(s0 + 1.6, True) for s0 in np.arange(2.5, along[-1] - 5.0, 6.4)]
+                spots += [(s0 + 4.4, False) for s0 in np.arange(2.5, along[-1] - 7.5, 6.4)]
+                for at, dipole in spots:
+                    length = 3.2 if dipole else 1.0
+                    j = min(int(np.searchsorted(along, at)), len(P) - 1)
+                    c = P[j]
+                    fw = P[min(j + 1, len(P) - 1)] - P[max(j - 1, 0)]
+                    yaw = ctx.yaw_facing(fw)
+                    if dipole:
+                        ctx.box(g("c3a2a_tnk1b"), c, [1.3, 1.2, length - 0.5], yaw, kind="deco", rep=2.0)
+                        for e in (-1.0, 1.0):
+                            ctx.box(g("c3a2b_reac2b"), c + fw / np.linalg.norm(fw) * e * (length / 2 - 0.13),
+                                    [1.5, 1.45, 0.26], yaw, kind="deco", rep=2.0)
+                    else:
+                        ctx.box(g("c3a2b_reac"), c, [1.55, 1.55, length], yaw, kind="deco", rep=2.0)
+                    low = c[1] - 0.7
+                    foot = t.pos[b_ids[full[0] + j]][1] + floor
+                    ctx.box(g("drkmtlt_wall07"), [c[0], (low + foot) / 2, c[2]], [0.7, low - foot, min(length, 1.6)], yaw,
+                            kind="deco", rep=2.0)
+        # the cooling lines along the right wall
+        for off, y, r, mat in ((ACCEL_TRENCH - 0.45, -0.55, 0.32, "c3a2a_pipe2"),
+                               (ACCEL_TRENCH - 0.4, 0.35, 0.27, "c3a2a_pipe1"),
+                               (ACCEL_TRENCH - 1.15, -0.95, 0.22, "ca1x_pipe")):
+            P, _ = line(1, off, y, r)
+            if P is not None:
+                _pipe_along(deco, g(mat), P, r, segs=10, rep=2.0)
+        # the ring magnets' arches, where the walls stand at full width both sides; the roof's light
+        # panels come every light_every metres from the run's start, so the arches stand midway
+        v = t.s[run] - t.s[run[0]]
+        v = np.where(v < 0.0, v + t.length, v)
+        every = st.get("light_every", 9.0)
+        lamp = g("~light3b")
+        signs = [("c3a2sign06", 3.6, 1.8), ("c1a1a_sign1", 2.8, 2.1), ("c3a2sign42", 2.2, 2.2), ("c3a2sign02", 5.4, 0.9)]
+        n_sign = 0
+        for a in np.arange(every / 2, v[-1], ARCH_EVERY):
+            k = int(np.argmin(np.abs(v - a)))
+            if k < 2 or k > len(run) - 3 or not _level(t, run[k], 2) or t.wall_gap[run[k]] < ACCEL_TRENCH - 0.05:
+                continue
+            i = run[k]
+            yaw = ctx.yaw_facing(t.fwd[i])
+            wall = hw[k] + ACCEL_TRENCH
+            y0 = t.pos[i][1] + floor - 0.2
+            for sgn in (-1, 1):
+                c = t.pos[i] + t.flat_right[i] * sgn * (wall - 0.45)
+                ctx.box(g("c3a2b_reac"), [c[0], (y0 + t.pos[i][1] + H[k]) / 2, c[2]], [0.9, t.pos[i][1] + H[k] - y0, 1.4],
+                        yaw, kind="deco", rep=2.0)
+                # the light strip down the pillar's face toward the road, a hand off it
+                f = c - t.flat_right[i] * sgn * 0.47
+                dw = t.fwd[i] * 0.18
+                quad = [f - dw + UP * 1.2, f + dw + UP * 1.2, f + dw + UP * (H[k] - 1.6), f - dw + UP * (H[k] - 1.6)]
+                face(ctx.meshes["glow"], g("~generic87"), quad, -t.flat_right[i] * sgn,
+                     [[0, 1], [1, 1], [1, 0], [0, 0]])
+            top = t.pos[i] + UP * (H[k] - 0.5)
+            ctx.box(g("c3a2b_reac"), top, [2 * wall - 0.2, 1.0, 1.4], yaw, kind="deco", rep=2.0)
+            # the light strip along the beam's underside
+            u = t.flat_right[i] * (wall - 1.0)
+            dw = t.fwd[i] * 0.25
+            low = top - UP * 0.52
+            face(ctx.meshes["glow"], lamp, [low - u - dw, low + u - dw, low + u + dw, low - u + dw], -UP,
+                 [[0, 0], [8, 0], [8, 1], [0, 1]])
+            ctx.light(t.pos[i] + UP * (H[k] - 2.0), [0.6, 0.8, 1.0], 16.0, 1.3)
+            # a sign on the wall halfway on to the next arch, the sides in turn
+            kk = int(np.argmin(np.abs(v - (a + ARCH_EVERY / 2))))
+            if 2 < kk < len(run) - 3 and t.wall_gap[run[kk]] >= ACCEL_TRENCH - 0.05:
+                nm, w, h = signs[n_sign % len(signs)]
+                ctx.wall_sign(run[kk], 1 if n_sign % 2 else -1, g(nm), w, h, 3.4)
+                n_sign += 1
 
 
 def decorate_branch(ctx, spec):
@@ -1093,7 +1243,9 @@ def eggs(ctx):
         path = [ctx.side_point(i, -1, t.wall_gap[i] * 0.4, y=t.pos[i][1]) for i in lab[mid - 9:mid + 2:2]]
         ctx.egg("lamarr", path=path)
     # two HL1 zombies wading in the waste's toxic channels (the scientists scream when they notice)
-    slime = [i for i in range(t.n) if isinstance(ctx.style_of(i).get("pit"), dict) and not t.gap[i]]
+    # (the waste's slime channels: the accelerator's dry trenches hold no liquid)
+    slime = [i for i in range(t.n) if isinstance(ctx.style_of(i).get("pit"), dict)
+             and ctx.style_of(i)["pit"].get("liquid") == "slime" and not t.gap[i]]
     done = False
     for run in ctx.runs_of(slime):
         st = ctx.style_of(run[0])

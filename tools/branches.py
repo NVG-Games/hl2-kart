@@ -11,6 +11,17 @@ The JSON entry (data["branches"], read by scripts/track/track_branch.gd):
   min_skill[, commit]}, respawn, retry_back, offtrack, merge_type, in_hall, and a path with the main path's
   keys plus closed false and s_main (monotone, fork_s .. merge_s): evenly spaced samples, the
   last one at the branch's end.
+
+A cave (kind "cave", tools/track_gen.py CaveBranch) has no fork: its road starts at a dead end
+underground (fork_s / fork_i: the lap's sample abreast of it, fork_nose_u 0) and a kart gets onto
+it only by falling through one of its drops. Its entry adds drops, one per opening beside the main
+road: s0 / s1 (lap metres where both the main road's edge and the cave's roof are open), side
+(+1 right of the main road), lat0 / lat1 (metres out from the main road's centre on that side: its
+edge and the cave's far wall), top (the main road edge's height), floor (the cave road's height
+under it), u0 / u1 (cave metres under it); and bonus, what driving it out to its merge earns
+(CAVE_BONUS: a boost of that many seconds at that power, and an item from the crates' pool when
+the kart holds none; with "best_item" that item comes from the pool the last kart draws from).
+Its respawn is "main" unless the spec says otherwise, its ai take 0.
 """
 import math
 
@@ -25,6 +36,10 @@ SPEED_MARGIN = 1.08
 TOP_SPEED = 31.0
 # the game's sample search around a hint (TrackPath.closest)
 WINDOW = (-12, 25)
+# a cave's drop opening: metres along the main road unless its spec says ("length"), and what
+# driving the cave out earns (its spec's "bonus" overrides any of these; Kart.cave_bonus)
+CAVE_DROP_LEN = 24.0
+CAVE_BONUS = {"boost": 2.0, "power": 1.15, "item": True}
 
 
 def catmull_rom_open(pts, pre, post, samples_per_seg=200):

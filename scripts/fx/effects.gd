@@ -8,7 +8,7 @@ static var _keep: Array[Material] = []  # one material of each kind made afresh 
 ## Draws, while the race loads, what would otherwise be drawn for the first time mid-race and
 ## stall that frame while its shader and pipelines compile: every kind of particle sprite, beam
 ## and ring, the energy ball, the canister marker, the scorch decal, the rescuers' glow sprite, the
-## models the items, the scanner and the track's hazards spawn, and the gibs with their collision
+## models the items, the scanner, the rescuer and the hazards spawn, and the gibs with their collision
 ## hulls. All of it sits tiny in front of `cam` for half a second (behind the loading card and the
 ## fly-by's first frames). A ring's material and a glow sprite's are kept for the session: those
 ## made afresh later find their shader alive (once the last material of a kind is freed, the next
@@ -54,7 +54,13 @@ static func prewarm(cam: Camera3D, track: Track) -> void:
 		pud.mesh = PlaneMesh.new()
 		pud.material_override = BullsquidHazard.puddle_material()
 		holder.add_child(pud)
-	var models: Array = Items.SPAWNS + ["combine_scanner"]
+	# so has the marching column's mark of the strips it fires on (its first warning is mid-race)
+	if track.hazards and track.hazards.has_type("column"):
+		var mark := MeshInstance3D.new()
+		mark.mesh = PlaneMesh.new()
+		mark.material_override = CombineColumnHazard.mark_material()
+		holder.add_child(mark)
+	var models: Array = Items.SPAWNS + ["combine_scanner"] + Rescuer.models_of(track)
 	if track.hazards:
 		models.append_array(track.hazards.spawns())
 	for key in models:

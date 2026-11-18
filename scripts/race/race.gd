@@ -522,21 +522,38 @@ func _show_results() -> void:
 
 ## Branch passes per kart: kart -> {branch index: Vector2i(passes, completed)}.
 var branch_log := {}
+## Falls into a cave per kart (kind "cave": not a shortcut, so kept out of branch_log):
+## kart -> {branch index: Vector2i(falls in, drove out)}.
+var cave_log := {}
 
 
 ## A kart left branch `b` of the track (Kart._leave_branch); `done`: it got through to the merge.
-## A jump or ledge shortcut the player completes without falling off earns a cheer.
+## A jump or ledge shortcut the player completes without falling off earns a cheer; the player
+## driving out of a cave hears of its bonus (Kart.cave_bonus).
 func on_branch(k: Kart, b: int, done: bool) -> void:
-	var rec: Dictionary = branch_log.get_or_add(k, {})
+	var br := track.path.branches[b]
+	var cave := br.kind == "cave"
+	var rec: Dictionary = (cave_log if cave else branch_log).get_or_add(k, {})
 	rec[b] = rec.get(b, Vector2i.ZERO) + Vector2i(1, 1 if done else 0)
 	# online every peer logs the passes as the kart's owner saw them (the SHORTCUTS column)
 	if online and not k.remote:
 		Net.send_event("branch", [k.net_slot, b, done])
-	var br := track.path.branches[b]
 	if done and k == player and k.is_player and hud and br.kind in ["jump", "ledge"] \
 			and int(k._branch_fails.get(b, 0)) == 0:
 		hud.big_text("SHORTCUT!", 1.0)
 		Game.play_ui("res://assets/sound/buttons/button9.wav", -6.0)
+	if done and cave and k == player and k.is_player and hud:
+		hud.big_text("OUT OF THE CAVES!", 1.4)
+		Game.play_ui("res://assets/sound/items/suitchargeok1.wav", -4.0)
+
+
+## The player's kart fell into a cave (Kart._set_route): the way out lies ahead, down there.
+func on_cave(k: Kart, _b: int) -> void:
+	if k == player and k.is_player and hud and racing:
+		hud.big_text("ANTLION CAVES: DRIVE OUT!", 1.6)
+		# (the cave's own growl is in the newer content; the older has the rumble)
+		var growl := "ambient/levels/caves/dist_growl1.wav"
+		Game.play_ui("res://assets/sound/" + (growl if Game.stream(growl) else "ambient/atmosphere/cave_hit1.wav"), -6.0)
 
 
 func _on_kart_hit(k: Kart, by: Kart) -> void:

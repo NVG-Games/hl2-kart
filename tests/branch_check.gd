@@ -11,6 +11,14 @@ extends Node
 ## progress never jumps or runs backwards on a forward drive, and that laps count once per
 ## loop; then puts the ghost back after falls on each branch (respawn policy: a retry has to be
 ## winnable from a standstill) and through a Xen portal.
+## A cave (kind "cave": no fork, entered by falling through a drop) has its own rules and drives
+## instead of the fork's: its data (drops over its road, s_main matching the main road under each,
+## its merge ahead of them all), a fall through every drop (the ghost drifts off the edge and drops
+## onto the cave's floor, the real fall / edge / level checks running: no rescue, one switch onto
+## the cave inside the opening, the lap progress carried on, out at the merge with the pass, the
+## bonus and the HUD's fall), back down its way out the wrong way (no pass, no bonus), a computer
+## driver never planning it but driving it out once it is down there, stuck in it (back on the main
+## road about where it was, the pass not completed), plus the rescued drive and the portal.
 ## usage: godot --headless --path . res://tests/branch_check.tscn -- <track.json | track id> [...]
 
 const DT := 1.0 / 30.0  # ghost time per 1 m step (30 m/s)
@@ -26,9 +34,15 @@ var _checks := 0
 ## Stands in for Race on the ghost: the branch passes it is credited with (Kart._leave_branch).
 class Passes extends Node:
 	var got: Array = []
+	var caves: Array = []  # Race.on_cave: the falls into a cave it heard of
+	var racing := true  # (Kart._check_respawn reads it)
+	var race_time := 0.0  # (Items.roll reads it)
 
 	func on_branch(_k: Kart, b: int, done: bool) -> void:
 		got.append([b, done])
+
+	func on_cave(_k: Kart, b: int) -> void:
+		caves.append(b)
 
 
 func _ready() -> void:
@@ -50,13 +64,28 @@ func _check_track(label: String, d: Dictionary) -> void:
 	var trk := Track.new()
 	trk.data = d
 	trk.path = Track.make_path(d)
+	# (as Track.build: the falls into a cave run the real fall checks, which read them)
+	trk.sea_level = float(d.get("sea_level", -13.0))
+	trk.has_sea = d.has("water") or trk.sea_level > -500.0
 	var p := trk.path
 	print("== %s: lap %.0f m, %d branches" % [label, p.length, p.branches.size()])
 	for b in p.branches:
-		_check_data(label, p, b, d["branches"][b.index])
+		if b.kind == "cave":
+			_check_cave_data(label, p, b, d["branches"][b.index])
+		else:
+			_check_data(label, p, b, d["branches"][b.index])
 	var k := _ghost(trk)
 	_drive_main(label, k)
 	for b in p.branches:
+		if b.kind == "cave":
+			_drive_cave_drops(label, k, b)
+			_drive_cave_reverse(label, k, b)
+			_drive_rescued(label, k, b)
+			_drive_bot(label, k, b, false)
+			_drive_cave_bot(label, k, b)
+			_cave_stuck(label, k, b)
+			_teleports(label, k, b)
+			continue
 		_drive_branch(label, k, b)
 		_drive_reverse(label, k, b)
 		_drive_hop(label, k, b)
@@ -104,6 +133,283 @@ func _check_data(label: String, p: TrackPath, b: TrackBranch, raw: Dictionary) -
 		var i := p.closest(q, p.index_at(b.main_s(nu)) - 4)
 		var ds := absf(p.progress(q, i) - b.main_s(nu))
 		_expect(tag, ds < 2.0, "s_main matches the main road at the nose u=%.0f (off by %.2f m)" % [nu, ds])
+
+
+# ---------------------------------------------------------------- caves
+## A cave's data: the path's keys, its ends (a dead end under the main road, a merge on it), no
+## jump or pipe, s_main, its drops (inside its stretch of the lap, an opening at least 3 m wide
+## and 4 m deep with the cave's road under it and its lap metres there the main road's) and its
+## merge's nose past the last drop's end.
+func _check_cave_data(label: String, p: TrackPath, b: TrackBranch, raw: Dictionary) -> void:
+	var tag := "%s/%s" % [label, b.id]
+	var pd: Dictionary = raw["path"]
+	var n: int = pd["center"].size()
+	for key in ["line", "fwd", "right", "up", "width", "speed", "gap", "pit", "mag", "theme", "s_main"]:
+		_expect(tag, pd.has(key) and pd[key].size() == n, "path.%s has %d samples" % [key, n])
+	_expect(tag, not bool(pd.get("closed", true)), "path.closed is false")
+	_expect(tag, b.fork_s > 0.04 * p.length and b.fork_s < b.merge_s and b.merge_s < 0.96 * p.length,
+		"0.04 L < fork_s (abreast of the dead end) %.1f < merge_s %.1f < 0.96 L" % [b.fork_s, b.merge_s])
+	var mono := true
+	for i in b.n - 1:
+		mono = mono and b.s_main[i + 1] >= b.s_main[i]
+	_expect(tag, mono, "s_main is monotone")
+	_expect(tag, absf(b.s_main[0] - b.fork_s) < 0.5 and absf(b.s_main[b.n - 1] - b.merge_s) < 0.5, "s_main runs fork_s .. merge_s")
+	var gaps := 0
+	for i in b.n:
+		gaps += 1 if b.gap[i] == 1 or b.mag[i] > 0.0 else 0
+	_expect(tag, gaps == 0, "no jump and no pipe in a cave (%d samples)" % gaps)
+	var c0 := b.center[0]
+	var m0 := p.center_at(b.fork_s)
+	_expect(tag, c0.y < m0.y - 3.0, "its dead end lies under the main road (%.1f m under it)" % (m0.y - c0.y))
+	var c1 := b.center[b.n - 1].distance_to(p.center_at(b.merge_s))
+	_expect(tag, c1 <= p.width[b.merge_i] * 0.5 + 0.5, "it ends on the main road (%.1f m from its centre)" % c1)
+	_expect(tag, b.fork_nose_u == 0.0 and b.merge_nose_u > 0.0 and b.merge_nose_u < b.length, "no fork nose, its merge nose inside it")
+	_expect(tag, b.ai_take == 0.0 and b.bonus_boost > 0.0, "never taken on purpose (ai take 0), a bonus out (boost %.1f s)" % b.bonus_boost)
+	_expect(tag, not b.drops.is_empty(), "%d drops lead into it" % b.drops.size())
+	print("   %s: cave %.1f m (lap %.1f-%.1f), merge nose at %.1f m, falls in up to u %.1f, bonus %.1f s x%.2f%s" % [
+		tag, b.length, b.fork_s, b.merge_s, b.merge_nose_u, b.fell_in_u, b.bonus_boost, b.bonus_power,
+		" + an item" if b.bonus_item else ""])
+	for j in b.drops.size():
+		var d := b.drops[j]
+		var dt := "%s drop %d" % [tag, j]
+		_expect(dt, d["s0"] < d["s1"] and d["s0"] > b.fork_s and d["s1"] < b.merge_s, "s %.1f-%.1f inside the cave's lap stretch" % [d["s0"], d["s1"]])
+		_expect(dt, d["lat1"] - d["lat0"] >= 3.0 and d["top"] - d["floor"] >= 4.0,
+			"an opening %.1f m wide, %.1f m deep" % [d["lat1"] - d["lat0"], d["top"] - d["floor"]])
+		_expect(dt, d["u1"] + 25.0 <= b.merge_nose_u, "its end (u %.1f) 25 m or more before the merge's nose" % d["u1"])
+		# across the opening at its middle: the cave's road (or its floor beside it) under every point
+		var sm: float = (d["s0"] + d["s1"]) * 0.5
+		var i := p.index_at(sm)
+		var under := 0
+		var lat: float = d["lat0"] + 0.5
+		var pts := 0
+		while lat <= d["lat1"] - 0.5:
+			var q: Vector3 = p.center_at(sm) + p.right[i] * lat * d["side"]
+			var j2 := b.closest(q, maxi(b.index_at(b.u_at_main(sm)) - 2, 0))
+			var off := absf(b.lateral(q, j2)) - b.width[j2] * 0.5
+			under += 1 if off < 2.5 and q.y - b.center[j2].y > 3.0 else 0
+			pts += 1
+			lat += 1.0
+		_expect(dt, under == pts, "the cave's floor under the opening across it (%d of %d points)" % [under, pts])
+		# falling in does not move the lap position: the cave counts the main road's metres there
+		var qm: Vector3 = p.center_at(sm) + p.right[i] * (d["lat0"] + d["lat1"]) * 0.5 * d["side"]
+		var ju := b.closest(qm, maxi(b.index_at(b.u_at_main(sm)) - 2, 0))
+		var ds := absf(b.main_s(b.progress(qm, ju)) - p.progress(qm, p.closest(qm, i)))
+		_expect(dt, ds < 3.0, "s_main matches the main road over the opening (off by %.2f m)" % ds)
+
+
+## A fall through each drop, at the near and the far side of the opening: on the main road along
+## its centre, drifting out over the edge, dropping (airborne, the fall and edge checks running)
+## onto the cave's floor, along the cave to its end, on along the main road. One switch onto the
+## cave inside the opening, none before it; off at the merge; no rescue; lap progress never jumps
+## or runs back; the pass credited and completed, the HUD told of the fall once, the bonus paid.
+func _drive_cave_drops(label: String, k: Kart, b: TrackBranch) -> void:
+	var p := k.track.path
+	for j in b.drops.size():
+		for where in [0.3, 0.7]:
+			var d := b.drops[j]
+			var tag := "%s/%s/drop%d_%s" % [label, b.id, j, "near" if where < 0.5 else "far"]
+			var sm: float = lerpf(d["s0"], d["s1"], 0.5)
+			var lat: float = lerpf(d["lat0"], d["lat1"], where)
+			# the path: (point, grounded)
+			var pts := PackedVector3Array()
+			var air: Array[bool] = []
+			var s := sm - 60.0
+			while s < sm - 12.0:
+				pts.append(_main_at(p, s))
+				air.append(false)
+				s += 1.0
+			var start := s
+			while s < sm:
+				pts.append(_main_at(p, s, lat * d["side"] * smoothstep(start, sm, s)))
+				air.append(lat * smoothstep(start, sm, s) > d["lat0"] - 1.0)
+				s += 1.0
+			# the drop: down to the floor (with a little forward motion)
+			var top: Vector3 = _main_at(p, sm, lat * d["side"])
+			var u_land := b.progress(top, b.closest(top, maxi(b.index_at(b.u_at_main(sm)) - 2, 0)))
+			var floor := b.center_at(u_land).y + LIFT
+			var y := top.y
+			var fwd := p.fwd[p.index_at(sm)]
+			var drift := 0.0
+			while y > floor + 0.3:
+				y = maxf(y - 0.8, floor)
+				drift += 0.4
+				pts.append(Vector3(top.x, y, top.z) + fwd * drift)
+				air.append(true)
+			var u := b.progress(pts[pts.size() - 1], b.closest(pts[pts.size() - 1], b.index_at(u_land))) + 1.0
+			while u < b.length:
+				pts.append(_branch_at(b, u))
+				air.append(false)
+				u += 1.0
+			s = b.merge_s
+			while s < b.merge_s + 40.0:
+				pts.append(_main_at(p, s))
+				air.append(false)
+				s += 1.0
+			_reset(k, sm - 61.0, pts[0])
+			k.item = ""
+			k.roulette = 0.0
+			k.boost_time = 0.0
+			(k.race as Passes).caves.clear()
+			var r := _run_air(tag, k, pts, air)
+			var sw: Array = r["switches"]
+			_expect(tag, sw.size() == 2 and sw[0][2] == b.index and sw[1][2] == -1, "onto the cave once and off it once (%s)" % str(sw))
+			if sw.size() == 2:
+				var at: Vector3 = pts[sw[0][0]]
+				_expect(tag, p.cave_drop(at, p.progress(at, p.closest(at))).x == b.index and at.y < float(d["top"]) - Kart.CAVE_IN + 0.01,
+					"the switch onto the cave inside the opening, %.1f m down" % (float(d["top"]) - at.y))
+				_expect(tag, sw[1][3] >= b.merge_nose_u - 15.0, "off the cave at u=%.1f, past its merge nose %.1f - 15 m" % [sw[1][3], b.merge_nose_u])
+			_expect(tag, r["rescued"] == 0, "never rescued on the way (%d)" % r["rescued"])
+			var got: Array = (k.race as Passes).got
+			_expect(tag, got == [[b.index, true]], "credited with one pass, completed (%s)" % str(got))
+			_expect(tag, (k.race as Passes).caves == [b.index], "the race heard of the fall once (%s)" % str((k.race as Passes).caves))
+			_expect(tag, k.boost_time > 0.0 and k.item != "", "the bonus: boost %.2f s, item '%s'" % [k.boost_time, k.item])
+			k.item = ""
+			k.roulette = 0.0
+			k.boost_time = 0.0
+
+
+## Like _run, for a path that leaves the ground: `air` says where the ghost is airborne (it counts
+## its air time), and the real fall / edge / level checks (Kart._check_respawn) run at every step.
+## Returns _run's dictionary plus "rescued": the rescues they started (each undone at once).
+func _run_air(tag: String, k: Kart, pts: PackedVector3Array, air: Array[bool]) -> Dictionary:
+	var switches: Array = []
+	var worst := 0.0
+	var worst_at := ""
+	var back := 0.0
+	var rescued := 0
+	var prev := k.total_progress
+	var prev_dp := 1.0
+	var prev_route := k.route
+	var prev_u := k.route_u
+	k.air_time = 0.0
+	# (the stall watchdog starts afresh: the drives before left it far along)
+	k._watch_progress = k.total_progress
+	k._watch_time = 0.0
+	for j in pts.size():
+		k.global_position = pts[j]
+		k.grounded = not air[j]
+		k.air_time = k.air_time + DT if air[j] else 0.0
+		k._update_progress(DT)
+		k.state = Kart.State.NORMAL
+		k._check_respawn(DT)
+		if k.state == Kart.State.RESPAWN:
+			rescued += 1
+			if rescued == 1:
+				print("   (%s: rescued at step %d, route %d, %.1f m)" % [tag, j, k.route, k.route_pos()])
+			k.state = Kart.State.NORMAL
+		if k.route != prev_route:
+			switches.append([j, prev_route, k.route, prev_u if prev_route >= 0 else k.route_u])
+		var dp := k.total_progress - prev
+		var over := absf(absf(dp) - absf(prev_dp)) - 1.5
+		if over > worst:
+			worst = over
+			worst_at = "route %d at %.0f m" % [k.route, k.route_pos()]
+		back = minf(back, dp)
+		prev = k.total_progress
+		prev_dp = dp
+		prev_route = k.route
+		prev_u = k.route_u
+	k.grounded = true
+	k.air_time = 0.0
+	k._watch_time = 0.0
+	_expect(tag, worst <= 0.0, "lap progress never jumps (worst %.2f m over the limit%s)" % [worst,
+			", " + worst_at if worst > 0.0 else ""])
+	_expect(tag, back > -0.05, "progress never runs backwards (worst step %.2f m)" % back)
+	return {"switches": switches, "jump": worst, "back": back, "rescued": rescued}
+
+
+## From the main road past the merge back down the cave's way out the wrong way, 40 m past its
+## merge nose, and out again: onto it and off it, no pass credited, no bonus, no fall heard of.
+func _drive_cave_reverse(label: String, k: Kart, b: TrackBranch) -> void:
+	var tag := "%s/%s/reverse" % [label, b.id]
+	var p := k.track.path
+	var pts := PackedVector3Array()
+	var s := b.merge_s + 40.0
+	while s > b.merge_s:
+		pts.append(_main_at(p, s))
+		s -= 1.0
+	var deep := maxf(b.merge_nose_u - 40.0, b.fell_in_u + 5.0)
+	var u := b.length
+	while u > deep:
+		pts.append(_branch_at(b, u))
+		u -= 1.0
+	while u < b.length:
+		pts.append(_branch_at(b, u))
+		u += 1.0
+	s = b.merge_s
+	while s < b.merge_s + 60.0:
+		pts.append(_main_at(p, s))
+		s += 1.0
+	_reset(k, b.merge_s + 41.0, pts[0])
+	k.item = ""
+	k.boost_time = 0.0
+	(k.race as Passes).caves.clear()
+	var r := _run(tag, k, pts, false)
+	var sw: Array = r["switches"]
+	_expect(tag, sw.size() == 2 and sw[0][2] == b.index and sw[1][2] == -1, "in once, out once (%s)" % str(sw))
+	var got: Array = (k.race as Passes).got
+	_expect(tag, got.is_empty() and k.item == "" and k.boost_time <= 0.0 and (k.race as Passes).caves.is_empty(),
+		"no pass, no bonus, no fall for driving down its way out (%s)" % str(got))
+
+
+## A computer driver: on the main road past the drops it never plans the cave; put down in the cave
+## under the first drop it follows the cave's road out and onto the main road (pure pursuit of its
+## look-ahead, as _drive_bot), credited with the pass.
+func _drive_cave_bot(label: String, k: Kart, b: TrackBranch) -> void:
+	var tag := "%s/%s/bot_out" % [label, b.id]
+	var p := k.track.path
+	var ai := AIController.new(1.0, 7)
+	var d := b.drops[0]
+	var sm: float = (d["s0"] + d["s1"]) * 0.5
+	_reset(k, sm, _main_at(p, sm))
+	ai._plan_forks(k)
+	_expect(tag, not ai._plan_now.get(b.index, true), "a bot beside its drops never plans to take it")
+	var u0 := b.u_at_main(sm)
+	k.global_position = _branch_at(b, u0)
+	k._set_route(b.index, b.index_at(u0))
+	(k.race as Passes).got.clear()
+	k.fwd_speed = 20.0
+	k.linear_velocity = Vector3.ZERO
+	var pos := k.global_position
+	var on_main := false
+	for j in int(b.length - u0 + 80.0):
+		k.global_position = pos
+		k._update_progress(DT)
+		ai._plan_forks(k)
+		on_main = on_main or (k.route == -1 and k.lap_progress > b.merge_s + 5.0)
+		var a := ai._ahead(k, 12.0)
+		var ga := p.geo(int(a.x))
+		var aim := ga.line_at(a.y) + ga.up[ga.index_at(a.y)] * LIFT
+		pos += (aim - pos).normalized()
+	_expect(tag, on_main and k.route == -1, "drives the cave out onto the main road (route %d at %.0f m)" % [k.route, k.route_pos()])
+	var got: Array = (k.race as Passes).got
+	_expect(tag, got == [[b.index, true]], "credited with the pass out (%s)" % str(got))
+	k.item = ""
+	k.boost_time = 0.0
+
+
+## Stuck in the cave (the stall watchdog's rescue): its respawn policy ("main" unless it says
+## otherwise) puts it back on the main road about where it was, behind it; the pass ends not done.
+func _cave_stuck(label: String, k: Kart, b: TrackBranch) -> void:
+	var tag := "%s/%s/stuck" % [label, b.id]
+	var p := k.track.path
+	var d := b.drops[b.drops.size() - 1]
+	for u: float in [(d["u0"] + d["u1"]) * 0.5, (d["u1"] + b.merge_nose_u) * 0.5]:
+		_fall_at(k, b, u)
+		k._branch_entry = d["u0"]
+		(k.race as Passes).got.clear()
+		k._put_back(1.2)
+		if b.respawn == "main":
+			var s_got := p.progress(k.global_position, p.closest(k.global_position))
+			var s_want := fposmod(b.main_s(u) - 12.0, p.length)
+			_expect(tag, k.route == -1 and absf(s_got - s_want) < 4.0, "back on the main road at s=%.0f (at %.0f) from u=%.0f" % [s_want, s_got, u])
+			var at := k.global_position
+			_expect(tag, p.cave_drop(at, s_got).x < 0 and absf(p.lateral(at, p.closest(at))) < p.width[p.closest(at)] * 0.5,
+				"on the road, not over a drop")
+		else:
+			_expect(tag, k.route == b.index or k.route == -1, "put back by its policy %s (route %d)" % [b.respawn, k.route])
+		var got: Array = (k.race as Passes).got
+		_expect(tag, b.respawn != "main" or got == [[b.index, false]], "the pass ends not done (%s)" % str(got))
 
 
 # ---------------------------------------------------------------- ghost drives

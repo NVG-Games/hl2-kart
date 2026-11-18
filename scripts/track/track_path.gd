@@ -29,6 +29,8 @@ var n := 0
 var closed := true
 ## shortcuts and alternative roads of the main loop (Track.build: add_branches)
 var branches: Array[TrackBranch] = []
+## those of them that are caves (kind "cave": reached by falling through a drop)
+var caves: Array[TrackBranch] = []
 var _junction_ids := {}  # main sample index -> branch indices whose fork or merge zone covers it
 
 
@@ -200,10 +202,24 @@ func add_branches(list: Array) -> void:
 		if b.merge_nose_i < 0:
 			b.merge_nose_i = index_at(b.main_s(b.merge_nose_u))
 		branches.append(b)
-		for i in range(b.fork_i - 2, b.fork_nose_i + 3):
-			(_junction_ids.get_or_add(wi(i), []) as Array).append(k)
+		if b.kind == "cave":
+			# (no fork: the main road never turns into a cave, a kart falls into it)
+			caves.append(b)
+		else:
+			for i in range(b.fork_i - 2, b.fork_nose_i + 3):
+				(_junction_ids.get_or_add(wi(i), []) as Array).append(k)
 		for i in range(b.merge_nose_i - 2, b.merge_i + 3):
 			(_junction_ids.get_or_add(wi(i), []) as Array).append(k)
+
+
+## The cave drop whose opening holds `p` (at lap metres `s` on this main loop):
+## Vector2i(branch index, drop index), or Vector2i(-1, -1) for none.
+func cave_drop(p: Vector3, s: float) -> Vector2i:
+	for b in caves:
+		var k := b.drop_at(p, s, self)
+		if k >= 0:
+			return Vector2i(b.index, k)
+	return Vector2i(-1, -1)
 
 
 ## The road of a route: the main loop for -1, else that branch.

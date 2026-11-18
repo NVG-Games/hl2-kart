@@ -3,6 +3,9 @@ extends TrackPath
 ## A branch of the main loop (shortcut, jump, high road): an open path that leaves the lap at
 ## a fork and rejoins it at a merge (data["branches"], see tools/track_gen.py), plus how its
 ## metres count on the lap (s_main) and what drivers, the AI and the scanner need to know.
+## A cave (kind "cave") has no fork: its road begins at a dead end under the lap, and a kart gets
+## onto it only by falling through one of its drops (Kart._track_route); out at its merge it earns
+## the cave's bonus (Kart.cave_bonus).
 
 ## metres over which a kart's lap metres hand over from the main road's to s_main at a nose
 const BLEND := 10.0
@@ -10,7 +13,7 @@ const BLEND := 10.0
 var id := ""
 var title := ""
 var index := 0
-## jump | ledge | high | tube | alt | trail
+## jump | ledge | high | tube | alt | trail | cave
 var kind := "alt"
 ## lap metres of the fork / merge and their exported main sample indices (the indices here
 ## and of the noses are filled in by TrackPath.add_branches when the data leaves them out)
@@ -45,6 +48,21 @@ var merge_type := "gore"
 var in_hall := false
 ## lap metres per sample (monotone, fork_s .. merge_s)
 var s_main := PackedFloat32Array()
+## a cave's openings beside the main road (data "drops", tools/branches.py), each {s0, s1: lap
+## metres; side: +1 right of the main road; lat0, lat1: metres out from its centre on that side
+## (its edge, the cave's far wall); top: the edge's height; floor: the cave road's under it; u0, u1:
+## cave metres}; none on any other branch
+var drops: Array[Dictionary] = []
+## what driving a cave out earns (data "bonus"): a boost of that many seconds at that power, and an
+## item from the crates' pool for a kart holding none
+var bonus_boost := 0.0
+var bonus_power := 1.0
+var bonus_item := false
+## ... drawn from the pool the last kart draws from (the strongest items), whatever its place
+var bonus_best := false
+## cave metres up to which a kart that got onto a cave fell into it (past the end of its last drop
+## by 10 m); one that got on further on came down its way out backwards
+var fell_in_u := -1.0
 
 
 func _init(d: Dictionary, k: int) -> void:
@@ -76,6 +94,19 @@ func _init(d: Dictionary, k: int) -> void:
 	offtrack = float(d.get("offtrack", -1.0))
 	merge_type = str(d.get("merge_type", "gore"))
 	in_hall = bool(d.get("in_hall", false))
+	if kind == "cave":
+		for e: Dictionary in d.get("drops", []):
+			var dd := {}
+			for key in ["s0", "s1", "lat0", "lat1", "top", "floor", "u0", "u1"]:
+				dd[key] = float(e.get(key, 0.0))
+			dd["side"] = 1.0 if float(e.get("side", 1)) > 0.0 else -1.0
+			drops.append(dd)
+			fell_in_u = maxf(fell_in_u, dd["u1"] + 10.0)
+		var bn: Dictionary = d.get("bonus", {})
+		bonus_boost = float(bn.get("boost", 2.0))
+		bonus_power = float(bn.get("power", 1.15))
+		bonus_item = bool(bn.get("item", true))
+		bonus_best = bool(bn.get("best_item", false))
 	for v in d["path"].get("s_main", []):
 		s_main.append(v)
 	if s_main.size() != n:
@@ -83,6 +114,21 @@ func _init(d: Dictionary, k: int) -> void:
 		s_main.resize(n)
 		for i in n:
 			s_main[i] = lerpf(fork_s, merge_s, u_of(i) / maxf(length, 0.001))
+
+
+## The drop of this cave whose opening holds `p`, at lap metres `s` on the main loop `main`: its
+## index, -1 for none (or on any other branch). The box reaches a metre past either end of the
+## opening, half a metre in over the main road's edge, a metre past the far wall, 3 m over the edge
+## and down to a metre under the cave's floor.
+func drop_at(p: Vector3, s: float, main: TrackPath) -> int:
+	for k in drops.size():
+		var d := drops[k]
+		if s < d["s0"] - 1.0 or s > d["s1"] + 1.0 or p.y > d["top"] + 3.0 or p.y < d["floor"] - 1.0:
+			continue
+		var lat: float = main.lateral(p, main.index_at(s)) * d["side"]
+		if lat >= d["lat0"] - 0.5 and lat <= d["lat1"] + 1.0:
+			return k
+	return -1
 
 
 ## How far the road at u is still the main road's (1 from the fork to BLEND metres before

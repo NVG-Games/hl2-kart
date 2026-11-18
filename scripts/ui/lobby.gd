@@ -304,6 +304,9 @@ func _build_rules() -> void:
 	var track_names: Array = Game.TRACKS.map(func(t: Dictionary) -> String: return t["name"])
 	var track := UiKit.dropdown(track_names, Game.track_index(str(cfg.get("track", ""))), func(i: int):
 		Net.set_rule("track", Game.TRACKS[i]["id"]))
+	# (a track this install has not built yet can not be picked: Game.track_installed)
+	for i in Game.TRACKS.size():
+		track.set_item_disabled(i, not Game.track_installed(Game.TRACKS[i]["id"]))
 	rules_box.add_child(UiKit.row("Track", track, w))
 	if not host:
 		# everyone sees the rules; only the host changes them

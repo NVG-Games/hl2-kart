@@ -3,7 +3,9 @@ extends Node3D
 ## (sharp in-game stills, slow drift and cross-fade), the HALF-LIFE² logo,
 ## a short column of Verdana menu entries, a now-playing strip.
 
-const BACKGROUNDS := ["grid", "city", "coast", "canal", "ct17", "black_mesa", "xen", "surface_tension"]
+## the stills behind the menu (tests/render_ui_assets): Highway 17's own shots, then every other
+## track's (named by its id, Game.TRACKS) that has been rendered
+const BACKGROUNDS := ["grid", "city", "coast", "canal"]
 const BG_SECONDS := 18.0
 
 var ui: CanvasLayer
@@ -72,8 +74,9 @@ func _ready() -> void:
 
 # ---------------------------------------------------------------- background
 func _build_background() -> void:
-	for n in BACKGROUNDS:
-		var t: Texture2D = load("res://assets/ui/backgrounds/%s.png" % n)
+	for n: String in BACKGROUNDS + Game.TRACKS.map(func(tr: Dictionary) -> String: return tr["id"]):
+		var path := "res://assets/ui/backgrounds/%s.png" % n
+		var t: Texture2D = load(path) if ResourceLoader.exists(path) else null
 		if t:
 			_textures.append(t)
 	_textures.shuffle()

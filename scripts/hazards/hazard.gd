@@ -24,6 +24,7 @@ var visual := true           # false on a dedicated server: logic only
 var awake := false           # set by the director: a local kart or the camera is near
 var aims_all := false        # the server aims it at any kart (tier B): it wakes for remote karts too
 var group := -1              # its group (HazardDirector.groups), set by the director
+var wake_span := Vector2.ZERO  # lap stretch it wakes for when that is not its span (a train's whole line)
 var _last_t := -1e9          # clock at the previous tick (edge detection)
 
 
@@ -250,6 +251,12 @@ func blocks_respawn(_at_s: float) -> bool:
 	return false
 
 
+## Where the scanner puts a kart instead when blocks_respawn(at_s) (lap metres): before the hazard's
+## span. A hazard with a long span (two zones, a long deck) may pick a nearer place.
+func respawn_s(_at_s: float) -> float:
+	return fposmod(span.x - 15.0, path.length)
+
+
 ## A local kart or the camera came near: start loops and lights.
 func wake() -> void:
 	pass
@@ -263,6 +270,11 @@ func sleep() -> void:
 ## True while it is doing something dangerous right now (minimap blink).
 func is_active(_t: float) -> bool:
 	return false
+
+
+## False for one that never hurts a kart (a train passing beside the road): the minimap leaves it out.
+func on_map() -> bool:
+	return true
 
 
 ## Models it spawns mid-race (a rocket per salvo...): Effects.prewarm draws them at load.

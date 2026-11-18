@@ -58,21 +58,26 @@ const VEHICLES := [
 		"desc": "A clawfoot bathtub on four wheels and two propane thrusters. Light, twitchy and very, very fast to turn."},
 ]
 
-## Circuits, all built by the track tools from Half-Life / Half-Life 2 content:
-## Highway 17 by tools/build_track.py, the others by tools/track_gen.py. "rescue" is who brings a
-## kart back to the road there (Rescuer.rescue): "scanner" the Combine scanner's photo (also where
-## a track names none), "teleport" a Black Mesa teleport, "xen_portal" a Xen portal.
+## Circuits, all built by tools/track_gen.py (tools/circuits/<id>.py) from Half-Life / Half-Life 2
+## content. "rescue" is who brings a kart back to the road there (Rescuer.rescue): "scanner" the
+## Combine scanner's photo (also where a track names none), "teleport" a Black Mesa teleport,
+## "xen_portal" a Xen portal, "crane" the rebels' crane, "combine_teleport" a Combine teleport,
+## "vortigaunt" the vortigaunts' green energy.
 const TRACKS := [
-	{"id": "city17_circuit", "name": "Highway 17", "short": "HIGHWAY 17", "rescue": "scanner",
-		"desc": "City 17, the Combine checkpoint, the coast road round the headland and the canal. Shortcuts: the headland trail and the quarry jump."},
+	{"id": "city17_circuit", "name": "Highway 17", "short": "HIGHWAY 17", "rescue": "crane",
+		"desc": "The coast: the cliff highway, the bay bridge, a tunnel over its ceiling, a magnet crane, the antlion beach. Shortcuts: the old bridge, the stepping stones."},
 	{"id": "ct17", "name": "CT17", "short": "CT17", "rescue": "scanner",
 		"desc": "City 17 in flames, striders: a broken viaduct, the rail yard, the checkpoint, a blasted block, a fallen roof. Shortcuts: the canal jump and the rooftops."},
 	{"id": "xen", "name": "Xen", "short": "XEN", "rescue": "xen_portal",
 		"desc": "Floating islands over the void: low-gravity hops, root bridges, a chasm, controllers and bullsquids. Shortcuts: the high root and the island hop."},
 	{"id": "black_mesa", "name": "Black Mesa", "short": "BLACK MESA", "rescue": "teleport",
-		"desc": "Indoors at Black Mesa: twice across the reactor room, the accelerator tube and two slime jumps. Shortcuts: the crane gantry and the coolant jump."},
+		"desc": "Indoors at Black Mesa: twice across the reactor room, the accelerator's beam line and two slime jumps. Shortcuts: the crane gantry and the coolant jump."},
 	{"id": "surface_tension", "name": "Surface Tension", "short": "SURFACE TENSION", "rescue": "teleport",
-		"desc": "The desert outside Black Mesa: the canyon, the gorge bridge, the HECU camp, the dam's water main and a cliff road. Shortcuts: the rim drop and the washout."},
+		"desc": "The desert outside Black Mesa: the canyon, the gorge bridge, the HECU camp, the dam's spillway and a cliff road. Shortcuts: the rim drop and the washout."},
+	{"id": "nova_prospekt", "name": "Nova Prospekt", "short": "NOVA PROSPEKT", "rescue": "combine_teleport",
+		"desc": "The prison on two storeys: cell blocks, walkways over the yards, the depot roof, the antlion guard and its caves. Shortcuts: the upper tier, the vent duct."},
+	{"id": "white_forest", "name": "White Forest", "short": "WHITE FOREST", "rescue": "vortigaunt",
+		"desc": "Episode Two's forest: trains beside and over the road, the see-saw bridge, a Combine column overhead, the sawmill. Shortcuts: the logging trail, the shed."},
 ]
 
 const DIFFICULTIES := [
@@ -208,6 +213,12 @@ func track(id: String) -> Dictionary:
 func track_thumb(id: String) -> Texture2D:
 	var path := "res://assets/ui/tracks/%s.png" % id
 	return load(path) if ResourceLoader.exists(path) else null
+
+
+## Whether this install has built the track (setup_assets' "tracks" step): a track added with new
+## content is listed before the player's setup has built it, and Track.build would race Highway 17.
+func track_installed(id: String) -> bool:
+	return FileAccess.file_exists("res://assets/track/%s.json" % id)
 
 
 func track_index(id: String) -> int:

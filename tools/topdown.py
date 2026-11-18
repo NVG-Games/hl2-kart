@@ -11,10 +11,12 @@ im=Image.fromarray(img).resize((t['nx']*2,t['nz']*2))
 dr=ImageDraw.Draw(im)
 def px(p): return ((p[0]-t['x0'])/t['cell']*2,(p[2]-t['z0'])/t['cell']*2)
 c=d['path']['center']; th=d['path']['theme']; gap=d['path']['gap']
-col={'city':(230,230,230),'coast':(250,200,60),'dirt':(160,100,40),'canal':(80,200,255)}
+# path themes: the old builder's (city, coast, dirt, canal) and track_gen's kinds (Highway 17 since phase D)
+col={'city':(230,230,230),'coast':(250,200,60),'dirt':(160,100,40),'canal':(80,200,255),
+     'open':(250,200,60),'bridge':(80,150,255),'tunnel':(160,110,70),'tube':(40,225,255),'street':(230,230,230)}
 for i in range(len(c)):
   a=px(c[i]); b=px(c[(i+1)%len(c)])
-  dr.line([a,b],fill=(255,0,0) if gap[i] else col[th[i]],width=5)
+  dr.line([a,b],fill=(255,0,0) if gap[i] else col.get(th[i],(200,200,200)),width=5)
 for p in d['path']['line'][::2]:
   x,y=px(p); dr.point((x,y),fill=(255,0,255))
 for p in d['props']:

@@ -20,6 +20,81 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
   spin. Bullsquids sit at the edges of the plateau and the bay, turn to the karts coming and
   spit acid in a high arc; it leaves a glowing green puddle on the road for a few seconds, and
   driving through it spins you. All of them move with Half-Life's own animations.
+- Antlions sleep under the beach sand. Keep your wheels on the boards and the road and they stay
+  down; drive out onto the sand for more than a moment and the ground starts to rumble: the sand
+  bulges and dust rises where they are about to come up, a ring marks where each one will land
+  and your HUD shows the lock. A second later one to three antlions dig out ahead of you, run at
+  where you are heading and pounce; one that reaches you spins you out. Get back onto the boards
+  in time and they land behind you, stand a moment and dig back in. They never come onto the
+  road, a group bites you once at most on a pass, and a Combine thumper keeps the sand around it
+  quiet, thumping away.
+- A dock crane stands on Highway 17's quay with a big magnet on its cable. Every few
+  seconds its cab turns and swings the magnet out over the road; the magnet switches on with a
+  clank and a hum, a glowing yellow ring marks the spot under it, your HUD shows the lock, and it
+  comes down to just over the karts' roofs. Drive under it while it is down and it grabs your
+  kart, lifts it, carries it a few metres on as the boom swings and drops it back on the road with
+  a spin. Steer round the ring, or wait for it to go back up. It grabs the same kart only once
+  a pass, and a gravity gun's beam can still pull a kart off it.
+- Highway 17's rescue is the rebels' crane: when you fall off or get stuck, its magnet comes down
+  out of the sky on its cable, clamps onto your kart and lifts it, and in a warm flash you hang
+  over the road under it; it sets you down on your wheels and is wound back up.
+- A new track, Nova Prospekt: the Combine prison on its sea cliff, on two storeys. From the entry
+  yard through the gatehouse into a cell block's tall ground floor, the tiled canteen and up a
+  long ramp onto the upper level: walkways over both yards, round the depot's roof and along the
+  gallery of a ruined cell block, then down into the collapsed yard over the antlion caves, out
+  along the cliff road between the outer wall and the fence, the sea far below, and back in
+  through the laundry. Shortcuts: the upper tier along the cell block's wall (it drops you back
+  onto the floor at its end) and a ventilation duct across the depot's roof.
+- Nova Prospekt's boss, the antlion guard, and the antlion caves under the prison. The guard
+  bursts up through the collapsed yard's floor and charges whoever comes down the ramp; it roars,
+  the ground shakes, a ring marks where it will ram and your HUD shows the lock. If it catches you
+  it shoves you across the slab into the hole where the floor gave way, and you drop into Episode
+  Two's antlion caves: glowing grubs, hive nests, web sacks and stalactites, a hall of grubs and
+  sleeping antlions. Nobody fishes you out: drive out yourself, up the miners' tunnel and a rock
+  cutting onto the cliff road, and you come out about level with where you would have been, with
+  a long boost and, holding no item, one of the strongest items over the others. Get stuck down
+  there and the Combine teleport puts you back on the road. Two more holes, in the gallery's
+  floor and on the yard's far side, take whoever drives too wide; hazard stripes mark each hole's
+  edge and a wall stands round it. The guard comes out on every difficulty (slower and with a
+  longer warning on EASY). Combine floor turrets guard the canteen, and the prison is dressed: its
+  other blocks stand round the yards, cell doors, bunks, tables, dryers, signs and Breen's screens,
+  light masts, ruins and antlion mounds, with prison guards watching from the yards and the
+  depot's roof.
+- Nova Prospekt's rescue is a Combine teleport, in the prison's cold blue-white. Two rings of
+  blue light mark the ground under your kart like a teleport pad, two hoops of energy come up
+  round it, leaning and turning like a gyroscope with lights racing round them, and arcs crackle
+  onto the kart as the machine winds up. Then the hoops spin into a ball, a white-blue bubble
+  swells inside it with the suck-in, it bursts in a blue flash and you stand on the road inside
+  the bubble, which collapses onto you as the hoops are flung out and fade. R calls it there too.
+- A new track, White Forest: Episode Two's forest on the way to the White Forest base, a lap of
+  2.7 km on broken asphalt and logging roads through the pines. From the start beside the railway
+  down into a rock cutting under the railway's girder bridge, along the gorge road onto the see-saw
+  bridge over the river gorge, round the east hill and down the valley under the high bridge the
+  Combine column marches over (twice, round a hairpin at the valley's end), through a cutting in
+  the ridge, along the river, through the sawmill's yard and over the mill bridge, then up the
+  west bank and over the railway at the level crossing. Shortcuts: the logging trail through the
+  pines, with a jump over a dry gully, and straight through the sawmill's long shed.
+- White Forest's trains, see-saw and Combine column. A freight train runs the main line from the
+  south tunnel to the north one. At the level crossing on the west bank the lamps flash and the
+  bell rings, the striped barrier arms come down well before the train and the road is shut for
+  about five seconds; it never holds up the same kart two laps running, and computer drivers
+  stop short of the arms too and wait until they are up again. Then the same train races you up the start straight behind its fence and
+  rumbles over the girder bridge above the rock cutting. The see-saw bridge over the gorge,
+  Episode Two's span on its pivot, tips toward whichever end the karts are on: you climb it as
+  it rises and ride it down as it swings past level. The Combine
+  column marches across the high bridge over the valley; where the lap passes under it, it halts,
+  steps up to the railing, paints glowing red strips on the road where karts will be, raises its
+  rifles and fires a moment later.
+  Change your line and you are through. The forest is dressed: pines along the roads and the tree
+  line on the hills, standing freight trains on the sidings and a derailed wagon, the cars that
+  fell with the old bridge lying in the river under the see-saw, the sawmill's log stacks, rocks
+  and fallen trees, the rebels' camp; rebels and vortigaunts watch, Combine soldiers guard a
+  barricade under the column's bridge, and the wind blows in the pines.
+- White Forest's rescue is the vortigaunts. When you fall off, sink or get stuck, three of them
+  step out of green flashes beside you, rear back as their hands charge and crackle, then thrust
+  them at your kart and hold it in lime-green beams, with arcs wrapping round it as it rises off
+  the ground. In a green-yellow flash you are on the road among them, hanging in their beams;
+  they set you down on your wheels, one of them says a word and they vanish. R calls them.
 
 ### Changed
 - The houndeye packs pace up and down the verge now, and when a kart comes they run out to meet
@@ -34,12 +109,13 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
   calling it with R all end that way; other players see the flash of its camera. No more drop
   from under the scanner: you are put on your wheels and drive off as the white fades, a little
   sooner than before.
-- Every track has its own rescue now. City 17 (Highway 17 and CT17) keeps the scanner's
-  photo. At Black Mesa and on Surface Tension a Half-Life teleport builds up round you
-  instead: a green-yellow column of light, sparks spiralling in, the suck-in, then a flash,
-  and you materialise on the road in a second swirl. On Xen a ball of green energy forms over
-  you, swallows you in a green flash and spits you out on the road. The timing is the same
-  everywhere, the screen flashes in the rescuer's colour, and R calls whichever it is.
+- Every track has its own rescue now. City 17 (CT17) keeps the scanner's photo, and the
+  coast of Highway 17 has the rebels' crane (see Added). At Black Mesa and on Surface
+  Tension a Half-Life teleport builds up round you instead: a green-yellow column of light,
+  sparks spiralling in, the suck-in, then a flash, and you materialise on the road in a
+  second swirl. On Xen a ball of green energy forms over you, swallows you in a green flash
+  and spits you out on the road. The timing is the same everywhere, the screen flashes in the
+  rescuer's colour, and R calls whichever it is.
 - Dog runs with Half-Life 2's own animations now: it stands with its idle pose, walks off
   with its walk and gallops on its knuckles with its run, blended by speed. At kart speeds the
   stride tops out at three a second and the feet slide, instead of the legs blurring. The
@@ -81,11 +157,45 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
   stood at the canal corner: on the inside of the viaduct's bend, between the canal jump and
   the canal corner, and beside the flyover's way down to the boulevard. Refugees and rebels
   watch the race now, fewer of them.
+- Highway 17 is the coast of Half-Life 2's Highway 17 and Sandtraps now instead of City 17 and
+  the canal (CT17 has the city). From the cliff-top highway you cross an inlet of the sea on the
+  long bay bridge, where the gunship strafes you, and dive into the headland: a concrete portal,
+  then a bore where the road rolls all the way round, over the ceiling, and out above the sea. A
+  cliff road winds down to the docks and the rebels' magnet crane, a wooden bridge crosses the
+  inlet's mouth onto the antlion beach, where the boardwalk is the only safe road (run off the
+  planks onto the sand and you slow down and wake the antlions), and the coast road climbs the
+  east cliff back to the highway. The shortcuts are the old coast bridge straight across the
+  inlet, its middle span fallen into the water (jump it; short of the far side you swim), and
+  the stepping stones, boards laid straight along the shore with sand between every one. The
+  checkpoint's force field and the hopper mines are gone. The lap is about 500 m longer (2.6 km).
+- Highway 17's coast looks lived in. Rusted wrecks line the highway, some still smoking, with
+  the burnt-out APC of a Combine roadblock before the bay bridge and a rebel barricade at the
+  east end; pylons stride over the hills, Highway 17's big bridge stands far up the inlet's
+  valley and the old bridge's fallen span lies in the water under its gap. A trawler rides in
+  the harbour by an idle dock crane, the rebels sit round a fire at their camp behind the quay
+  (Gnome Chompski is with them), antlion hills rise over the dunes, driftwood and boats lie
+  along the tide line, a trawler lies beached under the east cliff and a lighthouse stands on
+  its point. Rebels cheer from the containers and their camp, refugees from the dunes, and
+  seagulls circle all along the coast.
 - Online, everyone needs this version (network protocol 4).
+- NEW RACE lays the track cards out in two rows (seven tracks: four over three), a little
+  shorter than before, so every track fits beside its description in any window. The arrow keys
+  and a gamepad move along a row and stop at its end, down from the cards to START RACE, and up
+  from START RACE to the track you picked.
+- The road no longer rolls round a pipe at Black Mesa or on Surface Tension: only Highway 17's
+  tunnel through the headland keeps that trick, and each of the two has a stretch of its own
+  instead. At Black Mesa the tram tunnel runs into the Anomalous Materials accelerator's service
+  tunnel, flat and fast: the beam line runs beside you behind a railing, its glowing beam pipe
+  through blue magnets with copper coils and yellow quadrupoles, cooling lines along the other
+  wall, and you pass under the ring magnets' yellow arches with their blue light strips. On
+  Surface Tension the road leaves the HECU camp between two wing walls and runs down the dam's
+  dry spillway, a concrete channel cut through the mountain, with marines and survivors
+  looking down from its lips and the dam's water main on concrete saddles along one of them,
+  crossing high over the channel halfway. Both laps keep their length.
 
 ### Removed
 - The weather choice. It only ever changed Highway 17's sky; every circuit keeps its own
-  sky now (Highway 17 the overcast City 17 one most races had anyway). The race setup, the
+  sky now (Highway 17 the coast's daytime sky). The race setup, the
   server screens and the dedicated server (`mp_weather`, `--weather`) no longer have it.
 
 ### Fixed
@@ -97,6 +207,20 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
 - On Xen a low rim of rock runs along the outside of the first floating island's bend: a kart
   spun or knocked over at the end of the first root bridge went straight on there and slid off
   the island.
+- A kart pulled back over the finish line by a gravity gun just after crossing it no longer loses
+  a lap: crossing the line forwards again gives the lap back.
+- A kart the scanner puts back well behind where it stopped (out of a hazard's way) is no longer
+  taken again a few seconds later for not getting back there in time.
+- A long message across the middle of the screen ("WAITING FOR PLAYERS") is set smaller to fit
+  instead of running off its edges.
+- A track that your content does not have built yet can not be picked (in NEW RACE, CREATE SERVER,
+  the lobby and the dedicated server's config) instead of racing Highway 17 under its name.
+- The dedicated server's server.cfg: a comment after a value (server.cfg.example has one on every
+  line) is no longer read as part of it. A server set up from the example as it was turned every
+  player away with a wrong password, ran without bots and ignored the track it was given.
+- The first-start setup finishes on a Half-Life 2 copy without Episode Two's content (an old
+  install with no ep2 folder): the tracks are built without Episode Two's trains, trees and
+  forest props instead of the setup stopping at CT17 and the game never starting.
 
 ## [0.2.0] - 2026-11-12
 
