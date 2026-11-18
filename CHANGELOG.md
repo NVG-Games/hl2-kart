@@ -224,6 +224,9 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
 - Online, the server passes on a track hazard's event from a player's game only when that player's
   kart set the hazard off (a tripmine's beam). A modified client could otherwise make every other
   player's trains, see-saw, Combine column or antlions do what it liked.
+- A computer driver a hazard tells to stop (at CT17's train, by the tentacle) stands still until it
+  may go, instead of creeping on and nosing into the passing train; the stuck-kart watchdog waits
+  with any kart held there, so nobody is "rescued" in the middle of the wait.
 
 ## [0.2.0] - 2026-11-12
 

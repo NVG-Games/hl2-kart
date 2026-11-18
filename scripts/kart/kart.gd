@@ -855,8 +855,9 @@ func _check_respawn(delta: float) -> void:
 	if total_progress > _watch_progress + 8.0:
 		_watch_progress = total_progress
 		_watch_time = 0.0
-	# waiting at a level crossing's arms (a hazard every driver must stop for) is no stall: the
-	# watchdog waits with the kart, or it would be rescued in the middle of a wait of up to ~8 s
+	# waiting at a level crossing's arms, or where any hazard ahead says stand (a train across the line,
+	# a tentacle down), is no stall: the watchdog waits with the kart, or it would be rescued in the
+	# middle of a wait of up to ~8 s
 	if _watch_time > 0.0 and speed < 3.0 and route < 0 and _held_by_hazard():
 		_watch_time = 0.0
 	var stalled := _watch_time > (6.0 if is_player else 5.0) and unstick != Unstick.TRYING
@@ -868,12 +869,14 @@ func _check_respawn(delta: float) -> void:
 
 
 ## Does a hazard ahead hold this kart where it is (a level crossing's arms coming down, down or about
-## to rise: HazardDirector.advice's "must")?
+## to rise: HazardDirector.advice's "must"; or any hazard's speed cap of almost nothing, as at CT17's
+## train: AIController stands there)?
 func _held_by_hazard() -> bool:
 	var hz: HazardDirector = track.hazards if track else null
 	if hz == null or not is_instance_valid(hz) or hz.list.is_empty():
 		return false
-	return bool(hz.advice(self, lap_progress, speed).get("must", false))
+	var a: Dictionary = hz.advice(self, lap_progress, speed)
+	return bool(a.get("must", false)) or float(a.get("vmax", INF)) < 0.5
 
 
 ## Is a wall (a barrier, a jersey, a railing, a building) between the kart and the road it is

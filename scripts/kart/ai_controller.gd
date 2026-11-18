@@ -177,8 +177,12 @@ func drive(k: Kart, delta: float) -> void:
 	vt = maxf(vt, _jump_floor(k, commit))
 	# a hazard's speed cap wins even over the jump (the train: stop at the line; at a crossing's
 	# arms, "must", every bot stops)
+	var stand := false
 	if int(hz.get("vid", -1)) >= 0 and (bool(hz.get("must", false)) or _obeys(int(hz["vid"]), 0.1)):
 		vt = minf(vt, float(hz["vmax"]))
+		# told to stand (a train across the line ahead, a tentacle down): it neither sets off again nor
+		# creeps on until the cap lifts (crept on at the line, a bot nosed into CT17's passing train)
+		stand = vt < 0.5
 	# (for a "must" cap it brakes harder and never creeps on over the line)
 	var must := int(hz.get("vid", -1)) >= 0 and bool(hz.get("must", false))
 	_must_hold = 1.0 if must else maxf(_must_hold - delta, 0.0)
@@ -189,6 +193,8 @@ func drive(k: Kart, delta: float) -> void:
 		brake = clampf((sp - vt) / (3.0 if must else 6.0), 0.0, 1.0)
 	elif sp > vt:
 		throttle = 0.0 if must else 0.3
+	if stand:
+		throttle = 0.0
 	if _brake_t > 0.0:
 		throttle = 0.0
 		brake = 0.6
