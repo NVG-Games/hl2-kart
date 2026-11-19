@@ -29,42 +29,108 @@ var gantry: StartGantry
 ## the spectators (scripts/crowd): none on BSP maps, the dedicated server, headless runs, with
 ## crowds OFF or without crowd data
 var crowd: CrowdDirector
+## why the track could not be built ("" = fine): a custom track that is not ready here, or a
+## built-in this computer has not built while online (race.gd reads it right after build)
+var build_failed := ""
 
 
 func build(track_name: String) -> void:
 	name = "Track"
+	if CustomTracks.is_custom(track_name):
+		# memory; compiles synchronously only headless / in tests (CustomTracks.build_for)
+		var b := CustomTracks.build_for(track_name)
+		if b == null:
+			build_failed = "The track %s is not ready on this computer." % _track_name(track_name)
+			push_error(build_failed)
+			return
+		build_level(b)
+		return
 	if not FileAccess.file_exists("res://assets/track/%s.json" % track_name):
-		track_name = "city17_circuit"
+		if Net.active:
+			# online every peer must race the same track: never a silent stand-in
+			build_failed = "This computer has not built %s." % track_name
+			push_error(build_failed)
+			return
+		track_name = "city17_circuit"  # offline only
 	id = track_name
 	data = Game.load_json("res://assets/track/%s.json" % track_name)
 	path = make_path(data)
 	sea_level = data.get("sea_level", -13.0)
 	is_bsp = data.get("type", "") == "bsp"
 	if is_bsp:
-		_build_bsp()
-		_build_environment(_bsp_sky())
-	else:
-		_build_geometry(track_name)
-		_build_environment(str(data.get("sky", "sky_day01_01")))
-		if data.has("water") or sea_level > -500.0:
-			_build_water()
-			has_sea = true
-		for w in data.get("waters", []):
-			# lakes above the main water line (a reservoir behind a dam)
-			var c := Vector2(w["center"][0], w["center"][1])
-			var sz := Vector2(w["size"][0], w["size"][1])
-			_build_water(float(w["level"]), c, sz)
-			_lakes.append([Rect2(c - sz * 0.5, sz), float(w["level"])])
-		_spawn_props()
-		_spawn_lights()
+		_build_bsp_track()
+		return
+	_build_geometry(track_name)
+	_finish_build()
+
+
+## A track compiled from the editor's format (LevelBuild): the same steps as a built circuit after
+## its glTF (environment, water, props, items, hazards, background, arch, screens, crowds, fx).
+func build_level(b: LevelBuild) -> void:
+	name = "Track"
+	id = b.id
+	if not b.data.get("path") is Dictionary:
+		build_failed = "The track %s has no road to race on." % _track_name(b.id)
+		push_error(build_failed)
+		return
+	data = b.data
+	path = make_path(data)
+	sea_level = float(data.get("sea_level", -1000.0))
+	is_bsp = false
+	var root := b.instantiate()
+	add_child(root)
+	dress(root, data)
+	_finish_build()
+
+
+## A track's name for messages: Game.track's entry for it, else the id.
+static func _track_name(track_id: String) -> String:
+	var e: Dictionary = Game.track(track_id)
+	return str(e.get("name", track_id)) if str(e.get("id", "")) == track_id else track_id
+
+
+## Everything after the geometry of a glTF circuit or a custom track: environment, water, lakes,
+## props, lights, items, pads, hazards, background, the arch, screens, crowd, low gravity, fires,
+## forest life. (BSP maps keep their own order: _build_bsp_track.)
+func _finish_build() -> void:
+	_build_environment(str(data.get("sky", "sky_day01_01")))
+	if data.has("water") or sea_level > -500.0:
+		_build_water()
+		has_sea = true
+	for w in data.get("waters", []):
+		# lakes above the main water line (a reservoir behind a dam)
+		var c := Vector2(w["center"][0], w["center"][1])
+		var sz := Vector2(w["size"][0], w["size"][1])
+		_build_water(float(w["level"]), c, sz)
+		_lakes.append([Rect2(c - sz * 0.5, sz), float(w["level"])])
+	_spawn_props()
+	_spawn_lights()
 	_spawn_item_boxes()
 	_spawn_boost_pads()
 	# before the background: BackgroundLife leaves out its gunship when a hazard has one
+	_spawn_hazards()
+	_spawn_background()
+	_spawn_gantry_and_life()
+
+
+## A converted BSP map: environment before the items, no water, props or background.
+func _build_bsp_track() -> void:
+	_build_bsp()
+	_build_environment(_bsp_sky())
+	_spawn_item_boxes()
+	_spawn_boost_pads()
+	_spawn_hazards()
+	_spawn_gantry_and_life()
+
+
+func _spawn_hazards() -> void:
 	hazards = HazardDirector.new()
 	add_child(hazards)
 	hazards.setup(self, data.get("hazards", []))
-	if not is_bsp:
-		_spawn_background()
+
+
+## The start arch, its screens, the spectators and the ambient effects.
+func _spawn_gantry_and_life() -> void:
 	gantry = StartGantry.new()
 	add_child(gantry)
 	gantry.setup(Transform3D(Basis.looking_at(path.fwd[0], Vector3.UP), path.center[0]), path.width[0],
@@ -163,13 +229,28 @@ func _build_geometry(track_name: String) -> void:
 	var scn: PackedScene = load("res://assets/track/%s.gltf" % track_name)
 	var root: Node3D = scn.instantiate()
 	add_child(root)
+	dress(root, data)
+
+
+## Source-style materials and collision by surface type for every mesh under `root` (a circuit's
+## glTF or LevelBuild.instantiate()), by the mesh's name: terrain* gets the terrain shader (one
+## ShaderMaterial per call, shared by every terrain mesh) and is offroad; decal / glow / deco are
+## seen, never hit; walls / colonly / ceil / side are walls (colonly hidden), verge offroad, the rest
+## road. Meta `no_collision`: the material and no body (terrain chunks: their collision is the
+## height tiles); meta `no_shadow`: casts no shadow.
+static func dress(root: Node3D, d: Dictionary) -> void:
+	var terrain_mat: ShaderMaterial = null
 	for n in root.find_children("*", "MeshInstance3D", true, false):
 		var mi := n as MeshInstance3D
+		if mi.mesh == null:
+			continue
 		var kind := String(mi.name).to_lower()
 		var surface := "road"
 		if kind.begins_with("terrain"):
 			surface = "offroad"
-			_apply_terrain_material(mi)
+			if terrain_mat == null:
+				terrain_mat = terrain_material(d)
+			mi.set_surface_override_material(0, terrain_mat)
 		else:
 			# light rings, lamp strips and glowing liquids shine whether or not their VMT says $selfillum
 			var lit := kind.begins_with("glow")
@@ -186,12 +267,16 @@ func _build_geometry(track_name: String) -> void:
 				surface = "offroad"
 			elif kind.begins_with("side"):
 				surface = "wall"
+		if mi.get_meta("no_shadow", false):
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		# decals, glowing light panels and set dressing: seen, never hit
 		if kind.begins_with("decal") or kind.begins_with("glow") or kind.begins_with("deco"):
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			continue
 		if kind.begins_with("colonly"):
 			mi.visible = false
+		if mi.get_meta("no_collision", false):
+			continue
 		var body := StaticBody3D.new()
 		body.name = "col_" + kind
 		body.collision_layer = Game.LAYER_WORLD
@@ -210,30 +295,50 @@ func _build_geometry(track_name: String) -> void:
 		mi.add_child(body)
 
 
-func _apply_terrain_material(mi: MeshInstance3D) -> void:
+## The terrain shader with a track's layers: `d.terrain_layers` {base, dirt, rock, pave, sand} ->
+## albedo paths; a layer left out takes the default HL2 nature texture.
+static func terrain_material(d: Dictionary) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = TERRAIN_SHADER
 	var layers := {
 		"base_tex": "nature/grassfloor002a", "dirt_tex": "nature/dirtfloor003a", "rock_tex": "nature/rockwall006a",
 		"pave_tex": "concrete/concretefloor028c", "sand_tex": "nature/blendcliffsand01a",
 	}
-	var own: Dictionary = data.get("terrain_layers", {})
+	var own = d.get("terrain_layers", {})
+	if not own is Dictionary:
+		own = {}
 	for k in layers:
 		var info: Dictionary = Game.materials_db.get(layers[k], {})
-		var tex_path: String = own.get(k.trim_suffix("_tex"), info.get("albedo", ""))
+		var tex_path: String = str(own.get(k.trim_suffix("_tex"), info.get("albedo", "")))
 		m.set_shader_parameter(k, SourceMaterials.tex(tex_path))
 	var rock: Dictionary = Game.materials_db.get("nature/rockwall006a", {})
 	if rock.has("normal"):
 		m.set_shader_parameter("rock_normal", SourceMaterials.tex(rock["normal"]))
 	m.set_shader_parameter("detail_tex", SourceMaterials.tex("materials/detail/noise_detail_01.png"))
-	mi.set_surface_override_material(0, m)
+	return m
 
 
 # ---------------------------------------------------------------- environment
 func _build_environment(sky_name: String) -> void:
+	var parts := _make_environment(sky_name, data, is_bsp)
+	env = parts[2]
+	sun = parts[1]
+	add_child(parts[0])
+	add_child(sun)
+	apply_quality()
+	Game.settings_changed.connect(apply_quality)
+
+
+## [WorldEnvironment, DirectionalLight3D, Environment] of a track's data: the sky `d.sky`, the
+## sun from it, fog, tone mapping and the circuit's `env` overrides (the nodes are not in a tree).
+static func make_environment(d: Dictionary) -> Array:
+	return _make_environment(str(d.get("sky", "sky_day01_01")), d, false)
+
+
+static func _make_environment(sky_name: String, d: Dictionary, bsp: bool) -> Array:
 	var sky_info: Dictionary = Game.skies.get(sky_name, {})
 	var we := WorldEnvironment.new()
-	env = Environment.new()
+	var e := Environment.new()
 	var sky := Sky.new()
 	var sm := ShaderMaterial.new()
 	sm.shader = SKY_SHADER
@@ -241,78 +346,96 @@ func _build_environment(sky_name: String) -> void:
 	sm.set_shader_parameter("exposure", 1.0)
 	sky.sky_material = sm
 	sky.radiance_size = Sky.RADIANCE_SIZE_256
-	env.background_mode = Environment.BG_SKY
-	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_sky_contribution = 1.0
-	env.ambient_light_energy = 1.35
-	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.tonemap_exposure = 1.08
-	env.tonemap_white = 6.0
+	e.background_mode = Environment.BG_SKY
+	e.sky = sky
+	e.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	e.ambient_light_sky_contribution = 1.0
+	e.ambient_light_energy = 1.35
+	e.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	e.tonemap_exposure = 1.08
+	e.tonemap_white = 6.0
 	var hz: Array = sky_info.get("horizon", [0.6, 0.62, 0.65])
 	var horizon := Color(hz[0], hz[1], hz[2])
-	env.fog_enabled = true
-	env.fog_mode = Environment.FOG_MODE_DEPTH
-	env.fog_light_color = horizon
-	env.fog_depth_begin = 180.0
-	env.fog_depth_end = 1500.0
-	env.fog_depth_curve = 1.2
-	env.fog_sky_affect = 0.0
-	env.fog_density = 0.6
-	env.ssao_enabled = true
-	env.ssao_radius = 1.5
-	env.ssao_intensity = 1.6
-	env.glow_enabled = true
-	env.glow_intensity = 0.35
-	env.glow_bloom = 0.04
-	env.glow_hdr_threshold = 1.1
-	env.ssr_max_steps = 48
-	env.sdfgi_use_occlusion = true
-	env.sdfgi_cascades = 4
-	env.sdfgi_min_cell_size = 0.4
-	env.sdfgi_energy = 1.1
-	env.adjustment_enabled = true
-	env.adjustment_saturation = 1.05
-	env.adjustment_contrast = 1.05
-	we.environment = env
-	add_child(we)
-	sun = DirectionalLight3D.new()
-	sun.name = "light_environment"
+	e.fog_enabled = true
+	e.fog_mode = Environment.FOG_MODE_DEPTH
+	e.fog_light_color = horizon
+	e.fog_depth_begin = 180.0
+	e.fog_depth_end = 1500.0
+	e.fog_depth_curve = 1.2
+	e.fog_sky_affect = 0.0
+	e.fog_density = 0.6
+	e.ssao_enabled = true
+	e.ssao_radius = 1.5
+	e.ssao_intensity = 1.6
+	e.glow_enabled = true
+	e.glow_intensity = 0.35
+	e.glow_bloom = 0.04
+	e.glow_hdr_threshold = 1.1
+	e.ssr_max_steps = 48
+	e.sdfgi_use_occlusion = true
+	e.sdfgi_cascades = 4
+	e.sdfgi_min_cell_size = 0.4
+	e.sdfgi_energy = 1.1
+	e.adjustment_enabled = true
+	e.adjustment_saturation = 1.05
+	e.adjustment_contrast = 1.05
+	we.environment = e
+	var s := DirectionalLight3D.new()
+	s.name = "light_environment"
 	var sd: Array = sky_info.get("sun_dir", [0.6, 0.5, 0.6])
 	var dir := Vector3(sd[0], maxf(sd[1], 0.35), sd[2]).normalized()
-	sun.look_at_from_position(Vector3.ZERO, -dir, Vector3.UP if absf(dir.y) < 0.99 else Vector3.FORWARD)
-	sun.light_color = Color(1.0, 0.95, 0.86)
-	sun.light_energy = 1.75 * float(sky_info.get("sun_scale", 1.0))
-	sun.shadow_enabled = true
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-	sun.directional_shadow_max_distance = 260.0
-	sun.shadow_blur = 1.2
-	sun.light_angular_distance = 0.6
-	add_child(sun)
-	if is_bsp:
-		_bsp_lighting()
-	elif data.has("env"):
-		_env_overrides(data["env"])
-	apply_quality()
-	Game.settings_changed.connect(apply_quality)
+	s.look_at_from_position(Vector3.ZERO, -dir, Vector3.UP if absf(dir.y) < 0.99 else Vector3.FORWARD)
+	s.light_color = Color(1.0, 0.95, 0.86)
+	s.light_energy = 1.75 * float(sky_info.get("sun_scale", 1.0))
+	s.shadow_enabled = true
+	s.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+	s.directional_shadow_max_distance = 260.0
+	s.shadow_blur = 1.2
+	s.light_angular_distance = 0.6
+	if bsp:
+		_bsp_lighting(e, s, d)
+	elif d.has("env") and d["env"] is Dictionary:
+		_env_overrides(e, s, d["env"])
+	return [we, s, e]
 
 
 ## GRAPHICS preset from Options: LOW / MEDIUM / HIGH (can change mid-race from the pause menu).
 func apply_quality() -> void:
+	apply_quality_to(env, sun, get_viewport(), data, is_bsp)
+
+
+## The GRAPHICS preset on an environment, its sun and the viewport (MSAA): realtime GI, SSR, SSAO,
+## glow, shadow splits and distance. `vp` may be null.
+static func apply_quality_to(e: Environment, s: DirectionalLight3D, vp: Viewport, d: Dictionary, bsp := false) -> void:
 	var q: int = int(Game.settings.get("quality", 2))
+	var de = d.get("env", {})
 	# BSP maps carry their own baked light: no realtime GI on top
-	env.sdfgi_enabled = q >= 2 and not is_bsp and bool(data.get("env", {}).get("sdfgi", true))
-	env.ssr_enabled = q >= 2
-	env.ssao_enabled = q >= 1
-	env.glow_enabled = q >= 1
-	sun.shadow_enabled = true
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS if q >= 1 else DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
-	sun.directional_shadow_max_distance = 260.0 if q >= 1 else 140.0
-	get_viewport().msaa_3d = Viewport.MSAA_4X if q >= 2 else (Viewport.MSAA_2X if q == 1 else Viewport.MSAA_DISABLED)
+	e.sdfgi_enabled = q >= 2 and not bsp and bool(de.get("sdfgi", true) if de is Dictionary else true)
+	e.ssr_enabled = q >= 2
+	e.ssao_enabled = q >= 1
+	e.glow_enabled = q >= 1
+	s.shadow_enabled = true
+	s.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS if q >= 1 else DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	s.directional_shadow_max_distance = 260.0 if q >= 1 else 140.0
+	if vp:
+		vp.msaa_3d = Viewport.MSAA_4X if q >= 2 else (Viewport.MSAA_2X if q == 1 else Viewport.MSAA_DISABLED)
 
 
-func _build_water(level := NAN, center := Vector2(300, 400), size := Vector2(6000, 6000)) -> void:
+## The sea (`data.sea_center`, default [300, 400]; `data.sea_size`, default 6000 m square) or a
+## lake (its own level, centre and size).
+func _build_water(level := NAN, center := Vector2.INF, size := Vector2.INF) -> void:
+	if center == Vector2.INF:
+		var c = data.get("sea_center", [300, 400])
+		center = Vector2(float(c[0]), float(c[1])) if c is Array and c.size() >= 2 else Vector2(300, 400)
+	if size == Vector2.INF:
+		var sz := float(data.get("sea_size", 6000.0))
+		size = Vector2(sz, sz)
+	add_child(water_plane(sea_level if is_nan(level) else level, center, size))
+
+
+## A water plane ("water_sea") at `level`, centred on `center` (x, z), `size` metres.
+static func water_plane(level: float, center: Vector2, size: Vector2) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.name = "water_sea"
 	var pm := PlaneMesh.new()
@@ -320,7 +443,7 @@ func _build_water(level := NAN, center := Vector2(300, 400), size := Vector2(600
 	pm.subdivide_width = 4
 	pm.subdivide_depth = 4
 	mi.mesh = pm
-	mi.position = Vector3(center.x, sea_level if is_nan(level) else level, center.y)
+	mi.position = Vector3(center.x, level, center.y)
 	var m := ShaderMaterial.new()
 	m.shader = WATER_SHADER
 	var info: Dictionary = Game.materials_db.get("nature/water_coast01", {})
@@ -329,28 +452,24 @@ func _build_water(level := NAN, center := Vector2(300, 400), size := Vector2(600
 	m.set_shader_parameter("fog_end", 9.0)
 	mi.material_override = m
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(mi)
+	return mi
 
 
 # ---------------------------------------------------------------- props
-func _static_shape(key: String, model: Node3D, aabb: AABB) -> Shape3D:
-	if _static_shapes.has(key):
-		return _static_shapes[key]
+## The collision shape of a static prop model, cached in `shapes` by key (+ "@scale").
+static func _static_shape(shapes: Dictionary, key: String, model: Node3D, aabb: AABB) -> Shape3D:
+	if shapes.has(key):
+		return shapes[key]
 	var sh: Shape3D
-	if key.begins_with("props_buildings/") or key.begins_with("props_trainstation/train") or key.contains("boxcar") \
-			or key.contains("tanker") or key.contains("flatcar") or key.begins_with("props_combine/combine_bunker") \
-			or key.contains("combinetower") or key.contains("buttress"):
+	if key.begins_with("props_buildings/") or key.begins_with("props_trainstation/train") or key.contains("boxcar") 			or key.contains("tanker") or key.contains("flatcar") or key.begins_with("props_combine/combine_bunker") 			or key.contains("combinetower") or key.contains("buttress"):
 		# big irregular shapes collide with their real surface, never with an invisible box
 		sh = _mesh_shape(model)
-	elif key.begins_with("props_foliage/tree") or key.contains("lamppost") or key.contains("utilitypole") \
-			or key.contains("powertower") or key.contains("signpole") or key.contains("traffic_light") \
-			or key.begins_with("hl1/tree") or key.begins_with("hl1/light"):
+	elif key.begins_with("props_foliage/tree") or key.contains("lamppost") or key.contains("utilitypole") 			or key.contains("powertower") or key.contains("signpole") or key.contains("traffic_light") 			or key.begins_with("hl1/tree") or key.begins_with("hl1/light"):
 		var c := CylinderShape3D.new()
 		c.radius = clampf(minf(aabb.size.x, aabb.size.z) * 0.08, 0.15, 0.6)
 		c.height = aabb.size.y
 		sh = c
-	elif key.contains("grass") or key.contains("fern") or key.contains("shrub") or key.contains("bush") \
-			or key.begins_with("hl1/hair") or key.begins_with("hl1/uplant") or key.begins_with("hl1/fungus_small"):
+	elif key.contains("grass") or key.contains("fern") or key.contains("shrub") or key.contains("bush") 			or key.begins_with("hl1/hair") or key.begins_with("hl1/uplant") or key.begins_with("hl1/fungus_small"):
 		sh = null
 	elif key.begins_with("hl1/crystal") or key.begins_with("hl1/fungus"):
 		# a cluster of shards, a cap on legs: their hulls slope like a ramp a kart climbs and sticks
@@ -360,11 +479,11 @@ func _static_shape(key: String, model: Node3D, aabb: AABB) -> Shape3D:
 		sh = b
 	else:
 		sh = PhysProp.shape_for(key, model)
-	_static_shapes[key] = sh
+	shapes[key] = sh
 	return sh
 
 
-func _mesh_shape(model: Node3D) -> Shape3D:
+static func _mesh_shape(model: Node3D) -> Shape3D:
 	var faces := PackedVector3Array()
 	for mi in model.find_children("*", "MeshInstance3D", true, false):
 		var m := mi as MeshInstance3D
@@ -379,7 +498,7 @@ func _mesh_shape(model: Node3D) -> Shape3D:
 	return sh
 
 
-func _local_xf(root: Node3D, n: Node3D) -> Transform3D:
+static func _local_xf(root: Node3D, n: Node3D) -> Transform3D:
 	var xf := Transform3D.IDENTITY
 	var cur: Node = n
 	while cur and cur != root:
@@ -394,69 +513,83 @@ func _spawn_props() -> void:
 	holder.name = "props"
 	add_child(holder)
 	for p in data.get("props", []):
-		var key: String = p["model"]
-		if not Game.models.has(key):
+		var n := prop_node(p, sea_level, _static_shapes)
+		if n == null:
 			continue
-		var pos := Vector3(p["pos"][0], p["pos"][1], p["pos"][2])
-		var yaw: float = p.get("yaw", 0.0)
-		if p.get("physics", false):
-			var prop := PhysProp.new()
-			holder.add_child(prop)
-			prop.setup(key)
-			prop.global_position = pos
-			prop.rotation.y = yaw
-			prop.sleeping = true
-			continue
-		var model := Game.spawn_model(key)
-		var sc: float = float(p.get("scale", 1.0))
-		if sc != 1.0:
-			model.scale = Vector3.ONE * sc
-		var aabb := Game.model_aabb(key)
-		if sc != 1.0:
-			aabb = AABB(aabb.position * sc, aabb.size * sc)
-		var body := StaticBody3D.new()
-		body.collision_layer = Game.LAYER_WORLD
-		body.collision_mask = 0
-		body.set_meta("surface", "wall")
-		if _knockable(key):
-			# not solid to karts: their sensor turns it into a physics prop on contact
-			body.set_meta("knockable", key)
-			body.collision_layer = Game.LAYER_KNOCK
-		holder.add_child(body)
-		body.add_child(model)
-		body.global_position = pos
-		body.rotation.y = yaw
-		# a tilted prop (a derailed wagon): pitch and roll in radians, rotation order YXZ with the yaw
-		var pitch := float(p.get("pitch", 0.0))
-		var roll := float(p.get("roll", 0.0))
-		if pitch != 0.0 or roll != 0.0:
-			body.rotation = Vector3(pitch, yaw, roll)
-		if p.get("tag", "") == "float":
-			body.global_position.y = sea_level - aabb.size.y * 0.25
-		# distant set dressing (floating rocks, the Nihilanth) is never reached, and decoration a
-		# circuit tags "deco" (crystals where knocked karts slide by) is seen, never hit
-		var sh: Shape3D = null if p.get("tag", "") in ["far", "deco"] \
-			else _static_shape(key + ("@%.2f" % sc if sc != 1.0 else ""), model, aabb)
-		if sh:
-			var cs := CollisionShape3D.new()
-			cs.shape = sh
-			# mesh and hull shapes are in the model's own units: they scale with it (uniform)
-			if sh is ConcavePolygonShape3D or sh is ConvexPolygonShape3D:
-				cs.scale = Vector3.ONE * sc
-			if sh is BoxShape3D:
-				cs.position = aabb.get_center()
-			elif sh is CylinderShape3D:
-				cs.position = Vector3(0, aabb.size.y * 0.5 + aabb.position.y, 0)
-			body.add_child(cs)
-		var big := aabb.size.length() > 25.0
-		for mi in model.find_children("*", "MeshInstance3D", true, false):
-			(mi as GeometryInstance3D).visibility_range_end = 0.0 if big else 420.0
-			if not big and aabb.size.length() < 2.0:
-				(mi as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		holder.add_child(n)
+		if n is PhysProp:
+			# named in the tree as before (PhysProp.setup names it after its model)
+			n.name = (n as PhysProp).model_key.get_file()
+			(n as PhysProp).sleeping = true
+
+
+## One prop of a track's data `p` ({model, pos, yaw, pitch?, roll?, scale?, physics?, tag?}) as a
+## node (not in a tree; place it under a holder at the origin): a sleeping PhysProp for physics
+## props, else a StaticBody3D carrying the model and its cached shape (`shapes`, by key), on the
+## knock layer for street furniture. null when this install lacks the model. "float" props sit
+## in the water at `sea_y` (the track's sea_level); "far" and "deco" props are never hit.
+static func prop_node(p: Dictionary, sea_y: float, shapes: Dictionary) -> Node3D:
+	var key: String = str(p.get("model", ""))
+	if not Game.models.has(key):
+		return null
+	var pos := Vector3(p["pos"][0], p["pos"][1], p["pos"][2])
+	var yaw: float = float(p.get("yaw", 0.0))
+	if p.get("physics", false):
+		var prop := PhysProp.new()
+		prop.setup(key)
+		prop.position = pos
+		prop.rotation.y = yaw
+		prop.sleeping = true
+		return prop
+	var model := Game.spawn_model(key)
+	var sc: float = float(p.get("scale", 1.0))
+	if sc != 1.0:
+		model.scale = Vector3.ONE * sc
+	var aabb := Game.model_aabb(key)
+	if sc != 1.0:
+		aabb = AABB(aabb.position * sc, aabb.size * sc)
+	var body := StaticBody3D.new()
+	body.collision_layer = Game.LAYER_WORLD
+	body.collision_mask = 0
+	body.set_meta("surface", "wall")
+	if _knockable(key):
+		# not solid to karts: their sensor turns it into a physics prop on contact
+		body.set_meta("knockable", key)
+		body.collision_layer = Game.LAYER_KNOCK
+	body.add_child(model)
+	body.position = pos
+	body.rotation.y = yaw
+	# a tilted prop (a derailed wagon): pitch and roll in radians, rotation order YXZ with the yaw
+	var pitch := float(p.get("pitch", 0.0))
+	var roll := float(p.get("roll", 0.0))
+	if pitch != 0.0 or roll != 0.0:
+		body.rotation = Vector3(pitch, yaw, roll)
+	if p.get("tag", "") == "float":
+		body.position.y = sea_y - aabb.size.y * 0.25
+	# distant set dressing (floating rocks, the Nihilanth) is never reached, and decoration a
+	# circuit tags "deco" (crystals where knocked karts slide by) is seen, never hit
+	var sh: Shape3D = null if p.get("tag", "") in ["far", "deco"] 		else _static_shape(shapes, key + ("@%.2f" % sc if sc != 1.0 else ""), model, aabb)
+	if sh:
+		var cs := CollisionShape3D.new()
+		cs.shape = sh
+		# mesh and hull shapes are in the model's own units: they scale with it (uniform)
+		if sh is ConcavePolygonShape3D or sh is ConvexPolygonShape3D:
+			cs.scale = Vector3.ONE * sc
+		if sh is BoxShape3D:
+			cs.position = aabb.get_center()
+		elif sh is CylinderShape3D:
+			cs.position = Vector3(0, aabb.size.y * 0.5 + aabb.position.y, 0)
+		body.add_child(cs)
+	var big := aabb.size.length() > 25.0
+	for mi in model.find_children("*", "MeshInstance3D", true, false):
+		(mi as GeometryInstance3D).visibility_range_end = 0.0 if big else 420.0
+		if not big and aabb.size.length() < 2.0:
+			(mi as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return body
 
 
 ## Street furniture a kart can flatten (it turns into a prop_physics on impact).
-func _knockable(key: String) -> bool:
+static func _knockable(key: String) -> bool:
 	for k in ["lamppost", "signpole", "streetsign", "bench", "payphone", "trashcan", "trashbin", "traffic_light",
 			"wood_fence", "barricade00", "utilitypole", "cardboard", "dumpster", "furniture", "floodlight"]:
 		if key.contains(k):
@@ -597,38 +730,42 @@ func spawn_transform(slot: int) -> Transform3D:
 
 
 ## Per-circuit light: indoor Black Mesa has no sun, Xen glows purple, the desert burns.
-func _env_overrides(e: Dictionary) -> void:
+## `ambient_energy` is the ambient's strength with an `ambient` colour (default 1.0) and on the
+## sky's own ambient without one (default 1.35, as before).
+static func _env_overrides(en: Environment, sl: DirectionalLight3D, e: Dictionary) -> void:
 	if e.has("ambient"):
 		var a: Array = e["ambient"]
-		env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-		env.ambient_light_color = Color(a[0], a[1], a[2])
-		env.ambient_light_energy = float(e.get("ambient_energy", 1.0))
+		en.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+		en.ambient_light_color = Color(a[0], a[1], a[2])
+		en.ambient_light_energy = float(e.get("ambient_energy", 1.0))
+	else:
+		en.ambient_light_energy = float(e.get("ambient_energy", 1.35))
 	if e.has("sun_energy"):
-		sun.light_energy = float(e["sun_energy"])
-		sun.visible = sun.light_energy > 0.0
+		sl.light_energy = float(e["sun_energy"])
+		sl.visible = sl.light_energy > 0.0
 	if e.has("sun_color"):
 		var c: Array = e["sun_color"]
-		sun.light_color = Color(c[0], c[1], c[2])
+		sl.light_color = Color(c[0], c[1], c[2])
 	if e.has("sun_dir"):
 		var d: Array = e["sun_dir"]
 		var dir := Vector3(d[0], d[1], d[2]).normalized()
-		sun.look_at_from_position(Vector3.ZERO, -dir, Vector3.UP if absf(dir.y) < 0.99 else Vector3.FORWARD)
+		sl.look_at_from_position(Vector3.ZERO, -dir, Vector3.UP if absf(dir.y) < 0.99 else Vector3.FORWARD)
 	if e.has("fog_color"):
 		var f: Array = e["fog_color"]
-		env.fog_light_color = Color(f[0], f[1], f[2])
-	env.fog_depth_begin = float(e.get("fog_begin", env.fog_depth_begin))
-	env.fog_depth_end = float(e.get("fog_end", env.fog_depth_end))
-	env.fog_sky_affect = float(e.get("fog_sky", env.fog_sky_affect))
-	env.tonemap_exposure = float(e.get("exposure", env.tonemap_exposure))
-	env.glow_intensity = float(e.get("glow", env.glow_intensity))
+		en.fog_light_color = Color(f[0], f[1], f[2])
+	en.fog_depth_begin = float(e.get("fog_begin", en.fog_depth_begin))
+	en.fog_depth_end = float(e.get("fog_end", en.fog_depth_end))
+	en.fog_sky_affect = float(e.get("fog_sky", en.fog_sky_affect))
+	en.tonemap_exposure = float(e.get("exposure", en.tonemap_exposure))
+	en.glow_intensity = float(e.get("glow", en.glow_intensity))
 	if e.has("sky_energy"):
-		(env.sky.sky_material as ShaderMaterial).set_shader_parameter("exposure", float(e["sky_energy"]))
+		(en.sky.sky_material as ShaderMaterial).set_shader_parameter("exposure", float(e["sky_energy"]))
 
 
 ## Karts and props are lit to match the map: light_environment's colour and
 ## angle, the track's ambient level (indoor maps are dim, Xen is purple...).
-func _bsp_lighting() -> void:
-	var sd = data.get("sun")
+static func _bsp_lighting(en: Environment, sl: DirectionalLight3D, d: Dictionary) -> void:
+	var sd = d.get("sun")
 	if sd is Dictionary and sd.has("pitch"):
 		var pitch := deg_to_rad(float(sd["pitch"]))
 		var yaw := deg_to_rad(float(sd.get("yaw", 0.0)))
@@ -637,15 +774,15 @@ func _bsp_lighting() -> void:
 		var dir := Vector3(dir_src.x, dir_src.z, -dir_src.y).normalized()
 		if dir.y > -0.1:
 			dir = Vector3(dir.x, -0.6, dir.z).normalized()
-		sun.look_at_from_position(Vector3.ZERO, dir, Vector3.UP if absf(dir.y) < 0.99 else Vector3.FORWARD)
+		sl.look_at_from_position(Vector3.ZERO, dir, Vector3.UP if absf(dir.y) < 0.99 else Vector3.FORWARD)
 		var c: Array = sd.get("color", [1, 1, 1])
-		sun.light_color = Color(c[0], c[1], c[2])
-	var kl: float = data.get("kart_light", 1.0)
-	sun.light_energy = 1.5 * kl
-	var amb: Array = data.get("ambient", [0.6, 0.6, 0.6])
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(amb[0], amb[1], amb[2])
-	env.ambient_light_energy = 1.0
-	env.fog_depth_begin = float(data.get("fog_begin", 250.0))
-	env.fog_depth_end = float(data.get("fog_end", 1800.0))
-	env.tonemap_exposure = float(data.get("exposure", 1.0))
+		sl.light_color = Color(c[0], c[1], c[2])
+	var kl: float = d.get("kart_light", 1.0)
+	sl.light_energy = 1.5 * kl
+	var amb: Array = d.get("ambient", [0.6, 0.6, 0.6])
+	en.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	en.ambient_light_color = Color(amb[0], amb[1], amb[2])
+	en.ambient_light_energy = 1.0
+	en.fog_depth_begin = float(d.get("fog_begin", 250.0))
+	en.fog_depth_end = float(d.get("fog_end", 1800.0))
+	en.tonemap_exposure = float(d.get("exposure", 1.0))

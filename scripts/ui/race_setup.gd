@@ -3,7 +3,9 @@ extends Control
 ## NEW RACE screen: pick a racer and a vehicle (card grids + live 3D preview),
 ## then the race rules (difficulty, track hazards, laps, track) and start. One place, one START.
 ## With a pad: B goes back, Start starts the race, and the focused track card shows its
-## description (or why it can not be picked) without picking it.
+## description (or why it can not be picked) without picking it. After the circuits, the MY
+## TRACKS card (5.3) opens TrackBrowser for the own and downloaded tracks; it shows the picked
+## custom track's picture (or road outline) and name.
 
 signal back
 signal start
@@ -28,6 +30,9 @@ var back_button: Button
 var laps_value: Label
 var track_desc: Label
 var track_cards: Array[Button] = []
+## The eighth track card: MY TRACKS (opens TrackBrowser).
+var my_card: Button
+var browser: TrackBrowser
 var _racer := 0
 var _vehicle := 0
 var _preview: AudioStreamPlayer
@@ -255,16 +260,17 @@ func _rules_row() -> Control:
 	# TRACK_COLUMNS, so the description keeps its room beside them; past eight a third row starts
 	var tracks := _tracks()
 	var grid := GridContainer.new()
-	grid.columns = clampi(ceili(tracks.size() / 2.0), 1, TRACK_COLUMNS)
+	# (the circuits and the MY TRACKS card)
+	grid.columns = clampi(ceili((tracks.size() + 1) / 2.0), 1, TRACK_COLUMNS)
 	grid.add_theme_constant_override("h_separation", 8)
 	grid.add_theme_constant_override("v_separation", 6)
 	t.add_child(grid)
 	var group := ButtonGroup.new()
 	# a track this install has not built yet (new content, setup not run again) can not be picked:
-	# the race would build Highway 17 instead (Track.build). The pick falls back to the first one built
+	# the race would build Highway 17 instead (Track.build). The pick is Game.track_pick(): a custom
+	# track stays picked (also after it was saved again), else the first circuit built
 	var have := tracks.filter(func(tr: Dictionary) -> bool: return Game.track_installed(tr["id"]))
-	if not have.is_empty() and not have.any(func(tr: Dictionary) -> bool: return tr["id"] == Game.settings.get("track", "")):
-		Game.settings["track"] = have[0]["id"]
+	Game.settings["track"] = Game.track_pick()
 	for tr: Dictionary in tracks:
 		var id: String = tr["id"]
 		var b := _pic_card(Game.track_thumb(id), tr["short"], TRACK_CARD, group)
@@ -276,6 +282,8 @@ func _rules_row() -> Control:
 			b.modulate.a = 0.45
 		b.pressed.connect(func():
 			Game.settings["track"] = id
+			Game.settings["track_guid"] = ""
+			_refresh_my_card()
 			_refresh_track()
 			Game.play_ui("res://assets/sound/ui/buttonclick.wav", -8.0))
 		# the focused card shows its track (a pad never sees the tooltip); the picked one's comes back
@@ -283,6 +291,17 @@ func _rules_row() -> Control:
 		b.focus_exited.connect(_refresh_track)
 		grid.add_child(b)
 		track_cards.append(b)
+	# the eighth card: MY TRACKS (the grid's last cell)
+	my_card = _pic_card(null, "MY TRACKS", TRACK_CARD, group)
+	my_card.name = "Track_custom"
+	my_card.pressed.connect(_open_browser)
+	my_card.focus_entered.connect(func(): track_desc.text = _my_card_desc())
+	my_card.focus_exited.connect(_refresh_track)
+	grid.add_child(my_card)
+	track_cards.append(my_card)
+	_refresh_my_card()
+	Game.track_thumb_ready.connect(_on_thumb_ready)
+	Game.custom_tracks_changed.connect(_on_customs_changed)
 	h.add_child(t)
 	var w := VBoxContainer.new()
 	w.add_theme_constant_override("separation", 8)
@@ -317,8 +336,16 @@ func _tracks() -> Array:
 	return Game.TRACKS
 
 
-## A track's description, or why it can not be picked.
+## A track's description, or why it can not be picked; a custom track's: "<desc> · by <author> ·
+## 2.4 KM · 2 SHORTCUTS".
 func _desc_of(id: String) -> String:
+	if CustomTracks.is_custom(id):
+		var m := Game.track(id)
+		var why := "It is not on this computer." if m.get("unknown", false) else TrackList.why_not(m)
+		if why != "":
+			return "%s: %s" % [m.get("name", "The track"), why]
+		var line := TrackList.race_line(m)
+		return line if line != "" else str(m.get("name", ""))
 	if not Game.track_installed(id):
 		return "%s is not built on this computer yet: run the setup again to add it." % Game.track(id)["name"]
 	return Game.track(id)["desc"]
@@ -329,8 +356,100 @@ func _refresh_track() -> void:
 	var id := str(Game.settings.get("track", ""))
 	track_desc.text = _desc_of(id)
 	for b in track_cards:
-		if start_button and b.name == "Track_" + id:
+		if start_button and (b.name == "Track_" + id or (b == my_card and CustomTracks.is_custom(id))):
 			start_button.focus_neighbor_top = start_button.get_path_to(b)
+
+
+# ---------------------------------------------------------------- MY TRACKS (5.3)
+
+## The MY TRACKS card: the picked custom track's picture (or outline) and short name, pressed; with
+## a circuit picked "MY TRACKS" and no picture.
+func _refresh_my_card() -> void:
+	if my_card == null:
+		return
+	var id := str(Game.settings.get("track", ""))
+	var custom := CustomTracks.is_custom(id) and CustomTracks.has(id)
+	var m := CustomTracks.meta(id) if custom else {}
+	var inner := my_card.get_child(0) as VBoxContainer
+	var old := inner.get_child(0)
+	inner.remove_child(old)
+	old.queue_free()
+	var holder := Control.new()
+	holder.name = "Pic"
+	holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.clip_contents = true
+	inner.add_child(holder)
+	inner.move_child(holder, 0)
+	if custom:
+		var tex := TrackList.picture_of(m)
+		if tex != null:
+			var pic := TextureRect.new()
+			pic.texture = tex
+			pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+			pic.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			holder.add_child(pic)
+		else:
+			var o := TrackList.Outline.new()
+			o.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			o.set_points(TrackList.outline_of(m))
+			holder.add_child(o)
+	var cap := inner.get_child(inner.get_child_count() - 1) as Label
+	cap.text = TrackList.caption_of(m) if custom else "MY TRACKS"
+	my_card.set_pressed_no_signal(custom)
+	if not custom:
+		for b in track_cards:
+			if b != my_card and b.name == "Track_" + id:
+				b.set_pressed_no_signal(true)
+
+
+func _my_card_desc() -> String:
+	var id := str(Game.settings.get("track", ""))
+	if CustomTracks.is_custom(id):
+		return _desc_of(id)
+	if CustomTracks.list("mine").is_empty() and CustomTracks.list("downloaded").is_empty():
+		return "No tracks of your own yet: make one in TRACK EDITOR."
+	return "Your own tracks and the ones you downloaded: pick one to race on it."
+
+
+## MY TRACKS pressed: TrackBrowser; a pick there is the track, BACK leaves the pick as it was.
+func _open_browser() -> void:
+	if browser != null and is_instance_valid(browser):
+		return
+	browser = TrackBrowser.new()
+	browser.picked.connect(pick_custom)
+	browser.closed.connect(_on_browser_closed)
+	add_child(browser)
+
+
+## A custom track picked (TrackBrowser): settings.track / track_guid, the card, ABOUT THE TRACK.
+func pick_custom(id: String) -> void:
+	Game.settings["track"] = id
+	Game.settings["track_guid"] = str(CustomTracks.meta(id).get("guid", ""))
+	Game.play_ui("res://assets/sound/ui/buttonclick.wav", -8.0)
+	_refresh_my_card()
+	_refresh_track()
+
+
+func _on_browser_closed() -> void:
+	browser = null
+	# BACK: the pick's card is pressed again (pressing MY TRACKS pressed it)
+	_refresh_my_card()
+	_refresh_track()
+	if my_card and my_card.is_visible_in_tree():
+		my_card.grab_focus.call_deferred()
+
+
+func _on_thumb_ready(id: String) -> void:
+	if id == str(Game.settings.get("track", "")):
+		_refresh_my_card()
+
+
+func _on_customs_changed() -> void:
+	_refresh_my_card()
+	_refresh_track()
 
 
 func _buttons_row() -> Control:
@@ -369,6 +488,9 @@ func focus_default() -> bool:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	# (the browser on top has the pad and the keys)
+	if browser != null and is_instance_valid(browser):
+		return
 	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
 		back.emit()

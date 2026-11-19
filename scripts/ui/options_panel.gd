@@ -168,6 +168,9 @@ func _game() -> Control:
 		func(on: bool): _apply("controls_card", on))))
 	v.add_child(UiKit.row("Check for updates", UiKit.toggle(Game.settings.get("check_updates", true),
 		func(on: bool): _apply("check_updates", on))))
+	# a server's custom track in the lobby: off asks first (DOWNLOAD IT?) on each server
+	v.add_child(UiKit.row("Download tracks from servers", UiKit.toggle(Game.settings.get("allow_downloads", true),
+		func(on: bool): _apply("allow_downloads", on))))
 	var ver := UiKit.label("Version %s  ·  github.com/%s" % [Game.version, Game.repo], 15, UiKit.TEXT_DIM)
 	v.add_child(ver)
 	return v

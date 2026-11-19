@@ -36,6 +36,9 @@ extends Node
 ##     main road beside each branch must advise a kart that stays on the main road and never one
 ##     on that branch or about to turn into it.
 ##     godot --headless --path . res://tests/hazard_test.tscn -- rules <track> [out_prefix]
+##   determinism and rules also take a custom track id (c_ + 16 hex): it resolves through
+##   CustomTracks.build_for(id).data after CustomTracks.refresh(); --tracks <dir> adds a scan folder
+##   (tests/level/case_hazards.gd writes a c_ oval with hazards to user://hazard_test_tracks).
 ##   net: one peer of an online race on the same hazard list: a dedicated host, or a client
 ##     (with --autodrive). Every peer logs the shared clock beside the wall clock (to compare
 ##     peers) and each hazard event as it lands; a client also sets off the first tripmine or
@@ -102,6 +105,11 @@ func _ready() -> void:
 	if bf >= 0 and bf + 1 < args.size():
 		_branches = (Game.load_json(args[bf + 1]) as Dictionary).get("branches", [])
 		args = args.slice(0, bf) + args.slice(bf + 2)
+	# CustomTracks reads --tracks / --track-cache from the command line itself
+	for opt in ["--tracks", "--track-cache"]:
+		var tf := args.find(opt)
+		if tf >= 0 and tf + 1 < args.size():
+			args = args.slice(0, tf) + args.slice(tf + 2)
 	Game.settings["hazards"] = 1
 	match args[0] if not args.is_empty() else "":
 		"determinism":
@@ -333,7 +341,7 @@ func _summary() -> void:
 
 # ---------------------------------------------------------------- determinism
 func _determinism(track_id: String) -> void:
-	var data: Dictionary = Game.load_json("res://assets/track/%s.json" % track_id)
+	var data: Dictionary = _custom_data(track_id) if CustomTracks.is_custom(track_id) 		else Game.load_json("res://assets/track/%s.json" % track_id)
 	var defs: Array = _override if not _override.is_empty() else data.get("hazards", [])
 	if defs.is_empty():
 		print("FAIL no hazards on %s (pass --hazards <file.json>)" % track_id)
@@ -412,6 +420,16 @@ func _determinism(track_id: String) -> void:
 	_expect(off.safe_respawn(123.0) == 123.0 and int(off.advice(null, 0.0, 20.0)["id"]) == -1, "OFF answers like no hazards")
 	print("checked, failures: ", failures)
 	get_tree().quit(1 if failures > 0 else 0)
+
+
+## A custom track's compiled data (CustomTracks.build_for after a refresh), {} when it is not here.
+func _custom_data(track_id: String) -> Dictionary:
+	CustomTracks.refresh()
+	var b := CustomTracks.build_for(track_id)
+	if b == null:
+		print("FAIL the custom track %s is not here (pass --tracks <dir>)" % track_id)
+		return {}
+	return b.data
 
 
 func _check_hash() -> void:
@@ -501,7 +519,14 @@ func _rules(track_id: String) -> void:
 	add_child(rig)
 	var trk := Track.new()
 	rig.add_child(trk)
+	if CustomTracks.is_custom(track_id):
+		# a c_ id resolves through CustomTracks.build_for(id).data (Track.build does)
+		CustomTracks.refresh()
 	trk.build(track_id)
+	if trk.build_failed != "" or not (trk.data.get("path") is Dictionary):
+		print("FAIL the track %s could not be built: %s" % [track_id, trk.build_failed])
+		get_tree().quit(1)
+		return
 	var defs: Array = _override if not _override.is_empty() else trk.data.get("hazards", [])
 	trk.hazards.queue_free()
 	director = HazardDirector.new()

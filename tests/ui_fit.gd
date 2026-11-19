@@ -1,5 +1,6 @@
 extends Node
-## Layout check for every menu screen: lists controls that stick out of the
+## Layout check for every menu screen (TRACK EDITOR's home on each tab, NEW RACE's track browser, the
+## server browser and the lobby with their TRACK columns included): lists controls that stick out of the
 ## window or are squeezed below their minimum size, and saves a screenshot of
 ## each screen. Run at a few window shapes (1600x900, 1280x1024, 2560x1080): --resolution with a
 ## window, or the optional second argument, which also works headless (it sizes the root window:
@@ -89,7 +90,22 @@ class Runner:
 		menu._open_setup()
 		await _check("setup")
 		print("  rects: root ", menu.root.get_global_rect(), " setup ", menu.setup.get_global_rect(), " margin ", menu.setup.get_child(2).get_global_rect())
+		# NEW RACE > MY TRACKS: the track browser over it
+		menu.setup.my_card.pressed.emit()
+		await _check("track_browser")
+		if menu.setup.browser and is_instance_valid(menu.setup.browser):
+			menu.setup.browser.close()
 		menu.setup.back.emit()
+		# TRACK EDITOR's home, each tab (the first-visit card shows on TEMPLATES)
+		menu._open_editor_home()
+		await get_tree().process_frame
+		var home: EditorHome = menu.home
+		if home._dialog_open():
+			home.dialog.queue_free()
+		for t in EditorHome.TABS:
+			home.show_tab(t)
+			await _check("editor_home_" + t)
+		home.back.emit()
 		var o := OptionsPanel.new()
 		menu._open(o)
 		for i in o.pages.size():
@@ -106,6 +122,14 @@ class Runner:
 		await _check("soundtrack")
 		menu.dialog.close()
 		menu._open_browser()
+		# a server on a custom track (a fake LAN reply), selected: the TRACK column and its line
+		var sb := menu.dialog as ServerBrowser
+		sb._on_found({"address": "192.0.2.10", "port": 27015, "name": "Canal GP", "map": "Canal Run With A Very Long Name Here",
+			"cu": 1, "msha": "0123456789abcdef", "mkb": 1400, "mau": "Sasha", "players": 3, "max": 8, "state": "lobby",
+			"ping": 42, "compatible": true, "list": ["Gordon", "Alyx", "Barney"]})
+		var row := sb.list.get_root().get_child(sb.list.get_root().get_child_count() - 1)
+		sb.list.set_selected(row, 1)
+		sb._show_selected()
 		await _check("browser")
 		menu.dialog.close()
 		menu._open_create()
@@ -115,6 +139,11 @@ class Runner:
 		(menu.dialog as CreateServer)._start()
 		await get_tree().create_timer(1.0).timeout
 		await _check("lobby")
+		# the TRACK column's longest text
+		var lobby: Lobby = menu.lobby
+		if lobby and lobby._track_cells.has(1):
+			Lobby.fill_track_cell(lobby._track_cells[1], {"track": "fail", "why": "stalled"})
+			await _check("lobby_no_track")
 		Net.leave()
 		print("TOTAL PROBLEMS ", problems)
 		get_tree().quit()

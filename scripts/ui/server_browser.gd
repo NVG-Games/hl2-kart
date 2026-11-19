@@ -4,6 +4,8 @@ extends Dialog
 ## master server's list), FAVORITES, HISTORY and LAN (broadcast). Every server
 ## is queried for its name, players, status and latency. With a pad: LB / RB switch the lists,
 ## the D-pad picks a server (its address and players show under the list), A joins, Y refreshes.
+## The TRACK column names each server's track; a custom one adds a line under the list for the
+## selected server: "CUSTOM TRACK: Canal Run by Sasha  ·  1.4 MB download" (or "you have it").
 
 signal join_requested(address: String, port: int, password: String)
 
@@ -54,13 +56,13 @@ func _ready() -> void:
 	master_row.add_child(mnote)
 	body.add_child(master_row)
 	list = Tree.new()
-	list.columns = 5
+	list.columns = 6
 	list.hide_root = true
 	list.column_titles_visible = true
 	list.select_mode = Tree.SELECT_ROW
 	list.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	var titles := ["", "SERVERS", "PLAYERS", "STATUS", "LATENCY"]
-	var widths := [40, 520, 150, 330, 110]
+	var titles := ["", "SERVERS", "TRACK", "PLAYERS", "STATUS", "LATENCY"]
+	var widths := [40, 300, 220, 150, 330, 110]
 	for i in titles.size():
 		list.set_column_title(i, titles[i])
 		list.set_column_title_alignment(i, HORIZONTAL_ALIGNMENT_LEFT)
@@ -124,6 +126,32 @@ func _show_selected() -> void:
 	var who: Array = m.get("list", [])
 	status.text = "%s:%d%s" % [m.get("address", ""), int(m.get("port", 0)),
 		("  ·  " + ", ".join(PackedStringArray(who))) if not who.is_empty() else ""]
+	var line := custom_line(m)
+	if line != "":
+		status.text += "
+" + line
+
+
+## The selected server's custom track: "CUSTOM TRACK: Canal Run by Sasha  ·  1.4 MB download", or
+## "...  ·  you have it" when its hash's id is in CustomTracks; "" for a circuit.
+static func custom_line(m: Dictionary) -> String:
+	if _num(m.get("cu", 0)) != 1:
+		return ""
+	var nm := TrackShare.clean_text(str(m.get("map", "")), 32)
+	var by := TrackShare.clean_text(str(m.get("mau", "")), 24)
+	var head := "CUSTOM TRACK: %s%s" % [nm if nm != "" else "a custom track", "  by %s" % by if by != "" else ""]
+	if have_track(m):
+		return head + "  ·  you have it"
+	var kb := clampi(_num(m.get("mkb", 0)), 0, LevelIO.MAX_FILE >> 10)
+	var size := "%.1f MB" % (kb / 1024.0) if kb >= 100 else "%d KB" % maxi(1, kb)
+	return head + "  ·  %s download" % size
+
+
+## Whether this computer has the server's custom track (`msha` = the hash's first 16 hex = its id).
+static func have_track(m: Dictionary) -> bool:
+	var msha := str(m.get("msha", ""))
+	var id := "c_" + msha
+	return msha.length() == 16 and CustomTracks.valid_id(id) and CustomTracks.has(id)
 
 
 ## A connection that failed: the reason under the list, the list still open. The focus goes to the
@@ -197,9 +225,9 @@ func _placeholder(addr: String) -> void:
 	var a := parse_address(addr)
 	var it := list.create_item()
 	it.set_text(1, addr)
-	it.set_text(3, "no response")
+	it.set_text(4, "no response")
 	it.set_custom_color(1, UiKit.TEXT_DIM)
-	it.set_custom_color(3, UiKit.TEXT_DIM)
+	it.set_custom_color(4, UiKit.TEXT_DIM)
 	it.set_metadata(0, {"address": a[0], "port": a[1], "locked": false, "alive": false, "key": addr})
 	_rows["%s:%d" % [a[0], a[1]]] = it
 	finder.query(a[0], a[1])
@@ -226,17 +254,36 @@ func _on_found(info: Dictionary) -> void:
 	var bots := ""
 	if info.get("bots", false):
 		bots = "  +bots"
-	it.set_text(2, "%d / %d%s" % [int(info.get("players", 0)), int(info.get("max", 8)), bots])
-	it.set_text(3, str(info.get("state", "")) + ("" if ok else "  (different version)"))
-	it.set_text(4, str(int(info.get("ping", 0))))
-	for c in 5:
+	it.set_text(2, track_cell(info))
+	it.set_text(3, "%d / %d%s" % [int(info.get("players", 0)), int(info.get("max", 8)), bots])
+	it.set_text(4, str(info.get("state", "")) + ("" if ok else "  (different version)"))
+	it.set_text(5, str(int(info.get("ping", 0))))
+	for c in 6:
 		it.set_custom_color(c, UiKit.TEXT if ok else UiKit.TEXT_DIM)
 	it.set_custom_color(0, UiKit.ORANGE)
+	if ok and _num(info.get("cu", 0)) == 1 and not have_track(info):
+		it.set_custom_color(2, UiKit.ORANGE)
 	it.set_tooltip_text(1, "%s:%d\n%s" % [info["address"], int(info.get("port", 0)), ", ".join(PackedStringArray(info.get("list", [])))])
 	it.set_metadata(0, {"address": info["address"], "port": int(info.get("port", Net.DEFAULT_PORT)), "locked": info.get("locked", false),
-		"alive": true, "compatible": ok, "name": info.get("name", ""), "key": key, "list": info.get("list", [])})
+		"alive": true, "compatible": ok, "name": info.get("name", ""), "key": key, "list": info.get("list", []),
+		"map": str(info.get("map", "")), "cu": _num(info.get("cu", 0)), "msha": str(info.get("msha", "")),
+		"mkb": _num(info.get("mkb", 0)), "mau": str(info.get("mau", ""))})
 	_update_status()
 	_update_buttons()
+
+
+## The TRACK column: the server's track name (cut, control characters stripped), "(custom)" after
+## a custom one.
+static func track_cell(info: Dictionary) -> String:
+	var nm := TrackShare.clean_text(str(info.get("map", "")), 32)
+	if _num(info.get("cu", 0)) == 1:
+		return (nm if nm != "" else "Custom track") + "  (custom)"
+	return nm
+
+
+## A number from a reply (anything else is 0: replies come from anyone on the network).
+static func _num(v: Variant) -> int:
+	return int(v) if (v is int or v is float) and is_finite(float(v)) else 0
 
 
 func _selected() -> Dictionary:

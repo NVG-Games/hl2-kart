@@ -1,6 +1,7 @@
 extends Node
 ## Master server (like Valve's hl2master on UDP 27010): game servers send a
-## heartbeat every 20 s, browsers ask for the list. Entries expire after 70 s.
+## heartbeat every 20 s, browsers ask for the list. Entries expire after 70 s. Servers of every
+## version are listed (each browser asks the server itself and greys the ones it cannot join).
 ## usage: godot --headless --path . -- --master-server [--port 27010]
 
 const EXPIRE := 70.0
@@ -35,10 +36,14 @@ func _process(delta: float) -> void:
 		var from_port := sock.get_packet_port()
 		var txt := pkt.get_string_from_utf8()
 		if txt.begins_with(Net.M_HEART) or txt.begins_with(Net.M_GONE):
+			# every version is listed: the browser greys an incompatible server from its own reply
 			var d = JSON.parse_string(txt.substr(Net.M_HEART.length()))
-			if not (d is Dictionary) or int(d.get("v", 0)) != Net.PROTOCOL:
+			if not (d is Dictionary):
 				continue
-			var key := "%s:%d" % [ip, int(d.get("port", Net.DEFAULT_PORT))]
+			var gport = d.get("port", Net.DEFAULT_PORT)
+			if not (gport is int or gport is float) or int(gport) < 1 or int(gport) > 65535:
+				continue
+			var key := "%s:%d" % [ip, int(gport)]
 			if txt.begins_with(Net.M_GONE):
 				if servers.erase(key):
 					print("server gone ", key)

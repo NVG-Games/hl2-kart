@@ -41,6 +41,22 @@ then tells players about it.
    - every menu with a pad only (focus, B, LB / RB, OPTIONS > CONTROLS, pause):
      `godot --headless --path . res://tests/pad_nav.tscn` (it loads a race: about a minute)
    - menus fit the window: `godot --path . --resolution 1280x720 res://tests/ui_fit.tscn -- out`
+   - the track editor's level files, compiler, validation and registry:
+     `godot --headless --path . res://tests/level_test.tscn -- ci` (`-- ci` skips the cases that
+     need the Half-Life content; leave it out to run them too, `-- only <name>` runs one case,
+     e.g. `-- ci only format` for `tests/level/case_format.gd`)
+   - the editor itself (picking, gizmos, tools, layout, the home screen):
+     `godot --headless --path . res://tests/editor_test.tscn -- ci` (the same `-- ci` and
+     `-- only <name>`, cases in `tests/editor/`)
+   - custom tracks online (downloads, START RACE rules, dedicated servers' track folders):
+     `godot --headless --path . res://tests/net_track_test.tscn -- unit` (`-- unit only <name>`,
+     cases in `tests/net/`); `-- pair 27301` runs a real server with two headless clients that
+     download a track (three processes, a few minutes)
+
+   These three runners print `N checks, F failures` and exit 1 on a failure; CI runs them in
+   their content-free modes. A parse error leaves Godot waiting, so give a run a timeout. Test
+   runs keep their tracks in `user://tracks_test` and their settings in `settings_test.cfg`,
+   never in your own.
 
    After changing a circuit in `tools/`, rebuild its track and import it before testing:
    `python tools/track_gen.py <circuit>` (Highway 17 too: `city17_circuit`), then
@@ -52,6 +68,8 @@ then tells players about it.
 - **Never commit anything from Valve's games**: no models, textures, sounds, music,
   maps or fonts, and nothing converted from them. `assets/` is in `.gitignore` for this.
 - Content is always built on the player's machine by the tools in `tools/`.
+- Tracks made in the TRACK EDITOR (`.hl2kt`) are fine to share: they hold only the
+  author's own geometry and name the content they use by key (see `LEGAL.md`).
 - Screenshots and short clips of the game for the README or a pull request are fine.
 
 ## Ideas for a first contribution

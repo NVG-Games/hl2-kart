@@ -3,6 +3,10 @@ extends Node
 
 signal settings_changed
 signal music_changed(id: String)
+## A custom track's thumbnail finished decoding on a worker (CustomTracks.thumb has it now).
+signal track_thumb_ready(id: String)
+## The custom-track registry learnt something new (a background check's local facts).
+signal custom_tracks_changed
 
 const CHARACTERS := [
 	{"id": "alyx", "short": "Alyx", "name": "Alyx Vance", "model": "alyx", "color": Color(0.85, 0.35, 0.2), "accel": 1.05, "speed": 0.98, "weight": 0.9},
@@ -142,11 +146,30 @@ var settings := {
 	"host_password": "",
 	"host_lan_only": false,
 	"host_upnp": true,
+	# custom tracks and the track editor (later packages read any other key with settings.get(key, default))
+	"track_guid": "",  # the picked custom track's guid: the pick follows it across saves (track_pick)
+	"allow_downloads": true,  # download a server's custom track in the lobby
+	"editor_hints": [],  # first-visit hints already seen
+	"editor_cam_speed": 30.0,
+	"editor_snap": {"on": true, "grid": 1.0, "angle": 15.0, "angle_on": true, "surface": true},
+	"editor_recent": [],
+	"editor_fav_props": [],
+	"editor_recent_props": [],
+	"editor_test": {"bots": 0, "laps": 1, "hazards": 1, "difficulty": 1},
+	"editor_autosave": 60,  # seconds between autosaves of an unsaved track
 }
 
 ## Race rules forced by a multiplayer server (laps, difficulty, hazards, track);
 ## empty in single player. Read race rules through race_setting().
 var session := {}
+
+## The editor's TEST DRIVE (5.4; not saved, empty = a normal race): {track: "c_edit", laps, bots,
+## hazards, difficulty, from, route, s, lat, errors}. race_setting reads it first, offline only.
+var test_drive := {}
+
+## The open track editor session (EditorSession): its document and undo history survive the test
+## drive's scene changes.
+var editor: RefCounted = null
 
 ## This build (version.json) and the game content it needs (assets/data/build.json,
 ## written by tools/setup_assets.py).
@@ -209,23 +232,64 @@ func load_json(path: String) -> Variant:
 	return JSON.parse_string(f.get_as_text())
 
 
+## A built-in circuit's entry, else a custom track's (CustomTracks.meta: name, author, the local
+## facts...), else an "Unknown track" entry (never Highway 17 in its place).
 func track(id: String) -> Dictionary:
 	for t in TRACKS:
 		if t["id"] == id:
 			return t
-	return TRACKS[0]
+	if CustomTracks.is_custom(id):
+		var m := CustomTracks.meta(id)
+		if not m.is_empty():
+			return m
+	return {"id": id, "name": "Unknown track", "short": "UNKNOWN", "desc": "", "rescue": "scanner", "unknown": true}
 
 
-## Menu picture of a track (tools/render_ui_assets), null until it is rendered.
+## Menu picture of a track (tools/render_ui_assets), null until it is rendered. A custom track's
+## comes from CustomTracks.thumb: null while a worker decodes it (track_thumb_ready fires then).
 func track_thumb(id: String) -> Texture2D:
+	if CustomTracks.is_custom(id):
+		return CustomTracks.thumb(id)
 	var path := "res://assets/ui/tracks/%s.png" % id
 	return load(path) if ResourceLoader.exists(path) else null
 
 
 ## Whether this install has built the track (setup_assets' "tracks" step): a track added with new
 ## content is listed before the player's setup has built it, and Track.build would race Highway 17.
+## A custom track: it is here, its local compile says raceable and it is not marked unusable.
 func track_installed(id: String) -> bool:
+	if CustomTracks.is_custom(id):
+		if id == CustomTracks.EDIT_ID:
+			return CustomTracks.has(id)
+		if not CustomTracks.has(id) or CustomTracks.unusable(id) != "":
+			return false
+		return bool(CustomTracks.meta(id).get("raceable", false))
 	return FileAccess.file_exists("res://assets/track/%s.json" % id)
+
+
+## The seven circuits, then (mine) MY TRACKS and the kept downloads (CustomTracks.meta entries).
+func all_tracks(mine := true) -> Array:
+	var out: Array = TRACKS.duplicate()
+	if mine:
+		out.append_array(CustomTracks.list("mine"))
+		out.append_array(CustomTracks.list("kept"))
+	return out
+
+
+## The track to show as picked (C1 S18): settings.track when it is installed; else the own track
+## with settings.track_guid (it was saved again, so its id changed); else the first installed
+## circuit (Highway 17 when none is).
+func track_pick() -> String:
+	var id := str(settings.get("track", ""))
+	if track_installed(id) and id != CustomTracks.EDIT_ID:
+		return id
+	var by_guid := CustomTracks.id_for_guid(str(settings.get("track_guid", "")))
+	if by_guid != "" and track_installed(by_guid):
+		return by_guid
+	for t in TRACKS:
+		if track_installed(t["id"]):
+			return t["id"]
+	return TRACKS[0]["id"]
 
 
 func track_index(id: String) -> int:
@@ -235,7 +299,12 @@ func track_index(id: String) -> int:
 	return 0
 
 
+## A race rule: the TEST DRIVE's first (offline only, C1 S19), then the server's, then settings.
 func race_setting(key: String) -> Variant:
+	if not test_drive.is_empty() and test_drive.has(key):
+		var n := get_node_or_null("/root/Net")
+		if n == null or not bool(n.get("active")):
+			return test_drive[key]
 	return session.get(key, settings.get(key))
 
 

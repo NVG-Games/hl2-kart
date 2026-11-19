@@ -20,6 +20,8 @@ var _commenting := false  # one is being spoken now
 
 
 var style := "combine"
+## no voice lines and no Breencast while set (the editor's view: the arch is scenery there)
+var silent := false
 
 
 ## `clear`: metres beside each road edge karts may drive on at the line (kerb and pavement,
@@ -246,7 +248,7 @@ func _build_feed() -> void:
 ## while a comment of the same or higher priority plays and within COMMENT_GAP seconds of
 ## the last one unless `priority` is higher. Returns whether it was taken.
 func comment(path: String, priority := 1) -> bool:
-	if speaker == null or path == "":
+	if speaker == null or path == "" or silent:
 		return false
 	if priority <= _comment_prio and (_commenting or _t - _comment_t < COMMENT_GAP):
 		return false
@@ -270,6 +272,12 @@ func comment(path: String, priority := 1) -> bool:
 
 func _process(delta: float) -> void:
 	if speaker == null:
+		return
+	if silent:
+		if speaker.playing:
+			speaker.stop()
+		_words.clear()
+		_commenting = false
 		return
 	_t += delta
 	if _commenting and not speaker.playing and _words.is_empty():

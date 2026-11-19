@@ -71,6 +71,9 @@ var _hint := ""
 var _hint_t := 0.0
 var _pad_note: Label  # beside PAUSED: the pad the player was using went away / is back
 var _pad_sub: Label  # ...and under it what to do
+## A test drive: "TEST DRIVE" above the AUX POWER box, with the track's validation errors when it
+## has some ("TEST DRIVE · 2 ERRORS: fix them before you host"); watching a bot, how to fast forward.
+var test_line: Label
 
 
 func setup(r) -> void:
@@ -95,6 +98,8 @@ func setup(r) -> void:
 	_build_minimap()
 	_build_lock_warning()
 	_build_notice()
+	if race.is_test_drive():
+		_build_test_line()
 	big = Hl2Style.number("", 120, Hl2Style.BRIGHT)
 	big.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	big.set_anchors_preset(Control.PRESET_CENTER)
@@ -351,6 +356,36 @@ func _build_minimap() -> void:
 	minimap.visible = Game.settings.get("show_minimap", true)
 
 
+## The test drive's line above the AUX POWER box (5.4): TEST DRIVE, and the errors the track still
+## has in red (C2 M4); WATCH A BOT LAP says how to fast forward it.
+func _build_test_line() -> void:
+	test_line = Hl2Style.label("", 8.5 * U, Hl2Style.BRIGHT)
+	test_line.label_settings.font = Hl2Style.text_font(true)
+	test_line.anchor_top = 1.0
+	test_line.anchor_bottom = 1.0
+	test_line.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	test_line.offset_left = 16 * U
+	test_line.offset_bottom = -88 * U
+	test_line.offset_top = -88 * U
+	test_line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(test_line)
+	_set_test_line()
+
+
+func _set_test_line() -> void:
+	if test_line == null:
+		return
+	var t := "TEST DRIVE"
+	if race.test_from() == "watch":
+		t = "FAST FORWARD" if race.fast_forward() else "WATCH A BOT LAP · HOLD TAB / RT TO FAST FORWARD"
+	var n: int = race.test_errors()
+	if n > 0:
+		t += " · %d ERROR%s: fix them before you host" % [n, "" if n == 1 else "S"]
+	if test_line.text != t:
+		test_line.text = t
+		test_line.label_settings.font_color = WRONG_RED if n > 0 else Hl2Style.BRIGHT
+
+
 ## A box under the item box for one line of warning or advice (WRONG WAY, a shortcut ahead).
 func _build_notice() -> void:
 	_notice = Panel.new()
@@ -552,19 +587,30 @@ func _build_pause() -> void:
 		["OPTIONS", _open_options],
 		["QUIT TO MAIN MENU", func(): race.to_menu()],
 	]
+	var hints := [["{ui_accept} SELECT"], ["{ui_cancel} RESUME"]]
 	if race.online:
 		title.text = "MENU"
 		entries = [["RESUME RACE", _toggle_pause], ["OPTIONS", _open_options]]
 		if Net.is_server:
 			entries.append(["RETURN EVERYONE TO LOBBY", func(): Net.back_to_lobby()])
 		entries.append(["STOP SERVER" if Net.is_server else "DISCONNECT", func(): race.to_menu()])
+	elif race.is_test_drive():
+		# the editor's test drive (1.7): back to the editor second; X on a pad does it too (Back /
+		# View is the respawn in some layouts)
+		entries = [
+			["RESUME", _toggle_pause],
+			["BACK TO EDITOR", func(): race.to_editor()],
+			["RESTART HERE" if race.test_from() == "here" else "RESTART", func(): race.restart()],
+			["OPTIONS", _open_options],
+		]
+		hints.append(["{ui_clear} BACK TO EDITOR", "pad"])
 	for e in entries:
 		var b := UiKit.menu_item(e[0])
 		b.pressed.connect(e[1])
 		v.add_child(b)
 		if not pause_panel.has_meta("first"):
 			pause_panel.set_meta("first", b)
-	v.add_child(PromptBar.new([["{ui_accept} SELECT"], ["{ui_cancel} RESUME"]], 16))
+	v.add_child(PromptBar.new(hints, 16))
 	# the controls beside it, for the pad or the keyboard in use (never focused: the D-pad stays here)
 	controls_panel = PauseControls.new(race.online)
 	pause_panel.add_child(controls_panel)
@@ -665,6 +711,16 @@ func _unhandled_input(event: InputEvent) -> void:
 		_close_chat()
 		return
 	var no_options := _options == null or not is_instance_valid(_options)
+	if race.is_test_drive():
+		# F5 goes back to the editor at once (paused or not, results up or not); in the pause menu
+		# so does the pad's X (ui_clear: its keys, Delete / Backspace, stay out of it)
+		var f5: bool = event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F5
+		var pad_x: bool = event is InputEventJoypadButton and event.is_action_pressed("ui_clear") \
+			and pause_panel.visible and no_options
+		if f5 or pad_x:
+			get_viewport().set_input_as_handled()
+			race.to_editor()
+			return
 	if event.is_action_pressed("pause") and results_panel == null and no_options:
 		get_viewport().set_input_as_handled()
 		_toggle_pause()
@@ -700,7 +756,13 @@ func _process(delta: float) -> void:
 	var k: Kart = race.player
 	var total: int = race.karts.size()
 	_set_counter(pos_num, pos_of, str(k.place), "/%d" % total)
-	_set_counter(lap_num, lap_of, str(clampi(k.lap + 1, 1, race.laps)), "/%d" % race.laps)
+	if race.free_drive():
+		# a test drive from "here": no lap count, only the laps driven
+		_set_counter(lap_num, lap_of, str(maxi(k.lap + 1, 1)), "")
+	else:
+		_set_counter(lap_num, lap_of, str(clampi(k.lap + 1, 1, race.laps)), "/%d" % race.laps)
+	if test_line:
+		_set_test_line()
 	# a kart being rescued (sinking, falling, being taken back to the road) is not moving, whatever it last did
 	speed_num.text = "0" if k.state == Kart.State.RESPAWN or k.freeze else str(int(absf(k.fwd_speed) * 2.237))
 	var t: float = race.race_time if race.racing or race._phase == "done" else 0.0
@@ -868,11 +930,15 @@ func show_results(karts: Array) -> void:
 	var sp := Control.new()
 	sp.custom_minimum_size.y = 30
 	v.add_child(sp)
-	var again := UiKit.menu_item("RACE AGAIN")
+	var drive: bool = race.is_test_drive()
+	var again := UiKit.menu_item("DRIVE AGAIN" if drive else "RACE AGAIN")
 	again.pressed.connect(func(): race.restart())
 	v.add_child(again)
-	var menu := UiKit.menu_item("MAIN MENU")
-	menu.pressed.connect(func(): race.to_menu())
+	var menu := UiKit.menu_item("BACK TO EDITOR" if drive else "MAIN MENU")
+	if drive:
+		menu.pressed.connect(func(): race.to_editor())
+	else:
+		menu.pressed.connect(func(): race.to_menu())
 	v.add_child(menu)
 	var gap := Control.new()
 	gap.custom_minimum_size.y = 8

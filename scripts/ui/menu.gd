@@ -3,11 +3,21 @@ extends Node3D
 ## (sharp in-game stills, slow drift and cross-fade), the HALF-LIFE² logo,
 ## a short column of Verdana menu entries, a now-playing strip. B on the menu goes to QUIT (it
 ## does not quit); a pad plugged in or pulled out shows a note in the top right corner.
+## TRACK EDITOR opens EditorHome; coming back from the editor (EditorSession.return_to) reopens
+## it or CREATE SERVER with the track; `-- --editor [file.hl2kt | template:<id>]` opens the home,
+## a file or a new track at start.
 
 ## the stills behind the menu (tests/render_ui_assets): Highway 17's own shots, then every other
 ## track's (named by its id, Game.TRACKS) that has been rendered
 const BACKGROUNDS := ["grid", "city", "coast", "canal"]
 const BG_SECONDS := 18.0
+const EDITOR_SCENE := "res://scenes/editor.tscn"
+const RACE_SCENE := "res://scenes/race.tscn"
+## TRACK EDITOR's place in the column (after CREATE SERVER)
+const EDITOR_ITEM := 3
+
+## The command line's --editor was acted on (once per run)
+static var _args_done := false
 
 var ui: CanvasLayer
 var root: Control
@@ -18,6 +28,7 @@ var items: VBoxContainer
 var now_playing: NowPlaying
 var update_box: Control
 var setup: RaceSetup
+var home: EditorHome
 var lobby: Lobby
 var dialog: Dialog
 var _connecting: MessageBox
@@ -68,6 +79,8 @@ func _ready() -> void:
 	if Net.active and Net.state in ["lobby", "race_wait"]:
 		_open_lobby.call_deferred()
 		return
+	if _apply_return() or _apply_args():
+		return
 	if Net.notice != "":
 		_message.call_deferred("DISCONNECTED", Net.notice)
 		Net.notice = ""
@@ -92,7 +105,7 @@ func _build_background() -> void:
 	bg_b = _bg_rect()
 	bg_b.set_meta("bleed", true)
 	bg_b.modulate.a = 0.0
-	bg_a.texture = _textures[0]
+	bg_a.texture = _textures[0] if not _textures.is_empty() else null
 	var shade := TextureRect.new()
 	var g := GradientTexture2D.new()
 	var grad := Gradient.new()
@@ -183,6 +196,7 @@ func _build_items() -> void:
 		["NEW RACE", _open_setup],
 		["FIND SERVERS", _open_browser],
 		["CREATE SERVER", _open_create],
+		["TRACK EDITOR", _open_editor_home],
 		["HOW TO PLAY", func(): _open(HowToPlay.new())],
 		["SOUNDTRACK", func(): _open(SoundtrackPanel.new())],
 		["OPTIONS", func(): _open(OptionsPanel.new())],
@@ -305,7 +319,7 @@ func _open(d: Dialog) -> void:
 	d.closed.connect(func():
 		if update_box and items.visible:
 			update_box.visible = true
-		if setup == null and lobby == null and items.get_child_count() > 0:
+		if setup == null and lobby == null and home == null and items.get_child_count() > 0:
 			(items.get_child(0) if last == null or not is_instance_valid(last) else last).grab_focus())
 
 
@@ -323,28 +337,170 @@ func _open_setup() -> void:
 	setup.focus_default.call_deferred()
 
 
+## START RACE: the screen fades out, then the race loads. A custom track that is not built in memory
+## yet is compiled first behind the fade (CustomTracks.prepare, "PREPARING TRACK..."), so the race
+## scene never compiles; a failure fades back to NEW RACE with the reason.
 func _go_race() -> void:
 	Game.save_settings()
 	Game.play_ui("res://assets/sound/buttons/combine_button1.wav", -2.0)
 	Game.stop_music()
+	var id := str(Game.settings.get("track", ""))
+	var prep := CustomTracks.is_custom(id) and id != CustomTracks.EDIT_ID and not CustomTracks.is_prepared(id)
+	var cover := _cover("PREPARING TRACK..." if prep else "LOADING...")
+	var tw := create_tween()
+	tw.tween_property(cover[0], "color:a", 1.0, 0.35)
+	tw.parallel().tween_property(cover[1], "modulate:a", 1.0, 0.35)
+	tw.tween_interval(0.05)
+	if not prep:
+		tw.tween_callback(_load_race.bind(id))
+		return
+	tw.tween_callback(func(): CustomTracks.prepare(id, _on_prepared.bind(id, cover)))
+
+
+func _on_prepared(ok: bool, reason: String, id: String, cover: Array) -> void:
+	if ok:
+		(cover[1] as Label).text = "LOADING..."
+		_load_race(id)
+		return
+	# back to NEW RACE, with why
+	var tw := create_tween()
+	tw.tween_property(cover[0], "color:a", 0.0, 0.3)
+	tw.parallel().tween_property(cover[1], "modulate:a", 0.0, 0.3)
+	tw.tween_callback(func():
+		for n in cover:
+			(n as Node).queue_free())
+	Game.play_music_mode("menu")
+	_message("TRACK", "%s could not be prepared: %s" % [Game.track(id).get("name", "The track"), reason if reason != "" else "unknown error"])
+
+
+func _load_race(id: String) -> void:
+	if CustomTracks.is_custom(id) and id != CustomTracks.EDIT_ID:
+		CustomTracks.set_current(id)
+	get_tree().change_scene_to_file(RACE_SCENE)
+
+
+## A black cover over the screen with a line in the corner, both transparent: [ColorRect, Label].
+func _cover(text: String) -> Array:
 	var fade := ColorRect.new()
 	fade.color = Color(0, 0, 0, 0)
 	fade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.add_child(fade)
-	var loading := UiKit.label("LOADING...", 28, Color(1, 1, 1, 0.9), true)
+	var loading := UiKit.label(text, 28, Color(1, 1, 1, 0.9), true)
 	loading.anchor_left = 1.0
 	loading.anchor_right = 1.0
 	loading.anchor_top = 1.0
 	loading.anchor_bottom = 1.0
-	loading.offset_left = -260
+	loading.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	loading.offset_left = -60
+	loading.offset_right = -60
 	loading.offset_top = -80
 	loading.modulate.a = 0.0
 	root.add_child(loading)
+	return [fade, loading]
+
+
+# ---------------------------------------------------------------- track editor
+## TRACK EDITOR: its home, the RaceSetup way (the menu hidden, BACK brings it back on TRACK EDITOR).
+func _open_editor_home(tab := "") -> void:
+	if home != null and is_instance_valid(home):
+		return
+	if dialog and is_instance_valid(dialog):
+		dialog.queue_free()
+	home = EditorHome.new()
+	home.start_tab = tab
+	root.add_child(home)
+	_set_menu_visible(false)
+	home.back.connect(_close_home.bind(true))
+	home.open_editor.connect(_go_editor)
+	home.play.connect(_on_home_play)
+	home.host.connect(_on_home_host)
+	home.focus_default.call_deferred()
+
+
+func _close_home(focus := true) -> void:
+	Game.save_settings()
+	if home != null and is_instance_valid(home):
+		home.queue_free()
+	home = null
+	_set_menu_visible(true)
+	if focus:
+		(items.get_child(EDITOR_ITEM) as Control).grab_focus()
+
+
+## PLAY in the home: NEW RACE with the track picked (EditorHome set it).
+func _on_home_play(_id: String) -> void:
+	_close_home(false)
+	_open_setup()
+
+
+## HOST in the home: EditorHome set return_to "host" and host_track; CREATE SERVER takes them.
+func _on_home_host(_id: String) -> void:
+	_close_home(false)
+	_apply_return()
+
+
+## The editor scene with the session's track (EditorSession.current() holds it), behind a fade.
+func _go_editor() -> void:
+	Game.save_settings()
+	var cover := _cover("LOADING...")
 	var tw := create_tween()
-	tw.tween_property(fade, "color:a", 1.0, 0.35)
-	tw.parallel().tween_property(loading, "modulate:a", 1.0, 0.35)
-	tw.tween_interval(0.05)
-	tw.tween_callback(func(): get_tree().change_scene_to_file("res://scenes/race.tscn"))
+	tw.tween_property(cover[0], "color:a", 1.0, 0.25)
+	tw.parallel().tween_property(cover[1], "modulate:a", 1.0, 0.25)
+	tw.tween_callback(func(): get_tree().change_scene_to_file(EDITOR_SCENE))
+
+
+## Back from the editor (EditorSession.return_to, used once): "home" reopens TRACK EDITOR's home,
+## "host" opens CREATE SERVER with the track picked (it takes EditorSession.host_track).
+func _apply_return() -> bool:
+	var s = Game.editor
+	if s == null:
+		return false
+	var to := str(s.get("return_to"))
+	if to == "":
+		return false
+	s.set("return_to", "")
+	match to:
+		"home":
+			_open_editor_home.call_deferred()
+		"host":
+			_open_create.call_deferred()
+		_:
+			return false
+	return true
+
+
+## The command line, once a run (open_from_args).
+func _apply_args() -> bool:
+	if _args_done:
+		return false
+	_args_done = true
+	return open_from_args(OS.get_cmdline_user_args()) != ""
+
+
+## `-- --editor` opens TRACK EDITOR's home, `-- --editor <file.hl2kt>` that file in the editor,
+## `-- --editor template:<id>` a new unsaved track from the template. "home" | "editor" | "" (no
+## --editor). A file that does not open: the home, with why in the corner.
+func open_from_args(a: PackedStringArray) -> String:
+	var i := a.find("--editor")
+	if i < 0:
+		return ""
+	var what := a[i + 1] if i + 1 < a.size() and not a[i + 1].begins_with("--") else ""
+	if what == "":
+		_open_editor_home.call_deferred()
+		return "home"
+	var s := EditorSession.current()
+	if what.begins_with(TrackList.TEMPLATE_PREFIX):
+		s.create(what.trim_prefix(TrackList.TEMPLATE_PREFIX))
+	else:
+		var why := s.open(what)
+		if why != "":
+			push_warning("--editor %s: %s" % [what, why])
+			_open_editor_home.call_deferred()
+			toast.call_deferred("%s: %s" % [what.get_file(), why])
+			return "home"
+	s.return_to = ""
+	_go_editor.call_deferred()
+	return "editor"
 
 
 # ---------------------------------------------------------------- multiplayer

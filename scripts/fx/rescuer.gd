@@ -54,11 +54,14 @@ static func rescue(k: Kart) -> void:
 	r.setup(k)
 
 
-## Which rescuer this track sends (Game.TRACKS "rescue"; the scanner where none is named). Every
-## player races the same track, so every peer picks the same one.
+## Which rescuer this track sends: the track data's own "rescue" (a custom track), else
+## Game.TRACKS "rescue" (the scanner where none is named). Every player races the same track, so
+## every peer picks the same one.
 static func kind_of(track: Track) -> String:
 	if kind_override != "":
 		return kind_override
+	if track and str(track.data.get("rescue", "")) != "":
+		return str(track.data["rescue"])
 	var id: String = track.id if track and track.id != "" else str(Game.race_setting("track"))
 	return str(Game.track(id).get("rescue", "scanner"))
 

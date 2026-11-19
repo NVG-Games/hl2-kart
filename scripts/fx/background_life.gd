@@ -12,17 +12,25 @@ var _t := 0.0
 var _drop_t := 20.0
 var _ambient_t := 8.0
 var _center := Vector3(180, 0, 290)
+## a custom track's centre above its terrain (data.bg_center): the gunship and the birds circle it
+var _custom_center := false
 
 
 func setup(trk: Track) -> void:
 	track = trk
 	_orbits = trk.data.get("seagulls", [])
-	# circle over the middle of whatever circuit this is
-	var sum := Vector3.ZERO
-	for c in trk.path.center:
-		sum += c
-	_center = sum / maxf(1.0, trk.path.center.size())
-	_center.y = 0.0
+	var bc = trk.data.get("bg_center")
+	if bc is Array and bc.size() >= 3:
+		# a custom track: the world centre, above its highest ground
+		_center = Vector3(float(bc[0]), float(bc[1]), float(bc[2]))
+		_custom_center = true
+	else:
+		# circle over the middle of whatever circuit this is
+		var sum := Vector3.ZERO
+		for c in trk.path.center:
+			sum += c
+		_center = sum / maxf(1.0, trk.path.center.size())
+		_center.y = 0.0
 	# a circuit with a strafing gunship (an air_strafe track hazard) has that one in the sky
 	var hz = trk.get("hazards")
 	if hz == null or not hz.has_type("air_strafe"):
@@ -68,6 +76,8 @@ func _process(delta: float) -> void:
 		var b := birds[i]
 		var ba := _t * (0.25 + i * 0.02) + i * 0.7
 		var c := Vector3(560 + (i % 3) * 40, -2.0 + (i % 4) * 4.0, 560 + (i % 2) * 60)
+		if _custom_center:
+			c = _center + Vector3(-40 + (i % 3) * 40, (i % 4) * 4.0, -30 + (i % 2) * 60)
 		var rad := 30.0 + i * 4.0
 		if i < _orbits.size():
 			var o: Array = _orbits[i]

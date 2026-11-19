@@ -23,6 +23,17 @@ You may not:
 
 Everyone who wants to play needs their own copies of Half-Life 2 and Half-Life.
 
+### Custom tracks (`.hl2kt` files)
+
+A track saved by the in-game TRACK EDITOR holds only the author's own work: the road, the
+terrain's heights and paint, the placements of objects, items, hazards and spectators, the
+settings, and a picture of the track rendered on the author's computer. The Half-Life content it
+uses (models, materials, skies, music) is named by its key, never included: no Valve model,
+texture, sound or other data is in the file. Every player's game builds the track from their own
+content, and a key their content lacks is left out. Custom tracks, and their downloads from a
+server in the lobby, can therefore be shared like any other file of your own; the picture inside
+shows Valve's content as it appears in this fan project, and that content remains Valve's.
+
 The screenshots and animations in `docs/media/` show Valve's content as it appears in
 this fan project; that content remains Valve's.
 

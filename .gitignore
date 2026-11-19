@@ -8,6 +8,10 @@
 # Local files
 /screenshots/
 /server.cfg
+# a dedicated server's custom tracks (6.8): the folder ships empty
+/tracks/*
+!/tracks/.gdignore
+!/tracks/README.txt
 /export_presets.cfg
 /builds/
 __pycache__/

@@ -1,0 +1,55 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://scripts/editor/track_editor.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/editor/level_view.gd" id="2"]
+[ext_resource type="Script" path="res://scripts/editor/editor_draw.gd" id="3"]
+[ext_resource type="Script" path="res://scripts/editor/gizmo_3d.gd" id="4"]
+[ext_resource type="Script" path="res://scripts/editor/editor_camera.gd" id="5"]
+[ext_resource type="Script" path="res://scripts/editor/editor_markers.gd" id="6"]
+[ext_resource type="Script" path="res://scripts/editor/ui/editor_ui.gd" id="7"]
+
+[node name="TrackEditor" type="Node3D"]
+script = ExtResource("1")
+
+[node name="View" type="Node3D" parent="."]
+script = ExtResource("2")
+
+[node name="Overlay" type="MeshInstance3D" parent="."]
+cast_shadow = 0
+script = ExtResource("3")
+
+[node name="Gizmo" type="Node3D" parent="."]
+script = ExtResource("4")
+
+[node name="Camera" type="Camera3D" parent="."]
+current = true
+fov = 70.0
+near = 0.1
+far = 16000.0
+script = ExtResource("5")
+
+[node name="Marks" type="CanvasLayer" parent="."]
+layer = 9
+
+[node name="Markers" type="Control" parent="Marks"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("6")
+
+[node name="UI" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="EditorUI" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("7")

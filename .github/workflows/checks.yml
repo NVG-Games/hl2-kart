@@ -1,5 +1,6 @@
 # Fast checks for every pull request and every push to dev: the Python tools
-# compile, every GDScript compiles in Godot and the gamepad layer's test passes (no Half-Life
+# compile, every GDScript compiles in Godot, the gamepad layer's test passes, and the track
+# editor's level, editor and track-sharing tests pass in their content-free modes (no Half-Life
 # content needed).
 name: Checks
 
@@ -36,3 +37,18 @@ jobs:
 
       - name: Gamepad layer
         run: ./godot --headless --path . res://tests/gamepad_test.tscn
+
+      - name: Level files and the compiler
+        # a parse error leaves Godot idle: the timeout ends the step
+        timeout-minutes: 4
+        run: ./godot --headless --path . res://tests/level_test.tscn -- ci
+
+      - name: Track editor
+        # a parse error leaves Godot idle: the timeout ends the step
+        timeout-minutes: 5
+        run: ./godot --headless --path . res://tests/editor_test.tscn -- ci
+
+      - name: Custom tracks online
+        # a parse error leaves Godot idle: the timeout ends the step
+        timeout-minutes: 4
+        run: ./godot --headless --path . res://tests/net_track_test.tscn -- unit

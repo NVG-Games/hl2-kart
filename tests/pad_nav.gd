@@ -1,5 +1,6 @@
 extends Node
-## Headless walk through every menu screen with a pad only (synthetic pad events, no window): the
+## Headless walk through every menu screen with a pad only (synthetic pad events, no window; TRACK
+## EDITOR's home, NEW RACE's track browser and the TRACK columns of FIND SERVERS and the lobby too): the
 ## focus enters each screen and is never lost, B leaves every screen and closes every dialog (and
 ## the focus goes back where it was), LB / RB switch tabs, OPTIONS > KEYBOARD & MOUSE and CONTROLLER
 ## rebind (a table slot, a label on the pad's picture, an ADD chip), swap, clear, cancel and pick a
@@ -117,9 +118,11 @@ class Runner:
 		await _options(menu)
 		await _how_to_play(menu)
 		await _soundtrack(menu)
+		await _editor_home(menu)
 		await _browser(menu)
 		await _create(menu)
 		await _lobby(menu)
+		await _track_browser(menu)
 		await _race(menu)
 
 	# ------------------------------------------------------------ main menu
@@ -487,6 +490,46 @@ class Runner:
 		await _frames(3)
 		check(_focus() == _menu_item(menu, "SOUNDTRACK"), "B closes the Soundtrack (%s)" % _focus_name())
 
+	# ------------------------------------------------------------ track editor's home
+	func _editor_home(menu: Node) -> void:
+		await _open_item(menu, "TRACK EDITOR")
+		await _frames(3)
+		var home: EditorHome = menu.home
+		check(home != null and home.is_visible_in_tree(), "A on TRACK EDITOR opens the editor's home")
+		if home == null:
+			return
+		# a leftover autosave asks RECOVER YOUR TRACK? first: B is "not now"
+		if home._dialog_open():
+			await _pad(JOY_BUTTON_B)
+			await _frames(3)
+		check(not menu.items.is_visible_in_tree(), "the menu hides under the home")
+		check(_focus() != null and home.is_ancestor_of(_focus()), "editor home: the focus is in it (%s)" % _focus_name())
+		var t0 := home.tab
+		await _pad(JOY_BUTTON_RIGHT_SHOULDER)
+		check(home.tab == EditorHome.TABS[posmod(EditorHome.TABS.find(t0) + 1, 3)], "RB: the next tab (%s)" % home.tab)
+		check(_focus() != null and home.is_ancestor_of(_focus()), "RB keeps the focus in the home (%s)" % _focus_name())
+		await _pad(JOY_BUTTON_LEFT_SHOULDER)
+		check(home.tab == t0, "LB: back to %s (%s)" % [t0, home.tab])
+		for i in 3:
+			if home.tab == "templates":
+				break
+			await _pad(JOY_BUTTON_RIGHT_SHOULDER)
+		check(home.tab == "templates" and home.list.cards.size() == LevelTemplates.IDS.size(), "TEMPLATES: a card per template (%d)" % home.list.cards.size())
+		check(_focus() in home.list.cards, "TEMPLATES: a card has the focus (%s)" % _focus_name())
+		await _move(JOY_BUTTON_DPAD_RIGHT, 6, "home cards")
+		check(_focus() in home.list.cards, "D-pad right stops at the row's end (%s)" % _focus_name())
+		await _move(JOY_BUTTON_DPAD_DOWN, 3, "home")
+		check(_focus() is Button and home.button_row.is_ancestor_of(_focus()), "down: the button row (%s)" % _focus_name())
+		await _move(JOY_BUTTON_DPAD_RIGHT, 12, "home buttons")
+		check(_focus() is Button and home.button_row.is_ancestor_of(_focus()), "the button row walks along itself (%s)" % _focus_name())
+		await _move(JOY_BUTTON_DPAD_UP, 1, "home")
+		check(_focus() == home.list.current_card(), "up from the buttons: the selected card (%s)" % _focus_name())
+		check(get_tree().current_scene == menu, "nothing opened the editor")
+		await _pad(JOY_BUTTON_B)
+		await _frames(3)
+		check(menu.home == null and menu.items.is_visible_in_tree(), "B closes the home")
+		check(_focus() == _menu_item(menu, "TRACK EDITOR"), "B: TRACK EDITOR focused (%s)" % _focus_name())
+
 	# ------------------------------------------------------------ find servers
 	func _browser(menu: Node) -> void:
 		await _open_item(menu, "FIND SERVERS")
@@ -500,6 +543,18 @@ class Runner:
 		await _pad(JOY_BUTTON_RIGHT_SHOULDER)
 		check(b.tabs.current_tab == t0, "RB back")
 		await _move(JOY_BUTTON_DPAD_DOWN, 2, "browser")
+		# the TRACK column with a server on a custom track (a fake reply, as ServerFinder gives it)
+		b._on_found(_fake_server())
+		await _frames(2)
+		var row := b.list.get_root().get_child(b.list.get_root().get_child_count() - 1) if b.list.get_root() else null
+		check(row != null and row.get_text(2) == "Canal Run  (custom)", "browser: the TRACK column names the custom track (%s)" % (row.get_text(2) if row else "?"))
+		if row:
+			b.list.grab_focus()
+			b.list.set_selected(row, 1)
+			await _frames(2)
+			check(b.status.text.contains("CUSTOM TRACK: Canal Run  by Sasha"), "browser: the selected row's custom track line (%s)" % b.status.text.replace("
+", " / "))
+			await _move(JOY_BUTTON_DPAD_UP, 1, "browser list")
 		# the password box: B cancels it, the focus comes back to the browser
 		var was := _focus()
 		b._ask_and_join("127.0.0.1", 27999, true)
@@ -521,6 +576,12 @@ class Runner:
 		await _pad(JOY_BUTTON_B)
 		await _frames(3)
 		check(_focus() == _menu_item(menu, "FIND SERVERS"), "B closes Find servers (%s)" % _focus_name())
+
+	## A LAN reply of a server racing a custom track (192.0.2.x: a documentation address, never dialled).
+	func _fake_server() -> Dictionary:
+		return {"address": "192.0.2.10", "port": 27015, "name": "Canal GP", "map": "Canal Run", "cu": 1,
+			"msha": "0123456789abcdef", "mkb": 1400, "mau": "Sasha", "players": 3, "max": 8, "state": "lobby",
+			"ping": 42, "compatible": true, "list": ["Gordon", "Alyx", "Barney"]}
 
 	# ------------------------------------------------------------ create server
 	func _create(menu: Node) -> void:
@@ -551,6 +612,10 @@ class Runner:
 		if lobby == null:
 			Net.leave()
 			return
+		var tc: Label = lobby._track_cells.get(1)
+		check(tc != null and tc.is_visible_in_tree() and tc.text in ["✓ OK", "..."], "lobby: the host's TRACK cell (%s)" % (tc.text if tc else "none"))
+		check(tc == null or tc.focus_mode == Control.FOCUS_NONE, "the TRACK cell is never a D-pad stop")
+		check(lobby.start_button == null or lobby.start_button.disabled == (Net.can_start() != ""), "START RACE follows can_start (%s)" % Net.can_start())
 		await _pad(JOY_BUTTON_START)
 		check(lobby.ready_button.button_pressed, "Start toggles READY")
 		await _pad(JOY_BUTTON_START)
@@ -573,6 +638,37 @@ class Runner:
 		await _wait(0.5)
 		check(not Net.active and menu.lobby == null, "STOP SERVER leaves the lobby")
 		check(_focus() == menu.items.get_child(0), "back on the menu, NEW RACE focused (%s)" % _focus_name())
+
+	# ------------------------------------------------------------ NEW RACE > MY TRACKS (TrackBrowser)
+	func _track_browser(menu: Node) -> void:
+		await _open_item(menu, "NEW RACE")
+		var setup: RaceSetup = menu.setup
+		check(setup != null and setup.my_card != null and setup.my_card in setup.track_cards, "NEW RACE has the MY TRACKS card")
+		if setup == null or setup.my_card == null:
+			return
+		setup.my_card.grab_focus()
+		await _pad(JOY_BUTTON_A)
+		await _frames(3)
+		var tb: TrackBrowser = setup.browser
+		check(tb != null and tb.is_visible_in_tree(), "A on MY TRACKS opens the track browser")
+		if tb == null:
+			return
+		check(_focus() != null and tb.is_ancestor_of(_focus()), "track browser: the focus is in it (%s)" % _focus_name())
+		var t0 := tb.tab
+		await _pad(JOY_BUTTON_RIGHT_SHOULDER)
+		check(tb.tab != t0 and tb.tab in TrackBrowser.TABS, "RB: the other tab (%s)" % tb.tab)
+		await _pad(JOY_BUTTON_LEFT_SHOULDER)
+		check(tb.tab == t0, "LB: back (%s)" % tb.tab)
+		await _move(JOY_BUTTON_DPAD_DOWN, 3, "track browser")
+		await _move(JOY_BUTTON_DPAD_RIGHT, 4, "track browser")
+		check(_focus() != null and tb.is_ancestor_of(_focus()), "the focus stays in the track browser (%s)" % _focus_name())
+		await _pad(JOY_BUTTON_B)
+		await _frames(3)
+		check(setup.browser == null or not is_instance_valid(setup.browser) or setup.browser.is_queued_for_deletion(), "B closes the track browser")
+		check(_focus() == setup.my_card, "B: back on MY TRACKS (%s)" % _focus_name())
+		await _pad(JOY_BUTTON_B)
+		await _frames(3)
+		check(menu.setup == null, "B leaves NEW RACE")
 
 	# ------------------------------------------------------------ new race, the race
 	func _race(menu: Node) -> void:

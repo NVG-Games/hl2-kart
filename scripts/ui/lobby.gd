@@ -4,6 +4,11 @@ extends Control
 ## ready), chat. The host sets the rules and starts; when everyone is READY
 ## the race starts by itself after a short countdown. With a pad: Start toggles READY, B asks
 ## before it leaves (the host's leaving stops the server), the right stick scrolls the chat.
+## A custom track (6.5): every row has a TRACK column (42% / PREP / OK / NO TRACK), a friend's own
+## download shows under the sub line with its progress, time left and thumbnail (then PREPARING
+## TRACK...; a failure gives the reason and RETRY, downloads off the DOWNLOAD IT? box), the host's
+## status line names whoever blocks START RACE (which stays disabled until everyone has the track
+## and is READY), and a friend can KEEP TRACK once it is here.
 
 signal leave_requested
 
@@ -24,6 +29,19 @@ var _confirm: MessageBox
 var _racer := 0
 var _vehicle := 0
 var _is_ready := false
+var track_dd: OptionButton           # the host's track pick (built-ins, MY TRACKS)
+var keep_button: Button
+var retry_button: Button
+var dl_row: HBoxContainer            # this client's own download: thumb, line, bar / reason + RETRY
+var dl_thumb: TextureRect
+var dl_label: Label
+var dl_bar: ProgressBar
+var _track_cells := {}               # peer id -> its TRACK column label (updated in place)
+var _ask_box: MessageBox             # DOWNLOAD IT?
+var _asked := ""                     # the sha DOWNLOAD IT? was shown for
+var _fetching := false               # a download (or its prepare) is on show: the blip at the end
+var _shown_id := ""                  # the track the download row is about
+var _tick := 0.0
 
 
 func _ready() -> void:
@@ -54,8 +72,19 @@ func _ready() -> void:
 	title_label = UiKit.label("", 32, Color.WHITE, true)
 	title_label.clip_text = true
 	hv.add_child(title_label)
+	var sub_row := HBoxContainer.new()
+	sub_row.add_theme_constant_override("separation", 14)
+	hv.add_child(sub_row)
 	sub_label = UiKit.label("", 16, UiKit.TEXT_DIM)
-	hv.add_child(sub_label)
+	sub_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	sub_row.add_child(sub_label)
+	# a friend who downloaded the server's track keeps it (DOWNLOADED, never evicted)
+	keep_button = UiKit.button("KEEP TRACK", 150)
+	keep_button.custom_minimum_size.y = 32
+	keep_button.visible = false
+	keep_button.pressed.connect(_keep_track)
+	sub_row.add_child(keep_button)
+	_build_download_row(hv)
 	address_label = UiKit.label("", 15, UiKit.TEXT_DIM)
 	address_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	address_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
@@ -153,7 +182,12 @@ func _ready() -> void:
 	start_button.add_theme_color_override("font_color", Color.BLACK)
 	start_button.add_theme_color_override("font_hover_color", Color.BLACK)
 	start_button.add_theme_color_override("font_focus_color", Color.BLACK)
-	start_button.pressed.connect(func(): Net.start_race_now())
+	start_button.pressed.connect(func():
+		# pressing START counts as the host's own READY; the reason shows when it cannot go
+		if Net.can_start() != "":
+			_update_status()
+			return
+		Net.start_race_now())
 	start_button.visible = Net.is_server
 	brow.add_child(start_button)
 	var hints := PromptBar.new([["{ui_accept} SELECT"], ["{ui_cancel} %s" % ("STOP SERVER" if Net.is_server else "LEAVE")],
@@ -169,6 +203,10 @@ func _ready() -> void:
 	Net.chat_received.connect(_add_chat)
 	Net.countdown_changed.connect(func(_s): _update_status())
 	Net.state_changed.connect(func(_s): _update_status())
+	Net.share.progress_changed.connect(_on_progress)
+	Net.share.local_changed.connect(_on_local)
+	Net.share.thumb_arrived.connect(_on_thumb)
+	Game.custom_tracks_changed.connect(_on_customs_changed)
 	_build_rules()
 	_on_cfg()
 	_rebuild_players()
@@ -176,6 +214,7 @@ func _ready() -> void:
 	_add_chat("", "Welcome to %s. Pick a racer and a vehicle, then press READY." % Net.cfg.get("name", "the server"), "info")
 	_update_chat_hint()
 	InputPrompts.prompts_changed.connect(_update_chat_hint)
+	_show_local()
 	ready_button.grab_focus.call_deferred()
 
 
@@ -225,8 +264,13 @@ func _send_profile() -> void:
 
 
 func _process(delta: float) -> void:
-	if Net.autostart_left >= 0.0:
+	_tick -= delta
+	if Net.autostart_left >= 0.0 or _tick <= 0.0:
+		# (the server's own prepare and the ETA change without a roster message)
+		_tick = 0.25
 		_update_status()
+		if dl_row.visible:
+			_show_local()
 	# the right stick scrolls the chat (nothing else in the lobby uses it)
 	var pad := InputPrompts.active_pad()
 	if pad >= 0 and InputPrompts.using_pad():
@@ -236,16 +280,40 @@ func _process(delta: float) -> void:
 
 
 func _update_status() -> void:
+	var blocker := track_line()
 	if Net.state == "race_wait":
 		status_label.text = "A race is in progress. You join the next one."
 	elif Net.autostart_left >= 0.0:
 		status_label.text = "Everyone is ready. Starting in %d..." % ceili(Net.autostart_left)
+	elif blocker != "":
+		# the track first: whoever does not have it yet (the host: with KICK on that row)
+		status_label.text = blocker
 	else:
 		var waiting := 0
 		for p in Net.players.values():
 			if not p["ready"]:
 				waiting += 1
 		status_label.text = "Waiting for %d player%s to be ready" % [waiting, "" if waiting == 1 else "s"] if waiting > 0 else ""
+	status_label.tooltip_text = status_label.text
+	if start_button.visible:
+		var why := Net.can_start()
+		start_button.disabled = why != ""
+		start_button.tooltip_text = why
+
+
+## The status line's track part: the host's blocker line (TrackShare.status_line), for a friend
+## the same without the host's choices.
+func track_line() -> String:
+	if not Net.active or Net.state != "lobby":
+		return ""
+	if Net.is_server:
+		return Net.share.status_line()
+	if Net.share.everyone_has_track():
+		return ""
+	var others := Net.share.waiting().filter(func(e: Dictionary) -> bool: return int(e["id"]) != Net.my_id())
+	if others.is_empty():
+		return ""
+	return "Waiting for %d player%s to get the track." % [others.size(), "" if others.size() == 1 else "s"]
 
 
 # ---------------------------------------------------------------- players
@@ -258,6 +326,7 @@ func _rebuild_players() -> void:
 		n.queue_free()
 	var ids: Array = Net.players.keys()
 	ids.sort()
+	_track_cells.clear()
 	for id in ids:
 		players_box.add_child(_player_row(int(id), Net.players[id]))
 	var cfg := Net.cfg
@@ -312,6 +381,17 @@ func _player_row(id: int, p: Dictionary) -> Control:
 	rd.custom_minimum_size.x = 60
 	rd.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	h.add_child(rd)
+	# TRACK: 42% / PREP / OK / NO TRACK (the reason as the tooltip), updated in place
+	var tc := UiKit.label("", 15, UiKit.TEXT_DIM, true)
+	tc.custom_minimum_size.x = 76
+	tc.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	tc.mouse_filter = Control.MOUSE_FILTER_PASS
+	h.add_child(tc)
+	_track_cells[id] = tc
+	fill_track_cell(tc, p)
+	var missing := int(p.get("missing", 0))
+	if missing > 0:
+		h.tooltip_text = "%d objects of this track are not on %s's computer: they are left out there." % [missing, str(p["nick"])]
 	if Net.is_server and id != 1:
 		var kick := UiKit.button("KICK", 70)
 		kick.custom_minimum_size.y = 34
@@ -326,8 +406,7 @@ func _on_cfg() -> void:
 	var cfg := Net.cfg
 	title_label.text = str(cfg.get("name", "LOBBY"))
 	var diff: String = Game.DIFFICULTIES[clampi(int(cfg.get("difficulty", 1)), 0, 2)]["name"]
-	var tr := Game.track(str(cfg.get("track", "")))
-	sub_label.text = "%s  ·  %d laps  ·  %s  ·  %s%s%s" % [tr["name"], int(cfg.get("laps", 3)), diff,
+	sub_label.text = "%s  ·  %d laps  ·  %s  ·  %s%s%s" % [_track_name(true), int(cfg.get("laps", 3)), diff,
 		"bots fill the grid to %d" % int(cfg.get("grid", 8)) if cfg.get("bots", false) else "no bots",
 		"  ·  hazards off" if int(cfg.get("hazards", 1)) == 0 else "",
 		"  ·  password" if cfg.get("locked", false) else ""]
@@ -341,7 +420,10 @@ func _on_cfg() -> void:
 		address_label.text = txt
 	if not Net.is_server:
 		_build_rules()
+	elif track_dd:
+		CreateServer.select_track(track_dd, str(cfg.get("track", "")))
 	_rebuild_players()
+	_show_local()
 
 
 func _build_rules() -> void:
@@ -363,13 +445,19 @@ func _build_rules() -> void:
 	rules_box.add_child(UiKit.row("Difficulty", diff, w))
 	var hazards := UiKit.segmented(["OFF", "ON"], int(cfg.get("hazards", 1)), func(i: int): Net.set_rule("hazards", i))
 	rules_box.add_child(UiKit.row("Track hazards", hazards, w))
-	var track_names: Array = Game.TRACKS.map(func(t: Dictionary) -> String: return t["name"])
-	var track := UiKit.dropdown(track_names, Game.track_index(str(cfg.get("track", ""))), func(i: int):
-		Net.set_rule("track", Game.TRACKS[i]["id"]))
-	# (a track this install has not built yet can not be picked: Game.track_installed)
-	for i in Game.TRACKS.size():
-		track.set_item_disabled(i, not Game.track_installed(Game.TRACKS[i]["id"]))
-	rules_box.add_child(UiKit.row("Track", track, w))
+	if host:
+		# the circuits, then MY TRACKS and the kept downloads, selected by id (a custom pick is never
+		# shown as Highway 17); a track this install has not built or that has errors is disabled
+		track_dd = CreateServer.track_dropdown(str(cfg.get("track", "")), func(id: String): Net.set_rule("track", id))
+		rules_box.add_child(UiKit.row("Track", track_dd, w))
+	else:
+		# a friend sees the host's track by name (it may be one this computer does not have yet)
+		track_dd = null
+		var tl := UiKit.label(_track_name(), 18, UiKit.TEXT, true)
+		tl.clip_text = true
+		tl.custom_minimum_size = Vector2(260, 42)
+		tl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		rules_box.add_child(UiKit.row("Track", tl, w))
 	if not host:
 		# everyone sees the rules; only the host changes them (and the D-pad passes them by)
 		for c in [mp, grid, laps]:
@@ -377,12 +465,237 @@ func _build_rules() -> void:
 			s.editable = false
 			s.focus_mode = Control.FOCUS_NONE
 		bots.disabled = true
-		track.disabled = true
-		for c: Control in [bots, track]:
-			c.focus_mode = Control.FOCUS_NONE
+		bots.focus_mode = Control.FOCUS_NONE
 		for b in diff.get_children() + hazards.get_children():
 			(b as Button).disabled = true
 			(b as Button).focus_mode = Control.FOCUS_NONE
+
+
+# ---------------------------------------------------------------- the track (6.5)
+const NO_TRACK := Color(1, 0.45, 0.35)
+const BLIP := "res://assets/sound/buttons/blip1.wav"
+
+
+## A row's TRACK column: "42%" (orange), "PREP" (dim), "✓ OK" (dim), "NO TRACK" (red, the reason
+## as the tooltip), "..." before the first report.
+static func fill_track_cell(tc: Label, p: Dictionary) -> void:
+	var st := str(p.get("track", "?"))
+	var tip := ""
+	var col := UiKit.TEXT_DIM
+	match st:
+		"get", "need":
+			tc.text = "%d%%" % int(floorf(clampf(float(p.get("dl", 0.0)), 0.0, 1.0) * 100.0))
+			col = UiKit.ORANGE
+			tip = "Downloading the track"
+		"prep":
+			tc.text = "PREP"
+			tip = "Preparing the track"
+		"ok":
+			tc.text = "✓ OK"
+			tip = "Has the track"
+		"fail":
+			tc.text = "NO TRACK"
+			col = NO_TRACK
+			tip = "No track: %s" % TrackShare.words(str(p.get("why", "")))
+		_:
+			tc.text = "..."
+			tip = "Checking the track"
+	tc.add_theme_color_override("font_color", col)
+	tc.tooltip_text = tip
+
+
+## Under the sub line: this client's own download (thumb, line, bar), PREPARING TRACK..., or the
+## reason with RETRY (DOWNLOAD when downloads are off).
+func _build_download_row(parent: Control) -> void:
+	dl_row = HBoxContainer.new()
+	dl_row.add_theme_constant_override("separation", 12)
+	dl_row.visible = false
+	parent.add_child(dl_row)
+	dl_thumb = TextureRect.new()
+	dl_thumb.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	dl_thumb.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	dl_thumb.custom_minimum_size = Vector2(72, 40)
+	dl_thumb.visible = false
+	dl_row.add_child(dl_thumb)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 5)
+	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	dl_row.add_child(v)
+	dl_label = UiKit.label("", 15, UiKit.ORANGE, true)
+	dl_label.clip_text = true
+	dl_label.custom_minimum_size.x = 420
+	v.add_child(dl_label)
+	dl_bar = ProgressBar.new()
+	dl_bar.show_percentage = false
+	dl_bar.min_value = 0.0
+	dl_bar.max_value = 1.0
+	dl_bar.step = 0.0
+	dl_bar.custom_minimum_size = Vector2(420, 8)
+	dl_bar.add_theme_stylebox_override("background", UiKit.box(Color(1, 1, 1, 0.12), Color(0, 0, 0, 0), 0, 2, 0))
+	dl_bar.add_theme_stylebox_override("fill", UiKit.box(UiKit.ORANGE, Color(0, 0, 0, 0), 0, 2, 0))
+	v.add_child(dl_bar)
+	retry_button = UiKit.button("RETRY", 130)
+	retry_button.custom_minimum_size.y = 32
+	retry_button.visible = false
+	retry_button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	retry_button.pressed.connect(_on_retry)
+	dl_row.add_child(retry_button)
+
+
+## The track's name for the rules and the sub line ("Canal Run by Sasha  ·  CUSTOM"): a custom
+## track's name and author come from the server's cfg (the friend may not have it yet).
+func _track_name(sub := false) -> String:
+	var na := _name_author()
+	if not CustomTracks.is_custom(str(Net.cfg.get("track", ""))):
+		return na[0]
+	var out: String = na[0] + ("  by %s" % na[1] if na[1] != "" else "")
+	return out + "  ·  CUSTOM" if sub else out
+
+
+## [name, author] of the server's track (a custom one's from the cfg).
+func _name_author() -> Array:
+	var id := str(Net.cfg.get("track", ""))
+	var tr := Game.track(id)
+	var nm := str(tr.get("name", id))
+	var author := str(tr.get("author", "")) if CustomTracks.is_custom(id) else ""
+	var c = Net.cfg.get("custom")
+	if CustomTracks.is_custom(id) and c is Dictionary:
+		if str(c.get("name", "")) != "":
+			nm = str(c["name"])
+		author = str(c.get("author", author))
+	return [nm, author]
+
+
+static func _size_text(bytes: int) -> String:
+	if bytes < 100 * 1024:
+		return "%d KB" % maxi(1, ceili(bytes / 1024.0))
+	return "%.1f MB" % (bytes / 1048576.0)
+
+
+## This client's own download from TrackShare.local_state(); also KEEP TRACK.
+func _show_local() -> void:
+	if dl_row == null:
+		return
+	var id := str(Net.cfg.get("track", ""))
+	var custom := Net.active and not Net.is_server and CustomTracks.is_custom(id)
+	var ls: Dictionary = Net.share.local_state() if custom else {}
+	var st := str(ls.get("state", ""))
+	var show := false
+	var bar := false
+	var retry := false
+	# (what had the focus, before anything hides: RETRY or KEEP TRACK going away puts it on READY)
+	var had_focus := _focus_inside(dl_row) or _focus_inside(keep_button)
+	if id != _shown_id:
+		# another track: the last one's thumbnail goes (thumb_arrived brings the new one)
+		_shown_id = id
+		dl_thumb.texture = null
+	dl_label.add_theme_color_override("font_color", UiKit.ORANGE)
+	if custom and (st == "need" or st == "get"):
+		show = true
+		_fetching = true
+		var nm := str(ls.get("name", ""))
+		if nm == "":
+			nm = _track_name()
+		var size := int(ls.get("size", 0))
+		var eta := float(ls.get("eta_s", -1.0))
+		dl_label.text = "DOWNLOADING %s  ·  %s  ·  %d%%%s" % [nm.to_upper(), _size_text(size),
+			int(floorf(clampf(float(ls.get("dl", 0.0)), 0.0, 1.0) * 100.0)), "  ·  %d s LEFT" % ceili(eta) if eta >= 0.0 else ""]
+		bar = true
+		dl_bar.value = clampf(float(ls.get("dl", 0.0)), 0.0, 1.0)
+	elif custom and st == "prep":
+		show = true
+		dl_label.text = "PREPARING TRACK..."
+		bar = true
+		dl_bar.value = 1.0
+	elif custom and st == "fail":
+		show = true
+		var code := str(ls.get("code", ""))
+		dl_label.add_theme_color_override("font_color", NO_TRACK)
+		dl_label.text = str(ls.get("why", "")) if str(ls.get("why", "")) != "" else "No track."
+		retry = true
+		retry_button.text = "DOWNLOAD" if code == "downloads off" else "RETRY"
+		if code == "downloads off":
+			_ask_download(ls)
+	elif st == "ok" and _fetching:
+		_fetching = false
+		Game.play_ui(BLIP, -6.0)
+	if not custom:
+		_fetching = false
+	# each visibility set once (hiding a focused RETRY on every refresh would drop the pad's focus)
+	dl_bar.visible = bar
+	retry_button.visible = retry
+	dl_row.visible = show
+	dl_thumb.visible = show and dl_thumb.texture != null
+	keep_button.visible = custom and st == "ok" and str(CustomTracks.meta(id).get("kind", "")) == "cache"
+	if had_focus and not _focus_inside(dl_row) and not _focus_inside(keep_button):
+		ready_button.grab_focus.call_deferred()
+
+
+func _focus_inside(c: Control) -> bool:
+	if not is_inside_tree() or not c.is_visible_in_tree():
+		return false
+	var f := get_viewport().gui_get_focus_owner()
+	return f != null and (f == c or c.is_ancestor_of(f))
+
+
+## Downloads are off (OPTIONS > GAME): asked once per track on this server; DOWNLOAD gives the
+## consent for this server for this session, LEAVE leaves.
+func _ask_download(ls: Dictionary) -> void:
+	var c = Net.cfg.get("custom")
+	var sha := str(c.get("sha", "")) if c is Dictionary else ""
+	if sha == _asked or (_ask_box and is_instance_valid(_ask_box)):
+		return
+	_asked = sha
+	var size := int(ls.get("size", 0))
+	var na := _name_author()
+	_ask_box = MessageBox.new("DOWNLOAD IT?", "This server races %s%s, a custom track (%s). DOWNLOAD IT?" % [
+		str(na[0]).to_upper(), " by %s" % na[1] if na[1] != "" else "", _size_text(size)], false, false, "DOWNLOAD", "LEAVE")
+	_ask_box.answered.connect(func(ok: bool, _t: String):
+		_ask_box = null
+		if ok:
+			Net.share.consent()
+		else:
+			leave_requested.emit())
+	add_child(_ask_box)
+
+
+func _on_retry() -> void:
+	if retry_button.text == "DOWNLOAD":
+		Net.share.consent()
+	else:
+		Net.share.retry()
+
+
+func _keep_track() -> void:
+	var id := str(Net.cfg.get("track", ""))
+	if CustomTracks.keep(id) == OK:
+		_add_chat("", "%s is kept: it stays under DOWNLOADED." % _track_name(), "info")
+	else:
+		_add_chat("", CustomTracks.last_error if CustomTracks.last_error != "" else "The track could not be kept.", "info")
+	_show_local()
+
+
+## A row's TRACK state or percent changed: that cell only (no rebuild, no focus loss).
+func _on_progress(peer: int, _state: String, _dl: float) -> void:
+	var tc: Label = _track_cells.get(peer)
+	if tc and is_instance_valid(tc) and Net.players.has(peer):
+		fill_track_cell(tc, Net.players[peer])
+	_update_status()
+
+
+func _on_local(_state: String, _dl: float, _reason: String) -> void:
+	_show_local()
+	_update_status()
+
+
+func _on_thumb(tex: Texture2D) -> void:
+	dl_thumb.texture = tex
+	dl_thumb.visible = dl_row.visible and tex != null
+
+
+func _on_customs_changed() -> void:
+	if track_dd and is_instance_valid(track_dd):
+		CreateServer.fill_tracks(track_dd, str(Net.cfg.get("track", "")))
 
 
 # ---------------------------------------------------------------- chat

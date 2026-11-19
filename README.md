@@ -19,7 +19,7 @@
   <a href="https://github.com/NVG-Games/hl2-kart/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/NVG-Games/hl2-kart?style=for-the-badge&label=version&color=333"></a>
 </p>
 
-<p align="center"><a href="README.ru.md">Русская версия</a> · <a href="#new">What's new</a> · <a href="#play">How to play</a> · <a href="CONTRIBUTING.md">Contribute</a></p>
+<p align="center"><a href="README.ru.md">Русская версия</a> · <a href="#new">What's new</a> · <a href="#play">How to play</a> · <a href="#track-editor">Track editor</a> · <a href="CONTRIBUTING.md">Contribute</a></p>
 
 > **Free, non-commercial fan project, not affiliated with Valve.** This repository holds
 > the code only. To play you need **Half-Life 2** and **Half-Life** on Steam: one script
@@ -60,7 +60,9 @@ Xen's wildlife is awake. Falling off is different on every track now, with six k
 rescue: a scanner takes your photo, a rebel crane lifts you out with its magnet, vortigaunts
 beam you back. The gravity gun pulls
 the kart ahead back over you, Dog gallops with Half-Life 2's own animations and the bathtub
-has two propane-tank thrusters. Every change is in [CHANGELOG.md](CHANGELOG.md#unreleased).
+has two propane-tank thrusters. And there is a [track editor](#track-editor): build your own
+track in 3D, drive it, and race it online, where friends download it in the lobby. Every change
+is in [CHANGELOG.md](CHANGELOG.md#unreleased).
 
 ## The circuits
 
@@ -254,6 +256,37 @@ Switch, Steam Deck and others), and the game shows that pad's own buttons. Every
 changed in Options → Keyboard & mouse and Options → Controller, which draws your pad with each
 button's action and has ready-made layouts.
 
+<a id="track-editor"></a>
+## Track editor
+
+TRACK EDITOR in the main menu opens your tracks (MY TRACKS), the ones you downloaded
+(DOWNLOADED) and five templates to start from: an empty field, a test oval, a figure eight over
+a bridge, forest hills with a jump and a shortcut, and a City 17 block with a tunnel. Pick a
+template and the editor opens on it; press F5 at any time to drive what you have.
+
+- **Tools** (keys 1 to 0): SELECT, ROAD, BRANCH (forks and shortcuts the computer drivers take
+  too), TERRAIN, PAINT, OBJECTS (the Half-Life props on your computer), ITEMS (crate rows, boost
+  pads, barrels, low-gravity zones), HAZARDS (the circuits' 19 traps and enemies), CROWDS
+  (spectators and extras) and WORLD (theme, sky, light, fog, sea, music, laps). AUTO DRESS adds
+  crate rows, boost pads, rails and scenery in one step.
+- **Camera:** hold the right mouse button and fly with WASD, the wheel moves to the cursor, the
+  middle button pans, Alt + drag orbits, T is the top view and F frames the selection.
+- **Test drive:** F5 from the start, Shift + F5 from where you point, Ctrl + F5 to watch a bot
+  lap; F5 or the pause menu brings you back with your lap and line. An open road can not be
+  driven: close the loop (C) first.
+- **Checklist:** F3 lists what keeps the track from being raced, with pins on the problems and
+  FIX buttons. Undo and redo (Ctrl + Z / Ctrl + Y) cover every edit; F1 shows every key.
+- **Controller:** the mouse and keyboard edit everything; a pad flies the camera, test-drives
+  (A from here, X from the start, Y watching a bot) and works the EDITOR MENU (Start).
+- **Files:** a track is one `.hl2kt` file in your tracks folder (OPEN FOLDER in the TRACK EDITOR
+  shows it; on Windows `%APPDATA%\Godot\app_userdata\Half-Life 2: Kart\tracks`). The editor
+  saves an autosave every minute, brings back unsaved work after a crash and keeps the last five
+  versions (FILE > OLDER VERSIONS). Drop a `.hl2kt` file on the game window to import it. A
+  track file holds only your own road, terrain and placements, with the Half-Life content
+  named by key: share it freely.
+
+Pipes and caves are not part of the editor.
+
 ## Multiplayer
 
 The networking works like Source servers: UDP 27015 for the game, 27016 for the server
@@ -265,10 +298,11 @@ tab.
 - **Join:** FIND SERVERS. On the same network the server shows up under LAN; over the
   internet type the host's address. Without UPnP on the host's router, forward UDP
   27015–27016 or play over a virtual LAN (Radmin VPN, ZeroTier, Tailscale).
-- **Same version on every PC:** this build speaks network protocol 4. A server running
+- **Same version on every PC:** this build speaks network protocol 5. A server running
   another version shows as *(different version)* in FIND SERVERS and turns you away, so
   everyone updates together.
-- **Lobby:** pick a nickname, racer and vehicle; the host changes the rules and starts.
+- **Lobby:** pick a nickname, racer and vehicle; the host changes the rules and starts
+  once every player has the track and every other player is READY.
   Track hazards ON or OFF is the host's rule and counts for everyone (the lobby line reads
   "hazards off" when they are off); spectators are each player's own option.
 - **Racing:** the start, the countdown and the race clock follow the server, so times and
@@ -295,6 +329,42 @@ Master server for the INTERNET tab, on any machine with UDP 27010 open:
 godot --headless --path . -- --master-server --port 27010
 ```
 
+### Multiplayer: custom tracks
+
+- **Hosting your track:** HOST in the TRACK EDITOR (or pick it under MY TRACKS in CREATE
+  SERVER). The track must have no errors in its checklist.
+- **Downloads:** a friend who does not have the track downloads it in the lobby in the
+  background: their row in the TRACK column shows the percent, and their own screen the size
+  and the time left. A dropped download resumes; a failed one keeps them in the lobby with the
+  reason and RETRY. Downloads are cached (KEEP TRACK moves one to DOWNLOADED for good) and every
+  file is checked before it is built. OPTIONS > GAME > DOWNLOAD TRACKS FROM SERVERS off makes
+  the lobby ask first.
+- **Starting:** START RACE works once every player has the track and every other player is
+  READY.
+- **FIND SERVERS** shows each server's track in the TRACK column, and for a custom track its
+  author and size or "you have it".
+
+A dedicated server races the `.hl2kt` files of its tracks folder: the folder named by
+`sv_tracks` / `--tracks <dir>` first, then `tracks/` next to the executable, then `tracks/` in
+the project, then its own tracks folder. `mp_track` (`--track`) also takes a custom track's file
+name (without `.hl2kt`), its name, its `c_` id or the start of its hash. Five settings for them:
+
+| cvar | flag | default | what it does |
+|---|---|---|---|
+| `sv_tracks` | `--tracks` | "" | an extra folder of tracks, searched first |
+| `sv_downloads` | | 1 | 0 turns away a player who does not have the track |
+| `sv_download_rate` | | 192 | KB/s for all downloads while a race runs |
+| `mp_tracklist` | `--tracklist` | "" | tracks to rotate through, comma-separated |
+| `mp_rotate` | | 1 | with a list: the next track after every race |
+
+```bash
+godot --headless --path . -- --dedicated --tracks ./mytracks --tracklist "canal_run, xen, Old Docks"
+```
+
+Console: `tracks` lists the circuits and custom tracks, `track <name>` changes the track (after
+the race during one), `next` rotates now, `status` shows each player's download and `start`
+starts without waiting for READY (never without the track).
+
 ## Sharing it with friends
 
 - Share the link to the [releases page](https://github.com/NVG-Games/hl2-kart/releases).
@@ -302,7 +372,8 @@ godot --headless --path . -- --master-server --port 27010
   Half-Life on the first start, servers included.
 - Re-sharing the official zip is fine. Do **not** share a folder after its first start,
   the `assets/` folder or any extracted files: that content belongs to Valve.
-- Forks, mods and new tracks are welcome under the same non-commercial license.
+- Forks, mods and new tracks are welcome under the same non-commercial license. Tracks made
+  in the TRACK EDITOR (`.hl2kt` files) hold no Valve content and can be shared as they are.
 
 ## Contributing
 
@@ -323,8 +394,9 @@ moves for a release, and every release is listed in [CHANGELOG.md](CHANGELOG.md)
   HL2 / HL1 maps if you want to experiment with real levels.
 - `tests/`: headless AI races with stats (`race_stats.tscn`), photo tours, menu layout
   checks (`ui_fit.tscn`), shortcut, hazard and spectator checks (`branch_check.tscn`,
-  `hazard_test.tscn`, `crowd_check.tscn`), network walkthroughs and a compile check of
-  every script.
+  `hazard_test.tscn`, `crowd_check.tscn`), network walkthroughs, a compile check of
+  every script, and the track editor's tests (`level_test.tscn`, `editor_test.tscn`,
+  `net_track_test.tscn`).
 
 A new circuit is one Python module in `tools/circuits/` plus an entry in `TRACKS` in
 `scripts/core/game.gd` and in `CIRCUITS` in `tools/setup_assets.py` (see

@@ -22,7 +22,10 @@ signal countdown_changed(seconds: float)
 ## road, hits and held item and is stamped from the race's epoch; snapshots carry the start.
 ## 4: the gravity gun pulls (its target travels with the item) and a supercharged one is new; the
 ## rules carry no sky (no weather choice)
-const PROTOCOL := 4
+## 5: custom tracks: the rules may carry a custom track (cfg.custom with its hash), players report
+## whether they have it (roster `track`), the server sends it in chunks (TrackShare) and the race
+## starts only when every player has it; the race rules carry `track_sha`.
+const PROTOCOL := 5
 const DEFAULT_PORT := 27015
 const MASTER_PORT := 27010
 const MAX_RACERS := 8
@@ -46,6 +49,10 @@ const M_GONE := "HL2KX"
 const M_LIST := "HL2KL"
 const M_SERVERS := "HL2KS"
 
+## Custom tracks in the lobby: checks, downloads, START's track gate (/root/Net/TrackShare).
+var share: TrackShare
+## The server this client joined ("address:port"; DOWNLOAD consent is kept per server).
+var server_addr := ""
 var active := false
 var is_server := false
 var dedicated := false
@@ -94,6 +101,10 @@ var _epoch := 0.0  # the server's clock when this race was set up (kart states a
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	share = TrackShare.new()
+	share.name = "TrackShare"
+	share.net = self
+	add_child(share)
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 	multiplayer.connected_to_server.connect(_on_connected)
@@ -182,8 +193,13 @@ func host(options: Dictionary, as_dedicated := false) -> Error:
 	players.clear()
 	if not as_dedicated:
 		players[1] = {"nick": Game.nickname(), "character": Game.settings["character"],
-			"vehicle": Game.settings["vehicle"], "ready": false, "ping": 0, "host": true}
+			"vehicle": Game.settings["vehicle"], "ready": false, "ping": 0, "host": true,
+			"track": "?", "why": "", "dl": 0.0, "missing": 0}
 	_set_state("lobby")
+	# the package and the server's own prepare, before the first cfg goes out (6.2)
+	share.reset()
+	share.configure(options)
+	share.on_track_rule(str(cfg["track"]))
 	_heartbeat_t = 1.0
 	if options.get("upnp", false) and not options.get("lan_only", false):
 		_open_upnp()
@@ -193,11 +209,28 @@ func host(options: Dictionary, as_dedicated := false) -> Error:
 	return OK
 
 
-## Change a shared rule (host only); everyone sees it at once.
+## Change a shared rule (host only); everyone sees it at once. The server-only track settings
+## (TrackShare.SERVER_KEYS) stay on the server. A track: TrackShare.on_track_rule fills cfg.custom,
+## resets everyone's track state and starts the server's prepare before the one cfg broadcast;
+## during a race it is kept and applied at back_to_lobby.
 func set_rule(key: String, value: Variant) -> void:
 	if not is_server:
 		return
-	cfg[key] = value
+	if key in TrackShare.SERVER_KEYS:
+		share.set_option(key, value)
+		return
+	if key == "track":
+		var id := str(value)
+		if not TrackShare.known_id(id):
+			push_warning("set_rule: not a track id: %s" % id.left(40).c_escape())
+			return
+		if state != "lobby":
+			share.pending_track = id
+			return
+		cfg[key] = id
+		share.on_track_rule(id)
+	else:
+		cfg[key] = value
 	if key == "password":
 		_password = str(value)
 		cfg.erase("password")
@@ -233,6 +266,7 @@ func join(address: String, port := DEFAULT_PORT, password := "") -> Error:
 	active = true
 	is_server = false
 	_port = port
+	server_addr = "%s:%d" % [address, port]
 	_join_info = {"v": PROTOCOL, "nick": Game.nickname(), "character": Game.settings["character"],
 		"vehicle": Game.settings["vehicle"], "password": password}
 	_set_state("connecting")
@@ -314,6 +348,7 @@ func _shutdown() -> void:
 	autostart_left = -1.0
 	_samples.clear()
 	_offset_ok = false
+	share.reset()
 	_set_state("offline")
 
 
@@ -346,9 +381,103 @@ func say(text: String) -> void:
 		_c_chat.rpc_id(1, text)
 
 
-func start_race_now() -> void:
-	if is_server and state == "lobby":
-		_start_race()
+## The host's START RACE (force_ready: the dedicated console's start, READY skipped, never the
+## track): refused with the reason in the chat unless can_start() says go.
+func start_race_now(force_ready := false) -> void:
+	if not is_server:
+		return
+	var why := can_start(force_ready)
+	if why != "":
+		_info(why)
+		return
+	_start_race(force_ready)
+
+
+## "" = the race may start; else why not (6.5): not in the lobby, the server's own build not
+## ready, someone without the track (the status line names them), someone not READY (the host's
+## own READY is pressing START).
+func can_start(force_ready := false) -> String:
+	if state != "lobby":
+		return "Not in the lobby."
+	if is_server and not share.server_ready():
+		return share.status_line()
+	if not everyone_has_track():
+		var s := share.status_line()
+		return s if s != "" else "Waiting for everyone to get the track."
+	if not force_ready:
+		var late: Array = []
+		var ids: Array = players.keys()
+		ids.sort()
+		for id in ids:
+			if not bool(players[id].get("host", false)) and not bool(players[id].get("ready", false)):
+				late.append(str(players[id].get("nick", "?")))
+		if late.size() == 1:
+			return "Waiting for %s to be READY." % late[0]
+		if late.size() > 1:
+			return "Waiting for %d players to be READY." % late.size()
+	return ""
+
+
+## Every player has the track, and a dedicated server has compiled its custom track (6.5).
+func everyone_has_track() -> bool:
+	return share.everyone_has_track()
+
+
+## The race could not use the track (3.10, Race after Track.build_failed). Server: the reason in the
+## chat, the track marked unusable, everyone back to the lobby, then the next rotation entry or the
+## first installed circuit. Client: leaves with the reason.
+func track_failed(reason: String) -> void:
+	if not active:
+		return
+	if not is_server:
+		leave_with(reason)
+		return
+	var id := str(cfg.get("track", ""))
+	_info(reason)
+	if CustomTracks.is_custom(id):
+		CustomTracks.mark_unusable(id, reason)
+	if state != "lobby":
+		back_to_lobby()
+	if str(cfg.get("track", "")) != id:
+		return  # back_to_lobby already moved on (a rule given during the race, the rotation)
+	if share.rotate_after_failure():
+		return
+	for t in Game.TRACKS:
+		if t["id"] != id and Game.track_installed(t["id"]):
+			set_rule("track", t["id"])
+			return
+
+
+## The roster to every client (TrackShare's state changes).
+func broadcast_roster() -> void:
+	_to_clients(&"_s_roster", [players])
+	roster_changed.emit()
+
+
+## A chat info line on this computer only.
+func local_info(text: String) -> void:
+	chat_received.emit("", text, "info")
+
+
+## Client: leave the server with a reason the main menu shows (deferred: callers sit in an RPC).
+func leave_with(reason: String) -> void:
+	if not active or is_server:
+		return
+	_leave_now.call_deferred(reason)
+
+
+func _leave_now(reason: String) -> void:
+	if not active or is_server:
+		return
+	last_error = reason
+	notice = reason
+	var was := state
+	leave()
+	if was == "connecting":
+		connect_failed.emit(reason)
+	else:
+		left.emit(reason)
+	_back_to_menu()
 
 
 func humans() -> int:
@@ -371,7 +500,9 @@ func _c_hello(info: Dictionary) -> void:
 		return
 	var nick := _unique_nick(str(info.get("nick", "Player")).strip_edges().left(24))
 	players[id] = {"nick": nick, "character": _valid_char(str(info.get("character", "alyx"))),
-		"vehicle": _valid_vehicle(str(info.get("vehicle", "buggy"))), "ready": false, "ping": 0, "host": false}
+		"vehicle": _valid_vehicle(str(info.get("vehicle", "buggy"))), "ready": false, "ping": 0, "host": false,
+		"track": "?", "why": "", "dl": 0.0, "missing": 0}
+	share.drop(id)
 	_s_welcome.rpc_id(id, id, cfg, players, state)
 	_to_clients(&"_s_roster", [players])
 	roster_changed.emit()
@@ -448,7 +579,11 @@ func _info(text: String) -> void:
 # ================================================================ lobby (server -> clients)
 @rpc("authority", "call_remote", "reliable")
 func _s_welcome(id: int, c: Dictionary, p: Dictionary, st: String) -> void:
-	cfg = c
+	var cc := TrackShare.clean_cfg(c)
+	if cc.is_empty():
+		leave_with(TrackShare.TEXT_BROKEN)
+		return
+	cfg = cc
 	players = p
 	last_error = ""
 	_set_state("lobby" if st != "race" else "race_wait")
@@ -456,6 +591,7 @@ func _s_welcome(id: int, c: Dictionary, p: Dictionary, st: String) -> void:
 	roster_changed.emit()
 	cfg_changed.emit()
 	print("joined server as #%d" % id)
+	share.check()
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -474,8 +610,13 @@ func _s_roster(p: Dictionary) -> void:
 
 @rpc("authority", "call_remote", "reliable")
 func _s_cfg(c: Dictionary) -> void:
-	cfg = c
+	var cc := TrackShare.clean_cfg(c)
+	if cc.is_empty():
+		leave_with(TrackShare.TEXT_BROKEN)
+		return
+	cfg = cc
 	cfg_changed.emit()
+	share.check()
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -522,7 +663,10 @@ func _on_peer_disconnected(id: int) -> void:
 
 
 func _handle_disconnect(id: int) -> void:
-	if not is_server or not players.has(id):
+	if not is_server:
+		return
+	share.drop(id)
+	if not players.has(id):
 		return
 	var nick: String = players[id]["nick"]
 	players.erase(id)
@@ -542,13 +686,18 @@ func _handle_disconnect(id: int) -> void:
 
 
 # ================================================================ race start
-func _start_race() -> void:
+## force_ready: READY skipped (the dedicated console's start), the track never (C1 N21).
+func _start_race(force_ready := false) -> void:
+	if not is_server or can_start(force_ready) != "":
+		return
 	autostart_left = -1.0
 	_to_clients(&"_s_countdown", [-1.0])
 	countdown_changed.emit(-1.0)
 	grid = _build_grid()
+	var custom = cfg.get("custom")
 	var rules := {"laps": cfg["laps"], "difficulty": cfg["difficulty"], "track": cfg["track"],
-		"hazards": cfg.get("hazards", 1), "epoch": now()}
+		"hazards": cfg.get("hazards", 1), "epoch": now(),
+		"track_sha": str(custom.get("sha", "")) if custom is Dictionary else ""}
 	for id in players:
 		players[id]["ready"] = false
 	_to_clients(&"_s_roster", [players])
@@ -601,6 +750,16 @@ func _build_grid() -> Array:
 
 @rpc("authority", "call_remote", "reliable")
 func _s_start_race(g: Array, rules: Dictionary) -> void:
+	if not is_server:
+		if not TrackShare.valid_rules(rules):
+			leave_with(TrackShare.TEXT_BROKEN)
+			return
+		# race the server's exact track or nothing (Track.build never falls back online, 3.10)
+		var t := str(rules["track"])
+		var mine := str(CustomTracks.meta(t).get("sha", "")) if CustomTracks.is_custom(t) else ""
+		if (CustomTracks.is_custom(t) and mine != str(rules["track_sha"])) or (not CustomTracks.is_custom(t) and not Game.track_installed(t)):
+			leave_with(TrackShare.TEXT_MISMATCH)
+			return
 	grid = g
 	Game.session = rules
 	_epoch = float(rules.get("epoch", 0.0))
@@ -859,12 +1018,14 @@ func _s_race_over(order: Array) -> void:
 		race.net_results(order, RESULTS_TIME)
 
 
-## Everyone back to the lobby (end of results, or the host aborts the race).
+## Everyone back to the lobby (end of results, or the host aborts the race); then a track rule
+## given during the race, or the next track of the rotation (6.8).
 func back_to_lobby() -> void:
 	if not is_server:
 		return
 	_to_clients(&"_s_to_lobby")
 	_s_to_lobby()
+	share.after_race()
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -890,6 +1051,7 @@ func _process(delta: float) -> void:
 	_poll_query()
 	if not active:
 		return
+	share.tick(delta)
 	if is_server:
 		_race_tick(delta)
 		_lobby_tick(delta)
@@ -928,10 +1090,13 @@ func _lobby_tick(delta: float) -> void:
 			_to_clients(&"_s_countdown", [-1.0])
 			countdown_changed.emit(-1.0)
 		return
+	# autostart: every player READY (the listen host too) and everyone has the track (6.5)
 	var all_ready := true
 	for p in players.values():
 		if not p["ready"]:
 			all_ready = false
+	if all_ready and can_start() != "":
+		all_ready = false
 	if all_ready and autostart_left < 0.0:
 		autostart_left = AUTOSTART
 		_to_clients(&"_s_countdown", [autostart_left])
@@ -1008,10 +1173,19 @@ func server_info() -> Dictionary:
 			for k in race.karts:
 				lap = maxi(lap, k.lap + 1)
 		st = "Racing, lap %d/%d" % [clampi(lap, 1, int(cfg["laps"])), int(cfg["laps"])]
-	return {"v": PROTOCOL, "name": cfg.get("name", ""), "map": Game.track(str(cfg.get("track", ""))).get("name", ""), "players": players.size(),
+	var info := {"v": PROTOCOL, "name": cfg.get("name", ""), "map": Game.track(str(cfg.get("track", ""))).get("name", ""), "players": players.size(),
 		"max": cfg.get("max_players", MAX_RACERS), "bots": cfg.get("bots", false), "grid": cfg.get("grid", 8),
 		"state": st, "locked": _password != "", "port": _port, "dedicated": dedicated, "list": nicks,
 		"laps": cfg.get("laps", 3), "difficulty": cfg.get("difficulty", 1)}
+	# a custom track (6.7): its name cut to 32, its sha's first 16 hex and its size in KB
+	var c = cfg.get("custom")
+	if c is Dictionary and LevelIO.is_sha(str(c.get("sha", ""))):
+		var n := TrackShare.clean_text(str(c.get("name", "")), 32)
+		info["map"] = n if n != "" else "Custom track"
+		info["cu"] = 1
+		info["msha"] = str(c["sha"]).left(16)
+		info["mkb"] = ceili(int(c.get("size", 0)) / 1024.0)
+	return info
 
 
 func _send_master(tag: String) -> void:

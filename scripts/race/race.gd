@@ -12,6 +12,20 @@ const COUNT_TIME := 3.6  # 3-2-1 and GO
 ## circuit's shaders and pipelines (1-2 s on the outdoor maps, more with a cold shader cache),
 ## the rest look along the intro's fly-by so it does not stutter on what comes into view
 const WARMUP_FRAMES := 5
+## The editor's TEST DRIVE (Game.test_drive, 5.4): alone on the track or from "here" the kart gets
+## GO after QUICK_GO seconds (no 3-2-1); from "here" it is a free drive of FREE_LAPS laps (no
+## finish); the trail takes the driven kart's position and speed every TRAIL_DT race seconds.
+const QUICK_GO := 1.0
+const FREE_LAPS := 99
+const TRAIL_DT := 0.2
+const TRAIL_MAX := 3000
+const FAST_FORWARD := 4.0  # WATCH A BOT LAP while Tab / RT is held
+## WATCH A BOT LAP: a bot that gains less than STUCK_M lap metres in STUCK_S race seconds is stuck
+const STUCK_S := 15.0
+const STUCK_M := 5.0
+const WATCH_BACK := 1.5  # seconds from the bot's finish back to the editor
+const EDITOR_SCENE := "res://scenes/editor.tscn"
+const MAIN_SCENE := "res://scenes/main.tscn"
 
 var track: Track
 var karts: Array[Kart] = []
@@ -38,21 +52,55 @@ var _card: CanvasLayer  # the loading card over the first frames (WARMUP_FRAMES)
 var drive_card: DriveCard  # HOW TO DRIVE, from the first frame to GO (null after, or when turned off)
 var _warm := 0
 var _phys_frame := -1  # the physics frame of the last _physics_process (a pause leaves a gap)
+## The editor's test drive while one runs (a copy of Game.test_drive: {track, laps, bots, hazards,
+## difficulty, from, route, s, lat, errors}), else {}. Never online.
+var test_drive := {}
+## Why the track could not be built ("" = fine): nothing is spawned then (Track.build_failed).
+var failed := ""
+## WATCH A BOT LAP goes back to the editor after the bot's lap (tests turn it off).
+var auto_return := true
+var _quick_go := false  # GO after QUICK_GO s, no 3-2-1
+var _trail := PackedVector3Array()
+var _speeds := PackedFloat32Array()
+var _rescue_pos := PackedVector3Array()
+var _trail_t := 0.0
+var _was_rescued := false
+var _time_scale0 := 1.0  # Engine.time_scale when the race began (fast forward goes back to it)
+var _fast := false
+var _stuck_at := -1.0
+var _watch_t := 0.0
+var _watch_best := -INF
+var _watch_done := false
+var _leaving := false
 
 
 func _ready() -> void:
 	online = Net.active and Net.state == "race"
+	_time_scale0 = Engine.time_scale
+	test_drive = take_test_drive()
 	laps = int(Game.race_setting("laps"))
+	if is_test_drive():
+		laps = FREE_LAPS if test_from() == "here" else (1 if test_from() == "watch" else maxi(laps, 1))
 	demo = Game.settings.get("demo", false) and not online
 	track = Track.new()
 	add_child(track)
 	track.build(str(Game.race_setting("track")))
+	# a track that could not be built never reaches the karts (a null path): offline back to
+	# the menu (a test drive: to the editor), online the server hears why (Net.track_failed)
+	if track.build_failed != "" or track.path == null:
+		_build_failed(track.build_failed)
+		return
 	if online:
 		_spawn_net_karts()
 	else:
 		_spawn_karts()
 	_countdown = 0.0
 	_phase = "wait" if online else "intro"
+	if is_test_drive():
+		# no fly-by: alone on the track or from "here" GO comes after 1 s, with bots the 3-2-1 runs
+		_phase = "count"
+		_quick_go = test_from() != "start" or int(test_drive.get("bots", 0)) <= 0
+		_countdown = COUNT_TIME - QUICK_GO if _quick_go else 0.0
 	if online:
 		# the server's snapshots and events reach the race from now on; it hears the race is ready
 		# once its first frames are drawn (_warmed)
@@ -63,11 +111,13 @@ func _ready() -> void:
 	camera = RaceCamera.new()
 	add_child(camera)
 	camera.target = player
+	if is_test_drive():
+		camera.mode = RaceCamera.Mode.CHASE
 	camera.make_current()
 	hud = Hud.new()
 	add_child(hud)
 	hud.setup(self)
-	if DriveCard.wanted(self):
+	if DriveCard.wanted(self) and not is_test_drive():
 		drive_card = DriveCard.new()
 		add_child(drive_card)
 		drive_card.setup(self)
@@ -98,18 +148,40 @@ func _loading_card() -> CanvasLayer:
 	black.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	black.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(black)
-	var l := UiKit.label("LOADING...", 28, Color(1, 1, 1, 0.9), true)
+	var l := UiKit.label(loading_text(), 28, Color(1, 1, 1, 0.9), true)
 	l.anchor_left = 1.0
 	l.anchor_right = 1.0
 	l.anchor_top = 1.0
 	l.anchor_bottom = 1.0
 	l.offset_left = -260
 	l.offset_top = -80
+	if l.text != "LOADING...":
+		# a custom track's name (and author) beside it, ending where the plain card's word does
+		l.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		l.offset_right = -110
+		l.offset_left = -110
 	root.add_child(l)
 	return c
 
 
+## The loading card's words: "LOADING..." for a circuit, "LOADING... CANAL RUN by <author>" for
+## a custom track (5.5).
+func loading_text() -> String:
+	var id := str(Game.race_setting("track"))
+	if not CustomTracks.is_custom(id):
+		return "LOADING..."
+	var e: Dictionary = Game.track(id)
+	var nm := str(e.get("name", "")).strip_edges()
+	if nm == "" or bool(e.get("unknown", false)):
+		return "LOADING..."
+	var by := str(e.get("author", "")).strip_edges()
+	return "LOADING... %s%s" % [nm, " by " + by if by != "" else ""]
+
+
 func _process(_delta: float) -> void:
+	if is_test_drive() and not _leaving:
+		_fast_forward(test_from() == "watch" and _phase in ["count", "race"] and _ff_held())
 	if _card == null:
 		return
 	_warm += 1
@@ -128,7 +200,7 @@ func _warmed() -> void:
 	Game.play_music_mode("race")
 	if not online:
 		if _phase == "load":
-			_phase = "intro"
+			_phase = "count" if is_test_drive() else "intro"
 		return
 	Net.race_ready(self)
 	if _net_begun and _phase == "wait":
@@ -271,6 +343,9 @@ func net_results(order: Array, seconds: float) -> void:
 
 
 func _spawn_karts() -> void:
+	if is_test_drive():
+		_spawn_test_karts()
+		return
 	var me: String = Game.settings.get("character", "alyx")
 	var order: Array = Game.CHARACTERS.map(func(c: Dictionary) -> String: return c["id"])
 	order.erase(me)
@@ -284,7 +359,7 @@ func _spawn_karts() -> void:
 	# player starts at the back of the grid like Mario Kart's 150cc
 	var roster: Array = order.slice(0, 7)
 	roster.append(me)
-	var diff: Dictionary = Game.DIFFICULTIES[clampi(Game.settings["difficulty"], 0, 2)]
+	var diff: Dictionary = Game.DIFFICULTIES[clampi(int(Game.race_setting("difficulty")), 0, 2)]
 	for i in roster.size():
 		var k := Kart.new()
 		add_child(k)
@@ -318,7 +393,87 @@ func _place_on_grid(k: Kart) -> void:
 	k._crossed_half = k.lap == -1
 
 
+## A test drive's karts (5.4): `bots` computer drivers on the front of the grid and the player at
+## its back (slot 7), or from "here" on the road the editor pointed at; WATCH A BOT LAP: one
+## computer driver in the player's character and vehicle and no player kart (the camera on it).
+func _spawn_test_karts() -> void:
+	var me: String = Game.settings.get("character", "alyx")
+	var mine: String = Game.settings.get("vehicle", "buggy")
+	var diff: Dictionary = Game.DIFFICULTIES[clampi(int(Game.race_setting("difficulty")), 0, 2)]
+	var from := test_from()
+	var order: Array = Game.CHARACTERS.map(func(c: Dictionary) -> String: return c["id"])
+	order.erase(me)
+	order.shuffle()
+	var rides: Array = Game.VEHICLES.map(func(v: Dictionary) -> String: return v["id"])
+	rides.shuffle()
+	var bots := 0 if from == "watch" else clampi(int(test_drive.get("bots", 0)), 0, 7)
+	for i in bots:
+		var b := _add_kart(str(order[i % order.size()]), i, false, str(rides[i % rides.size()]))
+		b.controller = AIController.new(float(diff["ai_skill"]) * randf_range(0.93, 1.03), i * 101 + 7)
+	if from == "watch":
+		player = _add_kart(me, 0, false, mine)
+		player.controller = AIController.new(float(diff["ai_skill"]), 7)
+		return
+	var human := not demo
+	player = _add_kart(me, 7, human, mine)
+	if human:
+		player.controller = PlayerController.new()
+	else:
+		player.controller = AIController.new(float(diff["ai_skill"]), 7 * 101 + 7)
+	if from == "here":
+		_place_here(player)
+
+
+## One kart on grid slot `slot` with its lap state (_place_on_grid); the caller gives it a driver.
+func _add_kart(character: String, slot: int, is_player: bool, ride: String) -> Kart:
+	var k := Kart.new()
+	add_child(k)
+	k.setup(character, slot, track, is_player, ride)
+	k.race = self
+	k.global_transform = track.spawn_transform(slot)
+	k.last_valid = k.global_transform
+	k.add_to_group("karts")
+	_place_on_grid(k)
+	k.got_hit.connect(_on_kart_hit)
+	karts.append(k)
+	return k
+
+
+## FROM HERE: the kart on route `route` (-1 the main loop, else a branch) at its metres `s`,
+## moved `lat` sideways (+-3 m) and 0.6 m up, facing the road. Its laps are timed from the first
+## time it crosses the line (lap -1 until then).
+func _place_here(k: Kart) -> void:
+	var p := track.path
+	var route := int(test_drive.get("route", -1))
+	if route >= p.branches.size() or route < -1:
+		route = -1
+	var g := p.geo(route)
+	var s := float(test_drive.get("s", 0.0))
+	s = fposmod(s, p.length) if route < 0 else clampf(s, 0.0, maxf(g.length - 1.0, 0.0))
+	var xf := g.transform_at(s)
+	xf.origin += xf.basis.x * clampf(float(test_drive.get("lat", 0.0)), -3.0, 3.0) + xf.basis.y * 0.6
+	k.global_transform = xf
+	k.last_valid = xf
+	k.route = route
+	k.route_index = g.closest(xf.origin)
+	if route >= 0:
+		var br := p.branches[route]
+		k.route_u = br.progress(xf.origin, k.route_index)
+		k._branch_entry = k.route_u  # (a pass that did not start at the fork is not credited)
+		k._last_s = br.main_s(k.route_u)
+		k.path_index = p.index_at(k._last_s)
+	else:
+		k.path_index = k.route_index
+		k._last_s = p.progress(xf.origin, k.route_index)
+	k.lap = -1
+	k._crossed_half = true
+	k.lap_progress = k._last_s
+	k.total_progress = k.lap * p.length + k._last_s
+
+
 func _physics_process(delta: float) -> void:
+	if failed != "":
+		return
 	# back from a pause (physics frames went by without this): the press that closed the pause
 	# menu (A, Enter, B) is not a press for the race
 	var frame := Engine.get_physics_frames()
@@ -357,7 +512,7 @@ func _physics_process(delta: float) -> void:
 			_countdown = clock + COUNT_TIME if shared else _countdown + delta
 			for i in 3:
 				var t := 0.6 + i * 1.0
-				if prev < t and _countdown >= t:
+				if prev < t and _countdown >= t and not _quick_go:
 					var word: String = ["three", "two", "one"][i]
 					Game.play_ui("res://assets/sound/npc/overwatch/radiovoice/%s.wav" % word, 0.0)
 					Game.play_ui("res://assets/sound/hl1/fvox/beep.wav", -8.0)
@@ -397,6 +552,8 @@ func _physics_process(delta: float) -> void:
 		"race", "done":
 			race_time = maxf(clock, 0.0) if shared else race_time + delta
 			_update_standings()
+			if is_test_drive():
+				_record_drive(delta)
 
 
 ## Kart-vs-kart contact is a soft, momentum-sharing bump on the ground plane
@@ -488,6 +645,9 @@ func on_lap(k: Kart) -> void:
 	if not racing and _phase != "done":
 		return
 	if k.lap <= 0:
+		# a test drive from "here": its first lap is timed from the line
+		if k.lap == 0 and test_from() == "here":
+			k._lap_start = race_time
 		return
 	var lap_time := race_time - k._lap_start
 	k._lap_start = race_time
@@ -519,6 +679,9 @@ func _finish(k: Kart) -> void:
 		Net.send_event("finish", [k.net_slot, k.finish_time])
 	if k.controller is PlayerController:
 		k.controller = AIController.new(0.8, 99)
+	if k == player and test_from() == "watch":
+		_end_watch()
+		return
 	if k == player and k.is_player and camera:
 		_phase = "done"
 		camera.mode = RaceCamera.Mode.ORBIT
@@ -587,22 +750,186 @@ func _on_kart_hit(k: Kart, by: Kart) -> void:
 		by.audio.say("hit")
 
 
+## RESTART (RACE AGAIN; a test drive's RESTART HERE / DRIVE AGAIN: Game.test_drive is kept).
 func restart() -> void:
 	if online:
 		return
 	InputPrompts.stop_rumble()
 	get_tree().paused = false
+	_fast_forward(false)
 	get_tree().reload_current_scene()
 
 
 func to_menu() -> void:
+	if _leaving:
+		return
+	_leaving = true
 	InputPrompts.stop_rumble()
 	get_tree().paused = false
 	Game.stop_music()
+	_fast_forward(false)
+	Game.test_drive = {}
 	if online:
 		Net.leave()
-	get_tree().change_scene_to_file("res://scenes/main.tscn")
+	get_tree().change_scene_to_file(MAIN_SCENE)
+
+
+## Back to the editor from a test drive (F5, BACK TO EDITOR, X on a pad in the pause menu, the
+## results, the end of a bot's lap): the drive's report goes to EditorSession.last_drive
+## (the editor toasts it and draws the trail), Game.test_drive is cleared.
+func to_editor() -> void:
+	if _leaving:
+		return
+	_leaving = true
+	InputPrompts.stop_rumble()
+	get_tree().paused = false
+	Game.stop_music()
+	_fast_forward(false)
+	Engine.time_scale = _time_scale0
+	EditorSession.current().last_drive = _test_drive_report()
+	Game.test_drive = {}
+	get_tree().change_scene_to_file(EDITOR_SCENE)
+
+
+## The editor's test drive for this race: Game.test_drive, or {} (cleared) whenever Net is
+## active, so an editor drive never reaches an online race (C1 S19).
+static func take_test_drive() -> Dictionary:
+	if Net.active:
+		Game.test_drive = {}
+		return {}
+	var td = Game.test_drive
+	return (td as Dictionary).duplicate(true) if td is Dictionary else {}
+
+
+func is_test_drive() -> bool:
+	return not test_drive.is_empty()
+
+
+## "start" | "here" | "watch" during a test drive, else "".
+func test_from() -> String:
+	return str(test_drive.get("from", "start")) if is_test_drive() else ""
+
+
+## A free drive: no lap count, no finish (a test drive from "here").
+func free_drive() -> bool:
+	return is_test_drive() and laps >= FREE_LAPS
+
+
+## The compiler's validation errors the test drive runs with (HUD: "TEST DRIVE · 2 ERRORS").
+func test_errors() -> int:
+	return int(test_drive.get("errors", 0)) if is_test_drive() else 0
+
+
+## WATCH A BOT LAP is playing at FAST_FORWARD.
+func fast_forward() -> bool:
+	return _fast
+
+
+## What the test drive did (EditorSession.last_drive, 5.4): laps, times, rescues and where, the
+## trail of the driven kart (the bot's when watching) at 5 Hz with its speeds.
+func _test_drive_report() -> Dictionary:
+	var k := player
+	var times: Array = []
+	var best := 0.0
+	if k:
+		for x in k.lap_times:
+			times.append(x)
+			if best <= 0.0 or x < best:
+				best = x
+	return {"from": test_from(), "laps_done": times.size(), "best_lap": best, "lap_times": times,
+		"rescues": k.respawns if k else 0, "rescue_pos": _rescue_pos.duplicate(), "finished": k != null and k.finished,
+		"stuck_at_s": _stuck_at, "trail": _trail.duplicate(), "speeds": _speeds.duplicate(),
+		"errors": test_errors(), "failed": failed}
+
+
+## The trail (TRAIL_DT, at most TRAIL_MAX points), the rescues' places and, watching a bot, whether
+## it is stuck (STUCK_M lap metres in STUCK_S seconds).
+func _record_drive(delta: float) -> void:
+	var k := player
+	if k == null or k.finished or _leaving:
+		return
+	var rescued := k.state == Kart.State.RESPAWN
+	if rescued and not _was_rescued:
+		_rescue_pos.append(k.global_position)
+	_was_rescued = rescued
+	_trail_t += delta
+	if _trail_t >= TRAIL_DT and _trail.size() < TRAIL_MAX:
+		_trail_t = fmod(_trail_t, TRAIL_DT)
+		_trail.append(k.global_position)
+		_speeds.append(absf(k.speed))
+	if test_from() != "watch" or _watch_done:
+		return
+	if k.total_progress > _watch_best + STUCK_M:
+		_watch_best = k.total_progress
+		_watch_t = 0.0
+		return
+	_watch_t += delta
+	if _watch_t > STUCK_S:
+		_stuck_at = maxf(k.lap_progress, 0.0)
+		_end_watch()
+
+
+## The watched bot finished its lap (or got stuck): back to the editor shortly.
+func _end_watch() -> void:
+	if _watch_done:
+		return
+	_watch_done = true
+	if hud:
+		hud.big_text("BOT LAP" if _stuck_at < 0.0 else "STUCK", 1.2)
+	if auto_return:
+		get_tree().create_timer(WATCH_BACK, false).timeout.connect(to_editor)
+
+
+## Tab or RT is held (WATCH A BOT LAP's FAST FORWARD).
+static func _ff_held() -> bool:
+	if Input.is_physical_key_pressed(KEY_TAB):
+		return true
+	for d in Input.get_connected_joypads():
+		if Input.get_joy_axis(d, JOY_AXIS_TRIGGER_RIGHT) > 0.5:
+			return true
+	return false
+
+
+func _fast_forward(on: bool) -> void:
+	if on == _fast:
+		return
+	_fast = on
+	Engine.time_scale = _time_scale0 * FAST_FORWARD if on else _time_scale0
+
+
+## The track could not be built: nothing is spawned. Online the server hears why
+## (Net.track_failed: back to the lobby, never a stop); offline a test drive goes back to the
+## editor with the reason, a race to the menu with a message.
+func _build_failed(reason: String) -> void:
+	failed = reason if reason != "" else "The track could not be built."
+	_phase = "failed"
+	racing = false
+	if Net.active:
+		Net.track_failed.call_deferred(failed)
+		return
+	if is_test_drive():
+		to_editor.call_deferred()
+		return
+	if DisplayServer.get_name() == "headless":
+		to_menu.call_deferred()
+		return
+	var c := CanvasLayer.new()
+	c.layer = 60
+	add_child(c)
+	var root := Control.new()
+	root.theme = UiKit.theme()
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	c.add_child(root)
+	var black := ColorRect.new()
+	black.color = Color.BLACK
+	black.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.add_child(black)
+	var m := MessageBox.new("TRACK NOT READY", failed)
+	root.add_child(m)
+	m.closed.connect(to_menu)
 
 
 func _exit_tree() -> void:
+	if _fast:
+		Engine.time_scale = _time_scale0
 	InputPrompts.stop_rumble()
