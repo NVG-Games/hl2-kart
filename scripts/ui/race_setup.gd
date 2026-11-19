@@ -2,6 +2,8 @@ class_name RaceSetup
 extends Control
 ## NEW RACE screen: pick a racer and a vehicle (card grids + live 3D preview),
 ## then the race rules (difficulty, track hazards, laps, track) and start. One place, one START.
+## With a pad: B goes back, Start starts the race, and the focused track card shows its
+## description (or why it can not be picked) without picking it.
 
 signal back
 signal start
@@ -36,6 +38,7 @@ func _ready() -> void:
 	theme = UiKit.theme()
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	add_to_group(InputPrompts.SCREEN_GROUP)
 	var shade := ColorRect.new()
 	shade.color = Color(0, 0, 0, 0.55)
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -87,6 +90,7 @@ func _picker_column() -> Control:
 	var picker := RacerPicker.new()
 	picker.racer_picked.connect(_pick_racer)
 	picker.vehicle_picked.connect(_pick_vehicle)
+	picker.lock_edges()
 	cards = picker.cards
 	vehicle_cards = picker.vehicle_cards
 	return picker
@@ -219,9 +223,9 @@ func _pic_card(tex: Texture2D, caption: String, size: Vector2, group: ButtonGrou
 	b.add_theme_stylebox_override("hover", _card_style(Color.WHITE, 2, Color(1, 1, 1, 0.08)))
 	b.add_theme_stylebox_override("pressed", _card_style(UiKit.ORANGE, 3, Color(0, 0, 0, 0.4)))
 	b.add_theme_stylebox_override("hover_pressed", _card_style(UiKit.ORANGE, 3, Color(0, 0, 0, 0.4)))
-	b.add_theme_stylebox_override("focus", _card_style(Color(1, 1, 1, 0.9), 1, Color(0, 0, 0, 0)))
+	b.add_theme_stylebox_override("focus", RacerPicker.focus_style())
 	b.add_theme_color_override("font_pressed_color", UiKit.ORANGE)
-	b.mouse_entered.connect(b.grab_focus)
+	UiKit.hover_focus(b)
 	return b
 
 
@@ -274,6 +278,9 @@ func _rules_row() -> Control:
 			Game.settings["track"] = id
 			_refresh_track()
 			Game.play_ui("res://assets/sound/ui/buttonclick.wav", -8.0))
+		# the focused card shows its track (a pad never sees the tooltip); the picked one's comes back
+		b.focus_entered.connect(func(): track_desc.text = _desc_of(id))
+		b.focus_exited.connect(_refresh_track)
 		grid.add_child(b)
 		track_cards.append(b)
 	h.add_child(t)
@@ -310,10 +317,17 @@ func _tracks() -> Array:
 	return Game.TRACKS
 
 
+## A track's description, or why it can not be picked.
+func _desc_of(id: String) -> String:
+	if not Game.track_installed(id):
+		return "%s is not built on this computer yet: run the setup again to add it." % Game.track(id)["name"]
+	return Game.track(id)["desc"]
+
+
 ## Description of the picked track; up from START RACE goes to its card.
 func _refresh_track() -> void:
 	var id := str(Game.settings.get("track", ""))
-	track_desc.text = Game.track(id)["desc"]
+	track_desc.text = _desc_of(id)
 	for b in track_cards:
 		if start_button and b.name == "Track_" + id:
 			start_button.focus_neighbor_top = start_button.get_path_to(b)
@@ -325,9 +339,13 @@ func _buttons_row() -> Control:
 	back_button = UiKit.button("BACK", 170)
 	back_button.pressed.connect(func(): back.emit())
 	h.add_child(back_button)
-	var spacer := Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	h.add_child(spacer)
+	var gap := Control.new()
+	gap.custom_minimum_size.x = 14
+	h.add_child(gap)
+	var hints := PromptBar.new([["{ui_accept} SELECT"], ["{ui_cancel} BACK"], ["{pause} START RACE", "pad"]])
+	hints.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hints.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(hints)
 	start_button = UiKit.button("START RACE", 280)
 	start_button.custom_minimum_size.y = 54
 	start_button.add_theme_font_size_override("font_size", 22)
@@ -342,11 +360,19 @@ func _buttons_row() -> Control:
 	return h
 
 
-func focus_default() -> void:
+## START RACE takes the focus (also the safety net's, InputPrompts).
+func focus_default() -> bool:
+	if not is_visible_in_tree():
+		return false
 	start_button.grab_focus()
+	return true
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
 		back.emit()
+	elif event is InputEventJoypadButton and event.is_action_pressed("pause"):
+		# a pad's Start starts the race from anywhere on the screen (Esc and P stay BACK / nothing)
+		get_viewport().set_input_as_handled()
+		start.emit()

@@ -726,6 +726,14 @@ func boost(seconds: float, power := 1.0) -> void:
 	boost_time = maxf(boost_time, seconds)
 	boost_power = maxf(power, boost_power if boost_time > 0.0 else 0.0)
 	audio.turbo()
+	rumble(0.35, 0.25, minf(seconds, 0.3))
+
+
+## A buzz on the player's pad (InputPrompts.rumble) when this is the local player's own kart,
+## still racing; bots, other players' karts and a kart past the line feel nothing.
+func rumble(weak: float, strong: float, seconds: float) -> void:
+	if is_player and not remote and not finished and race and race.get("player") == self:
+		InputPrompts.rumble(weak, strong, seconds)
 
 
 # ---------------------------------------------------------------- per-frame
@@ -923,12 +931,14 @@ func start_respawn(mode := Rescue.SCAN, liq := Vector2(-1e9, 0.0)) -> void:
 			Effects.bubbles(get_parent(), at + _sink_glide, int(liq.y), SINK_T)
 			if is_player and race and race.get("hud"):
 				race.hud.liquid_flash(int(liq.y))
+			rumble(0.3, 0.4, 0.3)
 		Rescue.FALL:
 			fall_floor = geo().center[route_index].y
 		_:
 			freeze = true
 			_scanned = true
 			Rescuer.rescue(self)
+	rumble(0.25, 0.2, 0.15)
 
 
 func _respawn_tick(_delta: float) -> void:
@@ -953,6 +963,7 @@ func _respawn_tick(_delta: float) -> void:
 		_back = true
 		_put_back(PUT_LIFT, false)
 		freeze = false
+		rumble(0.25, 0.15, 0.12)
 
 
 ## When, into its rescue, the rescuer takes it (the scanner's photo; in that flash it is back on
@@ -1402,6 +1413,7 @@ func spin_out(by: Kart = null) -> void:
 	visual.spin()
 	audio.hurt()
 	_drop_trailing()
+	rumble(0.4, 0.6, 0.35)
 	got_hit.emit(self, by)
 
 
@@ -1434,6 +1446,7 @@ func tumble(by: Kart = null, impulse := Vector3.ZERO) -> void:
 	visual.spin()
 	audio.hurt()
 	_drop_trailing()
+	rumble(0.6, 0.9, 0.5)
 	got_hit.emit(self, by)
 
 
@@ -1537,6 +1550,7 @@ func blasted(by: Kart, push: Vector3) -> void:
 	visual.spin()
 	audio.hurt()
 	_drop_trailing()
+	rumble(0.7, 1.0, 0.6)
 	got_hit.emit(self, by)
 
 
@@ -1575,6 +1589,7 @@ func hazard_hit(kind: String, impulse := Vector3.ZERO) -> bool:
 			hazard_grace = 1.6
 		"shock":
 			spin_out(null)
+			rumble(0.8, 0.2, 0.4)
 			Effects.sparks(get_parent(), global_position + grav_up, 1.4, Color(0.55, 0.8, 1.0))
 			hazard_grace = 1.6
 		"shove":
@@ -1618,6 +1633,7 @@ func _on_body_entered(other: Node) -> void:
 	else:
 		if impact > 9.0:
 			audio.impact(impact)
+			rumble(0.2, clampf(impact / 25.0, 0.25, 0.8), 0.15)
 
 
 ## Turn a static street prop into a physics prop flying off the bonnet.
@@ -1644,6 +1660,7 @@ func _knock_over(body: StaticBody3D) -> void:
 	linear_velocity = vel * 0.95
 	if vel.length() > 4.0:
 		audio.impact(vel.length() * 0.7)
+		rumble(0.2, 0.1, 0.08)
 
 
 # ---------------------------------------------------------------- multiplayer

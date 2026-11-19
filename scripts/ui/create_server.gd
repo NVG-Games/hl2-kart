@@ -82,6 +82,7 @@ func _ready() -> void:
 	add_button("CANCEL", close)
 	var go := add_button("START SERVER", _start)
 	go.custom_minimum_size.x = 220
+	default_focus = go
 	go.grab_focus.call_deferred()
 
 

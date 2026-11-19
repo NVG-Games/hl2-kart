@@ -37,6 +37,9 @@ then tells players about it.
      and `... -- determinism <track>` (online every PC must see the same hazards)
    - spectators: `godot --headless --path . res://tests/crowd_check.tscn -- <track>`
    - items: `godot --headless --path . res://tests/item_test.tscn -- <track>`
+   - gamepads, controls and button icons: `godot --headless --path . res://tests/gamepad_test.tscn`
+   - every menu with a pad only (focus, B, LB / RB, OPTIONS > CONTROLS, pause):
+     `godot --headless --path . res://tests/pad_nav.tscn` (it loads a race: about a minute)
    - menus fit the window: `godot --path . --resolution 1280x720 res://tests/ui_fit.tscn -- out`
 
    After changing a circuit in `tools/`, rebuild its track and import it before testing:

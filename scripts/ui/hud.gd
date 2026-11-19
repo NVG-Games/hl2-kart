@@ -2,7 +2,9 @@ class_name Hud
 extends CanvasLayer
 ## Race HUD laid out like HL2's HudLayout.res (640x480 units scaled up):
 ## POSITION/LAP where HEALTH/SUIT sit, MPH where AMMO sits, AUX POWER bar
-## for drift charge, weapon-selection box for the held item.
+## for drift charge, weapon-selection box for the held item. Every control it names shows as the
+## player's binding on the device in use (PromptLabel): the rescue hint, the intro's SKIP, the
+## item box's corner and the hints under the pause menu and the results.
 
 const U := Hl2Style.UNIT
 # HudHealth / HudSuit geometry (layout units): the label, the big digits and the small "/N"
@@ -33,8 +35,11 @@ var big: Label
 var big_t := 0.0
 ## the big message's type size, for a message that fits its box (big_text sets a longer one smaller)
 const BIG_FONT := 92
-var rescue_hint: Label
+var rescue_hint: Control
+var rescue_label: PromptLabel
 var _rescue_t := 0.0
+var skip_hint: PromptLabel  # offline intro: "[A] SKIP"
+var item_glyph: InputGlyph  # use_item's button in the item box's corner
 var standings: VBoxContainer
 var minimap: Control
 var pause_panel: Control
@@ -61,6 +66,8 @@ var _wrong_pos := 0.0
 var _hinted := {}  # branch index -> its fork was shown
 var _hint := ""
 var _hint_t := 0.0
+var _pad_note: Label  # beside PAUSED: the pad the player was using went away / is back
+var _pad_sub: Label  # ...and under it what to do
 
 
 func setup(r) -> void:
@@ -93,27 +100,60 @@ func setup(r) -> void:
 	big.label_settings.font = Hl2Style.text_font(true)
 	big.label_settings.font_size = BIG_FONT
 	root.add_child(big)
-	# R calls the track's own rescuer (Rescuer.kind_of)
+	# respawn (R, View, Create, minus...) calls the track's own rescuer (Rescuer.kind_of)
 	var how: String = {"teleport": "TO TELEPORT OUT", "xen_portal": "TO OPEN A PORTAL", "crane": "TO CALL THE CRANE",
 		"combine_teleport": "TO CALL A TELEPORT", "vortigaunt": "TO CALL THE VORTIGAUNTS"}.get(Rescuer.kind_of(race.track),
 		"TO CALL A SCANNER")
-	rescue_hint = Hl2Style.label("STUCK?  PRESS  R  " + how, 13 * U, Hl2Style.BRIGHT)
-	rescue_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	rescue_hint.anchor_left = 0.5
-	rescue_hint.anchor_right = 0.5
-	rescue_hint.anchor_top = 1.0
-	rescue_hint.anchor_bottom = 1.0
-	rescue_hint.offset_left = -400
-	rescue_hint.offset_right = 400
-	rescue_hint.offset_top = -150
+	rescue_label = _hud_prompt("STUCK?  PRESS {respawn} " + how, 13 * U)
+	rescue_hint = _bottom_center(rescue_label, 150)
 	rescue_hint.visible = false
-	root.add_child(rescue_hint)
+	# offline the intro's fly-by skips on confirm (race.gd): just above the MPH box (12-50 U up)
+	skip_hint = _hud_prompt("{ui_accept} SKIP", 9 * U)
+	skip_hint.anchor_left = 1.0
+	skip_hint.anchor_right = 1.0
+	skip_hint.anchor_top = 1.0
+	skip_hint.anchor_bottom = 1.0
+	skip_hint.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	skip_hint.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	skip_hint.offset_left = -16 * U
+	skip_hint.offset_right = -16 * U
+	skip_hint.offset_top = -56 * U
+	skip_hint.offset_bottom = -56 * U
+	skip_hint.visible = false
+	root.add_child(skip_hint)
 	_build_pause()
+	add_to_group(InputPrompts.SCREEN_GROUP)
+	# the pad the player was using went away: offline the race pauses, online a notice shows
+	InputPrompts.controller_lost.connect(_on_controller_lost)
+	InputPrompts.controller_back.connect(_on_controller_back)
 	if race.online:
 		_build_chat()
 	# what effects, items and hazards first draw mid-race is drawn once now, while the race loads
 	Effects.prewarm(race.camera, race.track)
 	_prewarm_items()
+
+
+## A HUD line with input icons in it, in the HUD's Verdana bold and yellow (icons tinted to match).
+static func _hud_prompt(text: String, size_px: float, color := Hl2Style.BRIGHT) -> PromptLabel:
+	var l := PromptLabel.new(text, int(size_px), color)
+	l.add_theme_font_override("normal_font", Hl2Style.text_font(true))
+	l.icon_color = color
+	return l
+
+
+## A full-width strip `from_bottom` px above the screen's foot, centring `c` in it.
+func _bottom_center(c: Control, from_bottom: float) -> Control:
+	var strip := CenterContainer.new()
+	strip.anchor_left = 0.0
+	strip.anchor_right = 1.0
+	strip.anchor_top = 1.0
+	strip.anchor_bottom = 1.0
+	strip.offset_top = -from_bottom
+	strip.offset_bottom = -from_bottom + 40 * U
+	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	strip.add_child(c)
+	root.add_child(strip)
+	return strip
 
 
 func _box(x: float, y: float, w: float, h: float, anchor_right := false, anchor_bottom := true) -> Panel:
@@ -254,6 +294,18 @@ func _build_item() -> void:
 	item_name.position = Vector2(0, 68) * U
 	item_name.size = Vector2(120, 12) * U
 	item_box.add_child(item_name)
+	# which button fires it, small in the corner (for the first races); a name on a keycap grows
+	# to the left
+	item_glyph = InputGlyph.new("use_item", 15 * U)
+	item_glyph.anchor_left = 1.0
+	item_glyph.anchor_right = 1.0
+	item_glyph.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	item_glyph.offset_left = -18 * U
+	item_glyph.offset_right = -3 * U
+	item_glyph.offset_top = 3 * U
+	item_glyph.offset_bottom = 18 * U
+	item_glyph.modulate = Hl2Style.FG_TEXT
+	item_box.add_child(item_glyph)
 
 
 func _build_time() -> void:
@@ -354,6 +406,7 @@ func _update_wrong_way(k: Kart, delta: float) -> bool:
 		_wrong_beep = 1.6
 		Game.play_ui("res://assets/sound/" + ("buttons/button19.wav" if Game.stream("buttons/button19.wav") \
 			else "hl1/fvox/beep.wav"), -4.0)
+		k.rumble(0.15, 0.0, 0.08)
 	return true
 
 
@@ -378,7 +431,14 @@ func _update_fork_hint(k: Kart, delta: float) -> void:
 func _update_notice(k: Kart, delta: float) -> void:
 	_update_fork_hint(k, delta)
 	var ls := _notice_lbl.label_settings
-	if _update_wrong_way(k, delta):
+	var wrong := _update_wrong_way(k, delta)
+	if race.online and InputPrompts.is_controller_lost():
+		_notice.visible = true
+		_notice_lbl.text = "CONTROLLER DISCONNECTED"
+		ls.font_color = WRONG_RED
+		ls.font_size = int(11 * U)
+		_notice.modulate.a = 1.0 if fmod(Time.get_ticks_msec() * 0.001, 0.8) < 0.55 else 0.4
+	elif wrong:
 		_notice.visible = true
 		_notice_lbl.text = "WRONG WAY"
 		ls.font_color = WRONG_RED
@@ -417,6 +477,7 @@ func _update_lock(k: Kart, delta: float) -> void:
 		_lock_beep = 0.1 + k.hazard_lock * 0.25
 		var ping := "npc/turret_floor/ping.wav" if Game.stream("npc/turret_floor/ping.wav") else "buttons/blip1.wav"
 		Game.play_ui("res://assets/sound/" + ping, -6.0)
+		k.rumble(0.08, 0.0, 0.03)
 
 
 func _draw_lock() -> void:
@@ -440,7 +501,9 @@ func _draw_lock() -> void:
 
 
 func _build_pause() -> void:
-	# HL2 in-game menu: dimmed scene, logo-less title, the same flat menu entries
+	# HL2 in-game menu: dimmed scene, logo-less title, the same flat menu entries and the button
+	# hints under them. It stands above the AUX POWER box (56-82 U up) and grows upwards, so it
+	# never covers the POSITION / LAP / AUX POWER boxes
 	pause_panel = Control.new()
 	pause_panel.theme = UiKit.theme()
 	pause_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -455,12 +518,27 @@ func _build_pause() -> void:
 	v.anchor_bottom = 1.0
 	v.offset_left = 120
 	v.offset_right = 700
-	v.offset_top = -470
-	v.offset_bottom = -110
+	v.offset_bottom = -(82 * U + 24)
+	v.offset_top = v.offset_bottom
+	v.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	v.add_theme_constant_override("separation", 18)
 	pause_panel.add_child(v)
+	# the title, and beside it the note when the pad in use went away (so nothing moves)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 26)
+	v.add_child(head)
 	var title := UiKit.label("PAUSED", 42, Color.WHITE, true)
-	v.add_child(title)
+	head.add_child(title)
+	var note := VBoxContainer.new()
+	note.add_theme_constant_override("separation", 2)
+	note.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(note)
+	_pad_note = UiKit.label("", 16, Hl2Style.BRIGHT, true)
+	_pad_note.visible = false
+	note.add_child(_pad_note)
+	_pad_sub = UiKit.label("", 14, UiKit.TEXT_DIM)
+	_pad_sub.visible = false
+	note.add_child(_pad_sub)
 	var gap := Control.new()
 	gap.custom_minimum_size.y = 10
 	v.add_child(gap)
@@ -480,7 +558,21 @@ func _build_pause() -> void:
 		var b := UiKit.menu_item(e[0])
 		b.pressed.connect(e[1])
 		v.add_child(b)
-	pause_panel.set_meta("first", v.get_child(2))
+		if not pause_panel.has_meta("first"):
+			pause_panel.set_meta("first", b)
+	v.add_child(PromptBar.new([["{ui_accept} SELECT"], ["{ui_cancel} RESUME"]], 16))
+
+
+## The safety net (InputPrompts): RACE AGAIN on the results, RESUME in the pause menu. False in
+## the race itself (nothing there takes the focus).
+func focus_default() -> bool:
+	if results_panel and is_instance_valid(results_panel) and results_panel.has_meta("first"):
+		(results_panel.get_meta("first") as Control).grab_focus()
+		return true
+	if pause_panel and pause_panel.visible and (_options == null or not is_instance_valid(_options)):
+		(pause_panel.get_meta("first") as Control).grab_focus()
+		return true
+	return false
 
 
 var _options: OptionsPanel
@@ -502,19 +594,50 @@ func _toggle_pause() -> void:
 		pause_panel.visible = o
 		race.input_blocked = o
 		if o:
+			InputPrompts.stop_rumble()
 			(pause_panel.get_meta("first") as Button).grab_focus()
 			Game.play_ui("res://assets/sound/ui/buttonclick.wav")
-		elif _options and is_instance_valid(_options):
-			_options.close()
+		else:
+			_set_pad_note("")
+			if _options and is_instance_valid(_options):
+				_options.close()
 		return
 	var p := not get_tree().paused
 	get_tree().paused = p
 	pause_panel.visible = p
 	if p:
+		InputPrompts.stop_rumble()
 		(pause_panel.get_meta("first") as Button).grab_focus()
 		Game.play_ui("res://assets/sound/ui/buttonclick.wav")
-	elif _options and is_instance_valid(_options):
-		_options.close()
+	else:
+		_set_pad_note("")
+		if _options and is_instance_valid(_options):
+			_options.close()
+
+
+## The note beside PAUSED ("" hides it) and the smaller line under it.
+func _set_pad_note(text: String, sub := "") -> void:
+	_pad_note.text = text
+	_pad_note.visible = text != ""
+	_pad_sub.text = sub
+	_pad_sub.visible = text != "" and sub != ""
+
+
+## The pad the player was using went away (InputPrompts.controller_lost): offline, a race that
+## is under way pauses; online (it can not) the notice box says so (_update_notice). Never resumes
+## on its own.
+func _on_controller_lost() -> void:
+	_set_pad_note("CONTROLLER DISCONNECTED", "Reconnect it, or carry on with the keyboard.")
+	if not race.online and not get_tree().paused and results_panel == null \
+			and race._phase in ["intro", "count", "race"]:
+		_toggle_pause()
+
+
+func _on_controller_back(by_pad: bool) -> void:
+	if by_pad and pause_panel.visible and _pad_note.visible:
+		_set_pad_note("CONTROLLER CONNECTED")
+	else:
+		_set_pad_note("")
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -522,8 +645,19 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		_open_chat()
 		return
-	if event.is_action_pressed("pause") and results_panel == null and (_options == null or not is_instance_valid(_options)):
+	if chat_input and chat_input.visible and event.is_action_pressed("ui_cancel"):
+		# (Esc is the field's own; a pad's B that ended up there closes it too)
 		get_viewport().set_input_as_handled()
+		_close_chat()
+		return
+	var no_options := _options == null or not is_instance_valid(_options)
+	if event.is_action_pressed("pause") and results_panel == null and no_options:
+		get_viewport().set_input_as_handled()
+		_toggle_pause()
+	elif event.is_action_pressed("ui_cancel") and pause_panel.visible and results_panel == null and no_options:
+		# B resumes, as on every console (player_controller ignores the still-held B: no item fires)
+		get_viewport().set_input_as_handled()
+		Game.play_ui("res://assets/sound/ui/buttonclickrelease.wav", -5.0)
 		_toggle_pause()
 
 
@@ -583,6 +717,7 @@ func _process(delta: float) -> void:
 	rescue_hint.visible = _rescue_t > 2.0
 	if rescue_hint.visible:
 		rescue_hint.modulate.a = 0.6 + 0.4 * sin(Time.get_ticks_msec() * 0.008)
+	skip_hint.visible = race._phase == "intro" and not race.online and not race.demo and not get_tree().paused
 	_update_standings()
 	if big_t > 0.0:
 		big_t -= delta
@@ -671,6 +806,7 @@ func _update_standings() -> void:
 
 
 func show_results(karts: Array) -> void:
+	InputPrompts.stop_rumble()
 	results_panel = Panel.new()
 	results_panel.theme = UiKit.theme()
 	results_panel.add_theme_stylebox_override("panel", Hl2Style.panel_style(Color(0, 0, 0, 0.55), 0))
@@ -720,6 +856,11 @@ func show_results(karts: Array) -> void:
 	var menu := UiKit.menu_item("MAIN MENU")
 	menu.pressed.connect(func(): race.to_menu())
 	v.add_child(menu)
+	var gap := Control.new()
+	gap.custom_minimum_size.y = 8
+	v.add_child(gap)
+	v.add_child(PromptBar.new([["{ui_accept} SELECT"]], 16))
+	results_panel.set_meta("first", again)
 	again.grab_focus()
 
 
@@ -816,6 +957,7 @@ func add_chat(nick: String, text: String, kind: String) -> void:
 
 ## Results from the server (players by nickname, bots marked), then the lobby.
 func show_net_results(order: Array, seconds: float) -> void:
+	InputPrompts.stop_rumble()
 	if results_panel:
 		results_panel.queue_free()
 	if pause_panel.visible:

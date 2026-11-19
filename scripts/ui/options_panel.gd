@@ -1,39 +1,69 @@
 class_name OptionsPanel
 extends Dialog
-## OPTIONS: Audio / Video / Game tabs. Every change applies immediately.
+## OPTIONS: Audio / Video / Game / Controls tabs. Every change applies immediately (the menus'
+## confirm / back swap once CONTROLS is left).
 
-var tabs: TabBar
+const CONTROLS_TAB := 3
+
 var pages: Array[Control] = []
+var controls: ControlsPage
+var _hint: PromptLabel  # CONTROLS: what a slot waits for, or what a change did (instead of the hints)
 
 
 func _init() -> void:
-	super("OPTIONS", Vector2(900, 600))
+	super("OPTIONS", Vector2(1000, 640))
 
 
 func _ready() -> void:
 	tabs = TabBar.new()
-	tabs.add_tab("AUDIO")
-	tabs.add_tab("VIDEO")
-	tabs.add_tab("GAME")
+	for t in ["AUDIO", "VIDEO", "GAME", "CONTROLS"]:
+		tabs.add_tab(t)
 	tabs.focus_mode = Control.FOCUS_ALL
 	body.add_child(tabs)
 	var holder := MarginContainer.new()
 	holder.add_theme_constant_override("margin_top", 12)
 	holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	body.add_child(holder)
-	pages = [_audio(), _video(), _game()]
+	controls = ControlsPage.new(self)
+	controls.hint_changed.connect(_on_hint)
+	pages = [_audio(), _video(), _game(), controls]
 	for p in pages:
 		holder.add_child(p)
+	_hint = UiKit.prompt("", 15, UiKit.ORANGE, true)
+	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_hint.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_hint.visible = false
+	buttons.add_child(_hint)
+	buttons.move_child(_hint, prompt_bar.get_index() + 1)
 	tabs.tab_changed.connect(_show_tab)
-	_show_tab(0)
 	add_button("DONE", close).custom_minimum_size.x = 170
+	_show_tab(0)
 	tabs.grab_focus.call_deferred()
+	tree_exiting.connect(func(): InputPrompts.hold_swap(false))
 
 
 func _show_tab(i: int) -> void:
 	for k in pages.size():
 		pages[k].visible = k == i
+	# on CONTROLS the menus' confirm / back stay as they were: turning the Nintendo swap on there
+	# would make the next press of the same button go back; they change over on another tab
+	InputPrompts.hold_swap(i == CONTROLS_TAB)
+	if i == CONTROLS_TAB:
+		set_prompts([["{ui_accept} CHANGE"], ["{ui_clear} CLEAR"], ["{ui_cancel} BACK"]])
+	else:
+		set_prompts([["{ui_accept} SELECT"], ["{ui_cancel} BACK"]])
+		_on_hint("", "", UiKit.ORANGE)
 	Game.play_ui("res://assets/sound/ui/buttonclick.wav", -10.0)
+
+
+## CONTROLS: a line in place of the button hints ("" puts the hints back).
+func _on_hint(text: String, style: String, color: Color) -> void:
+	_hint.style = style
+	_hint.add_theme_color_override("default_color", color)
+	_hint.prompt = text
+	_hint.visible = text != ""
+	prompt_bar.visible = text == ""
 
 
 func _page() -> VBoxContainer:

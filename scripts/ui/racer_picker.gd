@@ -1,6 +1,7 @@
 class_name RacerPicker
 extends VBoxContainer
-## Portrait grid of the racers and a row of vehicle cards (NEW RACE, lobby).
+## Portrait grid of the racers and a row of vehicle cards (NEW RACE, lobby). The focused card has
+## a white frame outside the picked card's orange one.
 
 signal racer_picked(index: int)
 signal vehicle_picked(index: int)
@@ -34,12 +35,32 @@ func _card(text: String, icon: Texture2D, size: Vector2, group: ButtonGroup) -> 
 	b.add_theme_stylebox_override("hover", _card_style(Color.WHITE, 2, Color(1, 1, 1, 0.08)))
 	b.add_theme_stylebox_override("pressed", _card_style(UiKit.ORANGE, 3, Color(UiKit.ORANGE.r, UiKit.ORANGE.g, UiKit.ORANGE.b, 0.16)))
 	b.add_theme_stylebox_override("hover_pressed", _card_style(UiKit.ORANGE, 3, Color(UiKit.ORANGE.r, UiKit.ORANGE.g, UiKit.ORANGE.b, 0.22)))
-	b.add_theme_stylebox_override("focus", _card_style(Color(1, 1, 1, 0.9), 1, Color(0, 0, 0, 0)))
+	b.add_theme_stylebox_override("focus", focus_style())
 	b.add_theme_color_override("font_pressed_color", UiKit.ORANGE)
 	b.add_theme_color_override("font_hover_pressed_color", UiKit.ORANGE)
 	b.focus_entered.connect(func(): Game.play_ui("res://assets/sound/ui/buttonrollover.wav", -9.0))
-	b.mouse_entered.connect(b.grab_focus)
+	UiKit.hover_focus(b)
 	return b
+
+
+## A picture card's focus: a 3 px white frame just outside the card (the picked card's border
+## is orange, so a frame on it would not show).
+static func focus_style() -> StyleBoxFlat:
+	var sb := UiKit.box(Color(0, 0, 0, 0), Color(1, 1, 1, 0.95), 3, 5, 5)
+	sb.set_expand_margin_all(3)
+	return sb
+
+
+## The D-pad stops at the grids' outer columns instead of jumping by geometry to whatever lies
+## that way (NEW RACE: the track cards and START RACE).
+func lock_edges(left := true, right := true) -> void:
+	for list: Array[Button] in [cards, vehicle_cards]:
+		for i in list.size():
+			var cols := (list[i].get_parent() as GridContainer).columns
+			if left and i % cols == 0:
+				list[i].focus_neighbor_left = NodePath(".")
+			if right and (i % cols == cols - 1 or i == list.size() - 1):
+				list[i].focus_neighbor_right = NodePath(".")
 
 
 func _icon(path: String) -> Texture2D:

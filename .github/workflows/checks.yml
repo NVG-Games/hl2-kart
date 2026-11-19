@@ -1,5 +1,6 @@
 # Fast checks for every pull request and every push to dev: the Python tools
-# compile, and every GDScript compiles in Godot (no Half-Life content needed).
+# compile, every GDScript compiles in Godot and the gamepad layer's test passes (no Half-Life
+# content needed).
 name: Checks
 
 on:
@@ -32,3 +33,6 @@ jobs:
         run: |
           ./godot --headless --path . --import > /dev/null 2>&1 || true
           ./godot --headless --path . res://tests/check_scripts.tscn
+
+      - name: Gamepad layer
+        run: ./godot --headless --path . res://tests/gamepad_test.tscn

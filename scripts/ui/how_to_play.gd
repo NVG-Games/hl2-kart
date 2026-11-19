@@ -1,14 +1,16 @@
 class_name HowToPlay
 extends Dialog
 ## HOW TO PLAY: short illustrated pages (controls, driving & drifting, items, the track,
-## shortcuts, hazards, online). Tabs, PREV / NEXT, or left/right on a gamepad.
+## shortcuts, hazards, online). Tabs, PREV / NEXT, LB / RB or Page Up / Page Down. Every control
+## the pages name shows as the player's own binding, in icons of the device in use (PromptLabel);
+## the CONTROLS page lists the bindings for the keyboard and for the pad's family.
 
 const ITEM_TEXT := {
 	"battery": "Turbo boost from your HEV suit. Use it on straights or to cut across grass.",
-	"battery3": "Three boosts in a row. Press once per boost.",
+	"battery3": "Three boosts in a row. Press {use_item} once per boost.",
 	"manhack": "Flies along the track and hunts the racer directly ahead of you.",
 	"manhack3": "Three manhacks: fire them one after another.",
-	"rollermine": "Rolls straight ahead, bounces off walls and shocks the first kart it touches. Hold BRAKE to roll it backwards.",
+	"rollermine": "Rolls straight ahead, bounces off walls and shocks the first kart it touches. Hold {brake} to roll it backwards.",
 	"barrel": "Dropped behind you. Whoever drives into it gets blown into the air.",
 	"gravgun": "Its beam grabs the nearest kart ahead, lifts it and pulls it back over your head: it drops behind you and spins out.",
 	"supergrav": "The Citadel's supercharged gravity gun. Blasts every kart in front of you high into the air, sets off barrels and bursts watermelons.",
@@ -23,17 +25,24 @@ const ITEM_TEXT := {
 	"xenport": "A Xen portal: you come out 140 metres further down the road, at full speed.",
 }
 const COUNTS := ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"]
+## CONTROLS page rows: the actions (InputBindings, titled as in OPTIONS > CONTROLS), then the
+## menus' confirm, which skips the intro
+const CONTROL_ROWS: Array[String] = ["accelerate", "brake", "steer_left", "steer_right", "drift", "use_item",
+	"look_back", "respawn", "pause", "chat", "ui_accept"]
+const ROW_TITLES := {"ui_accept": "Skip the intro"}
 
-var tabs: TabBar
 var pages: Array[Control] = []
 var prev_b: Button
 var next_b: Button
+var close_b: Button
+var _controls_box: VBoxContainer
 var _aux: Array[ColorRect] = []
 var _t := 0.0
 
 
 func _init() -> void:
-	super("HOW TO PLAY", Vector2(1180, 760))
+	# (wide enough for all eight tabs with the LB / RB glyphs beside them, keycaps included)
+	super("HOW TO PLAY", Vector2(1200, 760))
 
 
 func _ready() -> void:
@@ -54,47 +63,97 @@ func _ready() -> void:
 	tabs.tab_changed.connect(_show)
 	prev_b = add_button("PREV", func(): tabs.current_tab = maxi(tabs.current_tab - 1, 0))
 	next_b = add_button("NEXT", func(): tabs.current_tab = mini(tabs.current_tab + 1, pages.size() - 1))
-	add_button("CLOSE", close)
+	close_b = add_button("CLOSE", close)
+	default_focus = next_b
 	_show(0)
 	next_b.grab_focus.call_deferred()
+	# the CONTROLS page follows the bindings and the pad's family
+	InputPrompts.prompts_changed.connect(_fill_controls)
 
 
 func _show(i: int) -> void:
+	var f := get_viewport().gui_get_focus_owner() if is_inside_tree() else null
 	for k in pages.size():
 		pages[k].visible = k == i
 	prev_b.disabled = i == 0
 	next_b.disabled = i == pages.size() - 1
+	# a dead PREV / NEXT is skipped by the D-pad, and its focus moves on to the next button
+	for b in [prev_b, next_b]:
+		b.focus_mode = Control.FOCUS_NONE if b.disabled else Control.FOCUS_ALL
+	default_focus = close_b if next_b.disabled else next_b
+	if f == next_b and next_b.disabled:
+		close_b.grab_focus()
+	elif f == prev_b and prev_b.disabled:
+		next_b.grab_focus()
 	Game.play_ui("res://assets/sound/ui/buttonclick.wav", -10.0)
 
 
 # ---------------------------------------------------------------- pages
 func _controls() -> Control:
+	_controls_box = VBoxContainer.new()
+	_controls_box.add_theme_constant_override("separation", 18)
+	_fill_controls()
+	return _controls_box
+
+
+## The bindings as they are now: the keyboard's and the pad's per action, the pad's in its
+## family's icons ("GAMEPAD · PLAYSTATION 5"; an unknown pad: "GAMEPAD").
+func _fill_controls() -> void:
+	for c in _controls_box.get_children():
+		c.free()
+	var ps := InputPrompts.pad_style()
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 48)
+	grid.add_theme_constant_override("v_separation", 7)
+	grid.add_child(Control.new())
+	grid.add_child(UiKit.section("KEYBOARD AND MOUSE"))
+	grid.add_child(UiKit.section("GAMEPAD" if InputPrompts.family(ps) == "generic"
+		else "GAMEPAD  ·  " + str(InputPrompts.STYLE_NAMES.get(ps, "Xbox")).to_upper()))
+	for act in CONTROL_ROWS:
+		var l := UiKit.label(ROW_TITLES.get(act, InputBindings.TITLES.get(act, act)), 18, UiKit.TEXT)
+		l.custom_minimum_size = Vector2(300, 32)
+		l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		grid.add_child(l)
+		grid.add_child(_glyphs(_specs(act, false), InputPrompts.KEYBOARD))
+		if act in InputBindings.KEYBOARD_ONLY:
+			var only := UiKit.label("keyboard only", 16, UiKit.TEXT_DIM)
+			only.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			grid.add_child(only)
+		else:
+			grid.add_child(_glyphs(_specs(act, true), ps))
+	_controls_box.add_child(grid)
+	_controls_box.add_child(UiKit.prompt("Change any of them in OPTIONS > CONTROLS. In the menus {ui_accept} picks, "
+		+ "{ui_cancel} goes back and {ui_tab_prev} {ui_tab_next} switch tabs.", 16, UiKit.TEXT_DIM, false, 1080))
+
+
+## An action's bound specs for the keyboard and mouse or for a pad, in slot order (a ui_* action:
+## its first two InputMap events, leaving out the keypad's Enter beside Enter).
+static func _specs(act: String, pad: bool) -> Array:
+	if act in InputBindings.ACTIONS:
+		return InputBindings.slots(act, InputBindings.PAD if pad else InputBindings.KEY).filter(func(x): return x != "")
+	var out := []
+	for ev in InputPrompts.action_events(act, pad):
+		var sp := InputBindings.spec_of(ev)
+		if sp != "" and not sp in out and out.size() < 2 and sp != InputBindings.key_spec(KEY_KP_ENTER):
+			out.append(sp)
+	return out
+
+
+func _glyphs(specs: Array, style_id: String) -> Control:
 	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 60)
-	var rows := [
-		["Accelerate", ["W", "↑"], ["A", "RT"]],
-		["Brake / reverse", ["S", "↓"], ["X", "LT"]],
-		["Steer", ["A", "D"], ["Left stick"]],
-		["Hop & drift", ["SHIFT", "SPACE"], ["RB"]],
-		["Use item", ["E", "CTRL"], ["LB", "B"]],
-		["Look behind", ["C"], ["Y"]],
-		["Call for help (stuck)", ["R"], ["BACK"]],
-		["Pause", ["ESC"], ["START"]],
-	]
-	for col in [["KEYBOARD", 1], ["GAMEPAD", 2]]:
-		var v := VBoxContainer.new()
-		v.add_theme_constant_override("separation", 14)
-		v.add_child(UiKit.section(col[0]))
-		for r in rows:
-			var line := HBoxContainer.new()
-			line.add_theme_constant_override("separation", 8)
-			var l := UiKit.label(r[0], 18, UiKit.TEXT)
-			l.custom_minimum_size.x = 250
-			line.add_child(l)
-			for k in r[col[1]]:
-				line.add_child(UiKit.keycap(k, k.length() > 2))
-			v.add_child(line)
-		h.add_child(v)
+	h.add_theme_constant_override("separation", 8)
+	for sp in specs:
+		var g := InputGlyph.new("", 32.0)
+		g.style = style_id
+		g.spec = sp
+		if g.texture:
+			h.add_child(g)
+		else:
+			h.add_child(UiKit.keycap(g.text(), g.text().length() > 2))
+			g.free()
+	if specs.is_empty():
+		h.add_child(UiKit.label("—", 18, UiKit.TEXT_DIM))
 	return h
 
 
@@ -113,10 +172,7 @@ func _step(n: int, title: String, text: String) -> Control:
 	h.add_child(num)
 	var v := VBoxContainer.new()
 	v.add_child(UiKit.label(title, 20, Color.WHITE, true))
-	var t := UiKit.label(text, 17, UiKit.TEXT_DIM)
-	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	t.custom_minimum_size.x = 980
-	v.add_child(t)
+	v.add_child(UiKit.prompt(text, 17, UiKit.TEXT_DIM, false, 980))
 	h.add_child(v)
 	return h
 
@@ -124,8 +180,8 @@ func _step(n: int, title: String, text: String) -> Control:
 func _driving() -> Control:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 18)
-	v.add_child(_step(1, "Rocket start", "Hold ACCELERATE when Overwatch says \"one\". Too early and you just roll off; on time you launch with a turbo."))
-	v.add_child(_step(2, "Hop into a drift", "In a corner, press and hold HOP & DRIFT while steering. Your vehicle hops and slides; keep steering into the turn."))
+	v.add_child(_step(1, "Rocket start", "Hold {accelerate} when Overwatch says \"one\". Too early and you just roll off; on time you launch with a turbo."))
+	v.add_child(_step(2, "Hop into a drift", "In a corner, press and hold {drift} while steering. Your vehicle hops and slides; keep steering into the turn."))
 	var demo := HBoxContainer.new()
 	demo.add_theme_constant_override("separation", 14)
 	var spacer := Control.new()
@@ -150,7 +206,7 @@ func _driving() -> Control:
 	legend.custom_minimum_size.x = 720
 	demo.add_child(legend)
 	v.add_child(demo)
-	v.add_child(_step(3, "Release for the turbo", "Let go of HOP & DRIFT to fire the turbo. The longer the drift, the stronger it is."))
+	v.add_child(_step(3, "Release for the turbo", "Let go of {drift} to fire the turbo. The longer the drift, the stronger it is."))
 	v.add_child(_step(4, "Stay on the tarmac", "Grass, dirt and verges slow you down. Yellow chevron pads on the road give a free boost."))
 	return v
 
@@ -171,11 +227,11 @@ func _items(ids: Array) -> Control:
 		icon.custom_minimum_size = Vector2(96, 96)
 		card.add_child(icon)
 		var v := VBoxContainer.new()
-		v.add_child(UiKit.label(Items.INFO[id]["name"], 16, Hl2Style.BRIGHT, true))
-		var t := UiKit.label(ITEM_TEXT[id], 14, UiKit.TEXT_DIM)
-		t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		t.custom_minimum_size.x = 250
-		v.add_child(t)
+		var title := UiKit.label(Items.INFO[id]["name"], 16, Hl2Style.BRIGHT, true)
+		title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART  # (a long name would widen the page)
+		title.custom_minimum_size.x = 250
+		v.add_child(title)
+		v.add_child(UiKit.prompt(ITEM_TEXT[id], 14, UiKit.TEXT_DIM, false, 250))
 		card.add_child(v)
 		grid.add_child(card)
 	return grid
@@ -193,17 +249,14 @@ func _track_card(icon_path: String, title: String, text: String) -> Control:
 	h.add_child(icon)
 	var v := VBoxContainer.new()
 	v.add_child(UiKit.label(title, 20, Color.WHITE, true))
-	var t := UiKit.label(text, 17, UiKit.TEXT_DIM)
-	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	t.custom_minimum_size.x = 900
-	v.add_child(t)
+	v.add_child(UiKit.prompt(text, 17, UiKit.TEXT_DIM, false, 900))
 	h.add_child(v)
 	return h
 
 
 func _track() -> Control:
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 20)
+	v.add_theme_constant_override("separation", 12)  # (five cards: 20 ran past the frame)
 	v.add_child(_track_card("res://assets/ui/items/crate.png", "Supply crates",
 		"Drive through a row of HL2 supply crates to get a random item. The further back you are, the stronger the items."))
 	# every track the game has (Game.TRACKS), by name
@@ -229,7 +282,7 @@ func _shortcuts() -> Control:
 	v.add_child(_track_card("res://assets/ui/items/battery.png", "Jumps take speed",
 		"Most shortcuts end in a jump: come at it flat out. Some have a boost pad on the run-up. A DANGER sign stands before the risky ones. Land it and you get SHORTCUT!"))
 	v.add_child(_track_card("res://assets/ui/items/scanner.png", "Fell off or stuck?",
-		"Sink, fall off or get stuck and help comes: the scanner's photo in CT17, a teleport at Black Mesa and Surface Tension, a portal on Xen, the rebels' crane on Highway 17, a Combine teleport at Nova Prospekt, the vortigaunts' green energy in White Forest. In its flash you're back on the road. Drop through a hole in Nova Prospekt's floor (or get shoved in by the guard) and you are in the antlion caves: drive out. Miss a shortcut's jump and you retry from its run-up if it can be made. R calls it."))
+		"Sink, fall off or get stuck and help comes: the scanner's photo in CT17, a teleport at Black Mesa and Surface Tension, a portal on Xen, the rebels' crane on Highway 17, a Combine teleport at Nova Prospekt, the vortigaunts' green energy in White Forest. In its flash you're back on the road. Drop through a hole in Nova Prospekt's floor (or get shoved in by the guard) and you are in the antlion caves: drive out. Miss a shortcut's jump and you retry from its run-up if it can be made. {respawn} calls it."))
 	v.add_child(_track_card("res://assets/ui/vehicles/jalopy.png", "Wrong way",
 		"Drive back along the road and a red WRONG WAY flashes under the item box, with a beep, until you turn round."))
 	return v
@@ -256,7 +309,7 @@ func _online() -> Control:
 	v.add_child(_step(2, "Join", "FIND SERVERS: friends on your network see you under LAN. Over the internet they type your address into Connect to address (open UDP 27015-27016 on the router; UPnP tries it for you)."))
 	v.add_child(_step(3, "Same version", "Everyone needs the same version of the game. A server running another version shows as (different version) in the list and can't be joined."))
 	v.add_child(_step(4, "Lobby", "Everyone picks a racer and a vehicle and presses READY: the race starts 5 seconds after the last one. The host can also START RACE at once, change the rules and KICK."))
-	v.add_child(_step(5, "Racing online", "The race never pauses. Press Y to chat. The server waits up to 45 seconds for a slow PC to load, then starts; a late player joins the race under way. If someone leaves, a bot takes over their kart. Results go to everyone, then back to the lobby."))
+	v.add_child(_step(5, "Racing online", "The race never pauses. Press {chat} on the keyboard to chat. The server waits up to 45 seconds for a slow PC to load, then starts; a late player joins the race under way. If someone leaves, a bot takes over their kart. Results go to everyone, then back to the lobby."))
 	return v
 
 
@@ -270,9 +323,3 @@ func _process(delta: float) -> void:
 	for i in _aux.size():
 		_aux[i].color = col if float(i) / _aux.size() < fill else Color(col.r, col.g, col.b, 0.15)
 
-
-func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_page_down") or (event is InputEventJoypadButton and event.is_action_pressed("ui_right") and tabs.has_focus()):
-		tabs.current_tab = mini(tabs.current_tab + 1, pages.size() - 1)
-	else:
-		super(event)

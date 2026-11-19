@@ -6,6 +6,18 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
 ## [Unreleased]
 
 ### Added
+- Proper gamepad support. Any pad drives the kart, not only the first one plugged in: Xbox,
+  PlayStation, Nintendo Switch, Steam Deck and others. The game recognises the pad and shows its
+  own buttons everywhere (menus, the HUD, How to Play), and switches between keyboard keys and
+  pad buttons as soon as you use the other one. Every menu works with the pad alone: A picks,
+  B goes back, LB / RB switch tabs, and holding the D-pad keeps scrolling a list. The pad
+  vibrates on crashes, boosts, landings, bumps, the countdown and explosions. If the pad you
+  are racing with goes away, an offline race pauses until you reconnect it or carry on with the
+  keyboard.
+- OPTIONS has a CONTROLS tab: change any key or button (three keyboard and two pad slots per
+  action; a key another action had swaps over), pick the button icons (AUTO or a family),
+  set the vibration strength and the stick's dead zone, and choose whether Nintendo pads confirm
+  with A. RESET TO DEFAULTS puts it all back.
 - The bathtub has thrusters now: two propane tanks along its sides at the back, Garry's Mod
   style, with jets that follow the throttle, go long and blue-white on a boost and roar like
   a rocket.
@@ -97,6 +109,11 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
   they set you down on your wheels, one of them says a word and they vanish. R calls them.
 
 ### Changed
+- Small keyboard and mouse changes that came with the gamepad support: Esc on the main menu
+  moves to QUIT instead of doing nothing; leaving the lobby (Esc or LEAVE / STOP SERVER) asks
+  first; Space skips the offline intro too, as E, Ctrl and Enter do; Page Up and Page Down
+  switch a dialog's tabs and wrap round; Esc in a text field only stops the typing; the mouse
+  takes the focus on hover only after it has moved a little.
 - The houndeye packs pace up and down the verge now, and when a kart comes they run out to meet
   it, up to the road's edge but never onto it, before they charge and blast as before. Keep to
   the far side of the road when they chirp and the blast still cannot reach you.

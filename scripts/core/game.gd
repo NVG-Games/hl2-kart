@@ -122,6 +122,12 @@ var settings := {
 	"show_minimap": true,
 	"tutorial_seen": false,
 	"check_updates": true,
+	# controls (InputPrompts, InputBindings)
+	"prompt_style": "auto",  # button icons: auto (the pad's own), xbox, playstation, nintendo, steamdeck, generic
+	"vibration": 0.7,  # pad rumble strength, 0 = off
+	"stick_deadzone": 0.2,  # share of the stick's travel that does not steer
+	"nintendo_swap": true,  # on a Nintendo pad the menus confirm with A (right) and go back with B (bottom)
+	"bindings": {},  # the player's changes to the default controls (InputBindings)
 	# multiplayer
 	"nickname": "",
 	"master_server": "",

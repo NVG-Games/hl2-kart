@@ -121,6 +121,8 @@ def write_notes(stage, version):
   copyright notices of the libraries it contains: runtime/licenses/godot/.
 - Python %s (embeddable package), PSF license: runtime/python/.
 - NumPy and Pillow, BSD / MIT-CMU style licenses: runtime/python/Lib/site-packages/.
+- Input Prompts by Kenney (www.kenney.nl), CC0 1.0: the button and key icons in
+  art/input_prompts/ (License.txt there).
 
 Licenses: runtime/licenses/.
 

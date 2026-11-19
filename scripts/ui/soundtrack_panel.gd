@@ -1,6 +1,7 @@
 class_name SoundtrackPanel
 extends Dialog
-## SOUNDTRACK: every music track shipped with Half-Life 2, playable in the menu.
+## SOUNDTRACK: every music track shipped with Half-Life 2, playable in the menu. LB / RB (Page
+## Up / Page Down) skip back and on, a pad's Y pauses.
 
 var list: VBoxContainer
 var rows := {}
@@ -62,12 +63,27 @@ func _ready() -> void:
 		list.add_child(b)
 		rows[id] = b
 	add_button("CLOSE", close)
+	set_prompts([["{ui_accept} PLAY"], ["{ui_cancel} BACK"], ["{ui_tab_prev} {ui_tab_next} SKIP"], ["{ui_select} PAUSE", "pad"]])
 	Game.music_changed.connect(_refresh)
 	_refresh(Game.now_playing)
 	if rows.has(Game.now_playing):
 		(rows[Game.now_playing] as Button).grab_focus.call_deferred()
 	elif not rows.is_empty():
 		(rows.values()[0] as Button).grab_focus.call_deferred()
+
+
+## LB / RB: the previous or next track (no tabs here).
+func _tab_step(step: int) -> void:
+	Game.music_skip(step)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	# (Space is the keyboard's ui_select too, and it plays the focused row)
+	if event is InputEventJoypadButton and event.is_action_pressed("ui_select"):
+		get_viewport().set_input_as_handled()
+		_toggle_pause()
+		return
+	super(event)
 
 
 func _toggle_pause() -> void:

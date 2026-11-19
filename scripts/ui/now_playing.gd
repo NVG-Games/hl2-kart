@@ -1,6 +1,7 @@
 class_name NowPlaying
 extends PanelContainer
-## Small "now playing" strip for the main menu: track name + prev / pause / next.
+## Small "now playing" strip for the main menu: track name + prev / pause / next. Mouse only: the
+## D-pad never stops on it (SOUNDTRACK in the menu opens the same panel).
 
 signal open_soundtrack
 
@@ -24,6 +25,7 @@ func _ready() -> void:
 	title.add_theme_color_override("font_color", UiKit.TEXT_DIM)
 	title.add_theme_color_override("font_hover_color", Color.WHITE)
 	title.tooltip_text = "Open the soundtrack"
+	title.focus_mode = Control.FOCUS_NONE
 	title.pressed.connect(func(): open_soundtrack.emit())
 	h.add_child(title)
 	for spec in [["◀◀", -1], ["❚❚", 0], ["▶▶", 1]]:
@@ -31,6 +33,7 @@ func _ready() -> void:
 		b.text = spec[0]
 		b.flat = true
 		b.custom_minimum_size = Vector2(40, 34)
+		b.focus_mode = Control.FOCUS_NONE
 		b.add_theme_font_size_override("font_size", 14)
 		b.add_theme_color_override("font_color", UiKit.TEXT_DIM)
 		b.add_theme_color_override("font_hover_color", UiKit.ORANGE)

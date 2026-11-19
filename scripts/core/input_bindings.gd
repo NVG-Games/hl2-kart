@@ -1,0 +1,406 @@
+class_name InputBindings
+extends RefCounted
+## The game's actions and what drives them. Built into the InputMap at startup (InputPrompts) and
+## again on every change in OPTIONS > CONTROLS. A binding is kept as a short string, a "spec":
+##   "k<physical keycode>"  a key (where it sits on the keyboard, so WASD stays WASD on AZERTY)
+##   "m<mouse button>"      a mouse button
+##   "b<pad button>"        a pad button, by position (JOY_BUTTON_A = the bottom face button)
+##   "a<axis>+" / "a<axis>-"  a stick or trigger pushed that way (JOY_AXIS_*)
+## Each action has KEY_SLOTS keyboard slots and PAD_SLOTS pad slots ("" = empty). The player's
+## changes live in Game.settings["bindings"] as {action: {"key": [specs], "pad": [specs]}}, only
+## for the classes that differ from defaults(). Every event matches any device (device -1):
+## code-made events default to one device id, which only the first pad would drive. With a
+## joystick SDL does not know plugged in (a wheel, a flight stick), sticks and triggers count
+## only on the known pads and the active one (InputPrompts.axis_devs).
+
+const ALL_DEVICES := -1
+const KEY := "key"  # slot class: keyboard and mouse
+const PAD := "pad"  # slot class: gamepad
+const KEY_SLOTS := 3  # Use item came with three keys (E, Ctrl, Enter)
+const PAD_SLOTS := 2
+## Gameplay actions in the order OPTIONS > CONTROLS lists them.
+const ACTIONS: Array[String] = ["accelerate", "brake", "steer_left", "steer_right", "drift", "use_item",
+	"look_back", "respawn", "pause", "chat"]
+const TITLES := {"accelerate": "Accelerate", "brake": "Brake / reverse", "steer_left": "Steer left",
+	"steer_right": "Steer right", "drift": "Hop & drift", "use_item": "Use item", "look_back": "Look behind",
+	"respawn": "Call for help", "pause": "Pause / menu", "chat": "Chat (online)"}
+## Actions that must keep at least one binding in each class they have (clear_slot refuses).
+const REQUIRED: Array[String] = ["accelerate", "brake", "steer_left", "steer_right", "pause"]
+## Actions with no pad slots (typing needs a keyboard anyway).
+const KEYBOARD_ONLY: Array[String] = ["chat"]
+const STEER: Array[String] = ["steer_left", "steer_right"]
+const DEADZONE := 0.2  # every action but steering (Game.settings["stick_deadzone"])
+
+
+static func key_spec(key: Key) -> String:
+	return "k%d" % key
+
+
+static func button_spec(button: JoyButton) -> String:
+	return "b%d" % button
+
+
+static func axis_spec(axis: JoyAxis, dir: int) -> String:
+	return "a%d%s" % [axis, "+" if dir > 0 else "-"]
+
+
+## The bindings a new player gets.
+static func defaults() -> Dictionary:
+	return {
+		"accelerate": {KEY: [key_spec(KEY_W), key_spec(KEY_UP), ""],
+			PAD: [button_spec(JOY_BUTTON_A), axis_spec(JOY_AXIS_TRIGGER_RIGHT, 1)]},
+		"brake": {KEY: [key_spec(KEY_S), key_spec(KEY_DOWN), ""],
+			PAD: [button_spec(JOY_BUTTON_X), axis_spec(JOY_AXIS_TRIGGER_LEFT, 1)]},
+		"steer_left": {KEY: [key_spec(KEY_A), key_spec(KEY_LEFT), ""],
+			PAD: [axis_spec(JOY_AXIS_LEFT_X, -1), button_spec(JOY_BUTTON_DPAD_LEFT)]},
+		"steer_right": {KEY: [key_spec(KEY_D), key_spec(KEY_RIGHT), ""],
+			PAD: [axis_spec(JOY_AXIS_LEFT_X, 1), button_spec(JOY_BUTTON_DPAD_RIGHT)]},
+		"drift": {KEY: [key_spec(KEY_SHIFT), key_spec(KEY_SPACE), ""], PAD: [button_spec(JOY_BUTTON_RIGHT_SHOULDER), ""]},
+		"use_item": {KEY: [key_spec(KEY_E), key_spec(KEY_CTRL), key_spec(KEY_ENTER)],
+			PAD: [button_spec(JOY_BUTTON_LEFT_SHOULDER), button_spec(JOY_BUTTON_B)]},
+		"look_back": {KEY: [key_spec(KEY_C), "", ""], PAD: [button_spec(JOY_BUTTON_Y), ""]},
+		"respawn": {KEY: [key_spec(KEY_R), "", ""], PAD: [button_spec(JOY_BUTTON_BACK), ""]},
+		"pause": {KEY: [key_spec(KEY_ESCAPE), key_spec(KEY_P), ""], PAD: [button_spec(JOY_BUTTON_START), ""]},
+		"chat": {KEY: [key_spec(KEY_Y), key_spec(KEY_T), ""], PAD: []},
+	}
+
+
+## Esc and Start always pause (and cancel a rebind), so they can't be bound to anything else;
+## the Guide / Home button belongs to Windows and Steam, and Share / Capture / the DualSense mic
+## button to the system too.
+static func is_reserved(spec: String) -> bool:
+	return spec in [key_spec(KEY_ESCAPE), button_spec(JOY_BUTTON_START), button_spec(JOY_BUTTON_GUIDE),
+		button_spec(JOY_BUTTON_MISC1)]
+
+
+## Pause keeps Esc in its first keyboard slot and Start in its first pad slot.
+static func is_locked(action: String, _cls: String, slot: int) -> bool:
+	return action == "pause" and slot == 0
+
+
+static func slot_count(action: String, cls: String) -> int:
+	if cls == PAD:
+		return 0 if action in KEYBOARD_ONLY else PAD_SLOTS
+	return KEY_SLOTS
+
+
+## "key" for a keyboard or mouse spec, "pad" for a pad one, "" for anything else.
+static func class_of(spec: String) -> String:
+	if spec.begins_with("k") or spec.begins_with("m"):
+		return KEY
+	if spec.begins_with("b") or spec.begins_with("a"):
+		return PAD
+	return ""
+
+
+## The spec of an input event ("" when it can not be a binding: the mouse wheel, a stick at rest).
+static func spec_of(ev: InputEvent) -> String:
+	if ev is InputEventKey:
+		var ke := ev as InputEventKey
+		var code := ke.physical_keycode if ke.physical_keycode != KEY_NONE else ke.keycode
+		return key_spec(code) if code != KEY_NONE else ""
+	if ev is InputEventMouseButton:
+		var mb := (ev as InputEventMouseButton).button_index
+		return "" if mb in [MOUSE_BUTTON_NONE, MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN,
+			MOUSE_BUTTON_WHEEL_LEFT, MOUSE_BUTTON_WHEEL_RIGHT] else "m%d" % mb
+	if ev is InputEventJoypadButton:
+		return button_spec((ev as InputEventJoypadButton).button_index)
+	if ev is InputEventJoypadMotion:
+		var jm := ev as InputEventJoypadMotion
+		return "" if is_zero_approx(jm.axis_value) else axis_spec(jm.axis, 1 if jm.axis_value > 0.0 else -1)
+	return ""
+
+
+## The InputMap event for a spec (null if the spec is not valid). It matches any device: a real
+## keyboard, mouse and pad each report their own device id.
+static func event_of(spec: String) -> InputEvent:
+	if spec.length() < 2:
+		return null
+	var body := spec.substr(1)
+	match spec[0]:
+		"k":
+			if not body.is_valid_int() or int(body) <= 0:
+				return null
+			var ke := InputEventKey.new()
+			ke.physical_keycode = int(body) as Key
+			ke.device = ALL_DEVICES
+			return ke
+		"m":
+			if not body.is_valid_int() or int(body) <= 0:
+				return null
+			var mb := InputEventMouseButton.new()
+			mb.button_index = int(body) as MouseButton
+			mb.device = ALL_DEVICES
+			return mb
+		"b":
+			if not body.is_valid_int() or int(body) < 0 or int(body) >= JOY_BUTTON_MAX:
+				return null
+			var jb := InputEventJoypadButton.new()
+			jb.button_index = int(body) as JoyButton
+			jb.device = ALL_DEVICES
+			return jb
+		"a":
+			var dir := body.right(1)
+			var axis := body.left(-1)
+			if dir not in ["+", "-"] or not axis.is_valid_int() or int(axis) < 0 or int(axis) >= JOY_AXIS_MAX:
+				return null
+			var jm := InputEventJoypadMotion.new()
+			jm.axis = int(axis) as JoyAxis
+			jm.axis_value = 1.0 if dir == "+" else -1.0
+			jm.device = ALL_DEVICES
+			return jm
+	return null
+
+
+## The player's slots for an action and class (their changes over the defaults), slot_count long.
+static func slots(action: String, cls: String) -> Array:
+	return resolve(_overrides()).get(action, {}).get(cls, [])
+
+
+static func get_slot(action: String, cls: String, slot: int) -> String:
+	var s := slots(action, cls)
+	return s[slot] if slot >= 0 and slot < s.size() else ""
+
+
+## Every bound spec of an action (both classes), in slot order.
+static func specs(action: String) -> Array[String]:
+	var out: Array[String] = []
+	for cls in [KEY, PAD]:
+		for s in slots(action, cls):
+			if s != "":
+				out.append(s)
+	return out
+
+
+## Which action and slot hold `spec` (in its class): [action, slot], or [] when it is free.
+static func find(spec: String) -> Array:
+	var cls := class_of(spec)
+	var t := resolve(_overrides())
+	for act in ACTIONS:
+		var i: int = (t[act][cls] as Array).find(spec) if cls != "" else -1
+		if i >= 0:
+			return [act, i]
+	return []
+
+
+## Binds `spec` to a slot. If another slot of the same class already has it (another action's,
+## or this action's other one), the two swap: that slot gets this slot's old binding (which may be
+## empty). Applies at once. Returns {"ok", "spec", "moved_action", "moved_slot", "moved_spec"}:
+## moved_* name the slot that took the old binding ("" / -1 when nothing moved). Refused (ok
+## false, nothing changes): a locked slot, a reserved input, a spec of the other class.
+static func set_slot(action: String, cls: String, slot: int, spec: String) -> Dictionary:
+	var res := {"ok": false, "spec": spec, "moved_action": "", "moved_slot": -1, "moved_spec": ""}
+	if action not in ACTIONS or slot < 0 or slot >= slot_count(action, cls) or is_locked(action, cls, slot) \
+			or is_reserved(spec) or class_of(spec) != cls or event_of(spec) == null:
+		return res
+	var t := resolve(_overrides())
+	var old: String = t[action][cls][slot]
+	res["ok"] = true
+	if old == spec:
+		return res
+	var hit := find(spec)
+	t[action][cls][slot] = spec
+	if not hit.is_empty():
+		t[hit[0]][cls][hit[1]] = old
+		res["moved_action"] = hit[0]
+		res["moved_slot"] = hit[1]
+		res["moved_spec"] = old
+	_store(t)
+	return res
+
+
+## Empties a slot. Refused (false) for a locked slot, or when it holds the last binding a
+## REQUIRED action has in that class.
+static func clear_slot(action: String, cls: String, slot: int) -> bool:
+	if action not in ACTIONS or slot < 0 or slot >= slot_count(action, cls) or is_locked(action, cls, slot):
+		return false
+	var t := resolve(_overrides())
+	var s: Array = t[action][cls]
+	if s[slot] == "":
+		return true
+	if action in REQUIRED and s.count("") == s.size() - 1:
+		return false
+	s[slot] = ""
+	_store(t)
+	return true
+
+
+## Back to defaults(): one action, or every action with "". An action reset on its own takes
+## its default inputs back from whoever got them in a swap; that slot gets its own default again
+## when it is free, else it is left empty.
+static func reset(action := "") -> void:
+	if action == "":
+		Game.settings["bindings"] = {}
+		apply()
+		return
+	if action not in ACTIONS:
+		return
+	var d := defaults()
+	var t := resolve(_overrides())
+	t[action] = d[action].duplicate(true)
+	for act in ACTIONS:
+		if act == action:
+			continue
+		for cls in [KEY, PAD]:
+			var s: Array = t[act][cls]
+			for i in s.size():
+				if s[i] != "" and s[i] in d[action][cls]:
+					var own: String = d[act][cls][i] if i < d[act][cls].size() else ""
+					s[i] = own if own != "" and not _held(t, own, cls) else ""
+	_store(t)
+
+
+## REQUIRED actions left with no binding in a class: [[action, class], ...] (a swap can do that).
+static func missing() -> Array:
+	var out := []
+	var t := resolve(_overrides())
+	for act in REQUIRED:
+		for cls in [KEY, PAD]:
+			var s: Array = t[act][cls]
+			if not s.is_empty() and s.count("") == s.size():
+				out.append([act, cls])
+	return out
+
+
+## Builds every action's events into the InputMap, with steering's dead zone and the menus' pad
+## buttons (apply_ui, until InputPrompts decides the Nintendo swap). Sticks and triggers match
+## the devices in InputPrompts.axis_devs ([-1]: any).
+static func apply() -> void:
+	var t := resolve(_overrides())
+	var ip := _prompts()
+	var axis_devs: Array = [ALL_DEVICES]
+	if ip and ip.get("axis_devs") is Array and not (ip.get("axis_devs") as Array).is_empty():
+		axis_devs = ip.get("axis_devs")
+	var any_axis := axis_devs.size() == 1 and int(axis_devs[0]) == ALL_DEVICES
+	for act in ACTIONS:
+		if InputMap.has_action(act):
+			InputMap.action_erase_events(act)
+		else:
+			InputMap.add_action(act, DEADZONE)
+		for cls in [KEY, PAD]:
+			for spec in t[act][cls]:
+				var ev := event_of(spec)
+				if ev == null:
+					continue
+				if ev is InputEventJoypadMotion and not any_axis:
+					for dev in axis_devs:
+						var one := ev.duplicate() as InputEventJoypadMotion
+						one.device = dev
+						InputMap.action_add_event(act, one)
+				else:
+					InputMap.action_add_event(act, ev)
+	apply_deadzone()
+	if not InputMap.has_action("ui_tab_prev"):
+		apply_ui(false)
+	if ip and ip.has_method("bindings_changed"):
+		ip.call("bindings_changed")
+
+
+## Adds `device`'s sticks and triggers to every action bound to one (InputPrompts.axis_devs: a
+## joystick SDL does not know that the player started using). Adding lets go of nothing held.
+static func add_axis_device(device: int) -> void:
+	var t := resolve(_overrides())
+	for act in ACTIONS:
+		if not InputMap.has_action(act):
+			continue
+		for spec in t[act][PAD]:
+			var ev := event_of(spec)
+			if ev is InputEventJoypadMotion:
+				ev.device = device
+				if not InputMap.action_has_event(act, ev):
+					InputMap.action_add_event(act, ev)
+
+
+## Steering's dead zone from Game.settings["stick_deadzone"]: the share of the stick's travel that
+## does nothing, so a worn stick does not steer by itself.
+static func apply_deadzone() -> void:
+	var dz := clampf(float(Game.settings.get("stick_deadzone", DEADZONE)), 0.05, 0.9)
+	for act in STEER:
+		if InputMap.has_action(act):
+			InputMap.action_set_deadzone(act, dz)
+
+
+## The menus' pad buttons: the bottom face button confirms (ui_accept) and the right one goes
+## back (ui_cancel), or the other way round with `swap` (Nintendo pads print A on the right).
+## LB / RB and Page Up / Page Down switch tabs (ui_tab_prev / ui_tab_next); the left face button
+## and Delete / Backspace empty a binding slot in OPTIONS > CONTROLS (ui_clear). Godot's own ui_*
+## actions have no pad confirm or back at all.
+static func apply_ui(swap: bool) -> void:
+	for act in ["ui_accept", "ui_cancel"]:
+		for ev in InputMap.action_get_events(act):
+			if ev is InputEventJoypadButton:
+				InputMap.action_erase_event(act, ev)
+	InputMap.action_add_event("ui_accept", event_of(button_spec(JOY_BUTTON_B if swap else JOY_BUTTON_A)))
+	InputMap.action_add_event("ui_cancel", event_of(button_spec(JOY_BUTTON_A if swap else JOY_BUTTON_B)))
+	for t in [["ui_tab_prev", KEY_PAGEUP, JOY_BUTTON_LEFT_SHOULDER], ["ui_tab_next", KEY_PAGEDOWN, JOY_BUTTON_RIGHT_SHOULDER]]:
+		if not InputMap.has_action(t[0]):
+			InputMap.add_action(t[0], 0.5)
+			InputMap.action_add_event(t[0], event_of(key_spec(t[1])))
+			InputMap.action_add_event(t[0], event_of(button_spec(t[2])))
+	if not InputMap.has_action("ui_clear"):
+		InputMap.add_action("ui_clear", 0.5)
+		for spec in [key_spec(KEY_DELETE), key_spec(KEY_BACKSPACE), button_spec(JOY_BUTTON_X)]:
+			InputMap.action_add_event("ui_clear", event_of(spec))
+
+
+## Every action's slots from an overrides dict over defaults(), slot_count long. A bad or reserved
+## spec, one of the other class, or one an earlier action or slot already holds (a hand-edited or
+## old settings file) becomes ""; locked slots are always their default.
+static func resolve(o: Dictionary) -> Dictionary:
+	var d := defaults()
+	var used := {KEY: [], PAD: []}
+	var t := {}
+	for act in ACTIONS:
+		t[act] = {}
+		for cls in [KEY, PAD]:
+			var def: Array = d[act][cls]
+			var src: Array = def
+			var entry = o.get(act)
+			if entry is Dictionary and (entry as Dictionary).get(cls) is Array:
+				src = entry[cls]
+			var out := []
+			for i in slot_count(act, cls):
+				var spec := str(src[i]) if i < src.size() else ""
+				if is_locked(act, cls, i):
+					spec = str(def[i])
+				elif spec != "" and (is_reserved(spec) or class_of(spec) != cls or event_of(spec) == null \
+						or spec in used[cls]):
+					spec = ""
+				if spec != "":
+					used[cls].append(spec)
+				out.append(spec)
+			t[act][cls] = out
+	return t
+
+
+## Some action's slot of class `cls` in table `t` holds `spec`.
+static func _held(t: Dictionary, spec: String, cls: String) -> bool:
+	for act in ACTIONS:
+		if spec in (t[act][cls] as Array):
+			return true
+	return false
+
+
+static func _overrides() -> Dictionary:
+	var o = Game.settings.get("bindings", {})
+	return o if o is Dictionary else {}
+
+
+## Keeps only the classes that differ from the defaults in Game.settings["bindings"], then applies.
+static func _store(t: Dictionary) -> void:
+	var d := defaults()
+	var o := {}
+	for act in ACTIONS:
+		for cls in [KEY, PAD]:
+			var s: Array = t[act][cls]
+			if s != d[act][cls]:
+				if not o.has(act):
+					o[act] = {}
+				o[act][cls] = s.duplicate()
+	Game.settings["bindings"] = o
+	apply()
+
+
+static func _prompts() -> Node:
+	var tree := Engine.get_main_loop() as SceneTree
+	return tree.root.get_node_or_null("InputPrompts") if tree and tree.root else null

@@ -57,6 +57,16 @@ static func _disc(col: Color, r: float) -> Callable:
 		return Color(col.r, col.g, col.b, col.a * a)
 
 
+## A white disc in an orange ring: the slider's grabber while it has the focus (or the mouse).
+static func _ring(r: float, ring: float) -> Callable:
+	return func(x: int, y: int, w: int, h: int) -> Color:
+		var d := Vector2(x + 0.5 - w * 0.5, y + 0.5 - h * 0.5).length()
+		var a := clampf(r - d + 0.5, 0.0, 1.0)
+		if a <= 0.0:
+			return Color(0, 0, 0, 0)
+		return Color(1, 1, 1, a) if d < r - ring else Color(ORANGE.r, ORANGE.g, ORANGE.b, a)
+
+
 static func _switch(on: bool, hover: bool) -> Callable:
 	return func(x: int, y: int, w: int, h: int) -> Color:
 		var r := h * 0.5
@@ -111,13 +121,22 @@ static func theme() -> Theme:
 	t.set_stylebox("hover", "SegButton", box(Color(1, 1, 1, 0.12), ORANGE, 1, 2, 16))
 	t.set_stylebox("pressed", "SegButton", box(ORANGE, ORANGE, 1, 2, 16))
 	t.set_stylebox("hover_pressed", "SegButton", box(ORANGE.lightened(0.15), Color.WHITE, 1, 2, 16))
+	# the picked segment is solid orange, so the focus is a white frame round it (the pad's cursor)
+	t.set_stylebox("focus", "SegButton", box(Color(0, 0, 0, 0), Color.WHITE, 2, 2, 16))
 	t.set_color("font_pressed_color", "SegButton", Color.BLACK)
 	t.set_color("font_hover_pressed_color", "SegButton", Color.BLACK)
 	# main-menu items: flat Verdana text like the HL2 GameMenu
 	t.set_type_variation("MenuItem", "Button")
 	var empty := StyleBoxEmpty.new()
-	for st in ["normal", "hover", "pressed", "focus", "disabled", "hover_pressed"]:
+	for st in ["normal", "hover", "pressed", "disabled", "hover_pressed"]:
 		t.set_stylebox(st, "MenuItem", empty)
+	# focus: an orange bar left of the entry, readable from the sofa (hover takes the focus too)
+	var bar := StyleBoxFlat.new()
+	bar.bg_color = Color(0, 0, 0, 0)
+	bar.border_color = ORANGE
+	bar.border_width_left = 4
+	bar.expand_margin_left = 16
+	t.set_stylebox("focus", "MenuItem", bar)
 	t.set_color("font_color", "MenuItem", MENU_IDLE)
 	t.set_color("font_hover_color", "MenuItem", Color.WHITE)
 	t.set_color("font_focus_color", "MenuItem", Color.WHITE)
@@ -137,9 +156,13 @@ static func theme() -> Theme:
 	fill.content_margin_top = 4
 	fill.content_margin_bottom = 4
 	t.set_stylebox("grabber_area", "HSlider", fill)
-	t.set_stylebox("grabber_area_highlight", "HSlider", fill)
+	# (a Slider has no focus box: it draws the highlight below while it has the focus or the mouse)
+	var fill_hi := box(ORANGE, Color(0, 0, 0, 0), 0, 4, 0)
+	fill_hi.content_margin_top = 4
+	fill_hi.content_margin_bottom = 4
+	t.set_stylebox("grabber_area_highlight", "HSlider", fill_hi)
 	t.set_icon("grabber", "HSlider", _img_icon("grab", 22, 22, _disc(Color8(200, 200, 200), 9.5)))
-	t.set_icon("grabber_highlight", "HSlider", _img_icon("grab_h", 22, 22, _disc(Color.WHITE, 10.5)))
+	t.set_icon("grabber_highlight", "HSlider", _img_icon("grab_h", 26, 26, _ring(12.0, 3.0)))
 	t.set_icon("tick", "HSlider", _img_icon("tick", 4, 10, func(_x, _y, _w, _h): return Color(1, 1, 1, 0.35)))
 	t.set_constant("center_grabber", "HSlider", 0)
 	# dropdowns
@@ -159,14 +182,14 @@ static func theme() -> Theme:
 	t.set_icon("checked", "CheckButton", _img_icon("sw_on", 44, 22, _switch(true, false)))
 	t.set_icon("unchecked", "CheckButton", _img_icon("sw_off", 44, 22, _switch(false, false)))
 	for st in ["normal", "hover", "pressed", "focus", "hover_pressed"]:
-		t.set_stylebox(st, "CheckButton", StyleBoxEmpty.new() if st != "focus" else box(Color(0, 0, 0, 0), ORANGE, 1, 3, 4))
+		t.set_stylebox(st, "CheckButton", StyleBoxEmpty.new() if st != "focus" else box(Color(0, 0, 0, 0), ORANGE, 2, 3, 4))
 	t.set_color("font_color", "CheckButton", TEXT)
 	t.set_color("font_hover_color", "CheckButton", Color.WHITE)
 	# tabs
 	t.set_stylebox("tab_selected", "TabBar", _tab(true))
 	t.set_stylebox("tab_unselected", "TabBar", _tab(false))
 	t.set_stylebox("tab_hovered", "TabBar", _tab(false, true))
-	t.set_stylebox("tab_focus", "TabBar", box(Color(0, 0, 0, 0), ORANGE, 1, 2, 4))
+	t.set_stylebox("tab_focus", "TabBar", box(Color(0, 0, 0, 0), ORANGE, 2, 2, 4))
 	t.set_color("font_selected_color", "TabBar", Color.WHITE)
 	t.set_color("font_unselected_color", "TabBar", TEXT_DIM)
 	t.set_color("font_hovered_color", "TabBar", Color.WHITE)
@@ -190,7 +213,7 @@ static func theme() -> Theme:
 	t.set_font_size("font_size", "LineEdit", 17)
 	# server list (VGUI ListPanel look)
 	t.set_stylebox("panel", "Tree", box(Color(0, 0, 0, 0.45), Color(1, 1, 1, 0.12), 1, 2, 4))
-	t.set_stylebox("focus", "Tree", box(Color(0, 0, 0, 0), Color(1, 1, 1, 0.12), 1, 2, 4))
+	t.set_stylebox("focus", "Tree", box(Color(0, 0, 0, 0), ORANGE, 2, 2, 4))
 	t.set_stylebox("selected", "Tree", box(Color(ORANGE.r, ORANGE.g, ORANGE.b, 0.55), Color(0, 0, 0, 0), 0, 0, 2))
 	t.set_stylebox("selected_focus", "Tree", box(Color(ORANGE.r, ORANGE.g, ORANGE.b, 0.7), Color(0, 0, 0, 0), 0, 0, 2))
 	t.set_stylebox("title_button_normal", "Tree", box(Color(1, 1, 1, 0.08), Color(0, 0, 0, 0), 0, 0, 6))
@@ -237,6 +260,25 @@ static func _sounds(c: Control) -> void:
 		(c as BaseButton).pressed.connect(func(): Game.play_ui("res://assets/sound/ui/buttonclickrelease.wav", -5.0))
 
 
+## Hover takes the focus, but only while the mouse is the device in use: a cursor left resting
+## (hidden) over a list the pad or the keyboard scrolls never pulls the focus away.
+static func hover_focus(c: Control) -> void:
+	c.mouse_entered.connect(func():
+		if InputPrompts.mouse_active() and c.focus_mode != Control.FOCUS_NONE and c.is_visible_in_tree():
+			c.grab_focus())
+
+
+## A line of text with the player's input icons in it ("Hold {accelerate} at GO"): PromptLabel in
+## the menus' Verdana.
+static func prompt(text: String, size := 17, color := TEXT, bold := false, wrap_w := 0.0) -> PromptLabel:
+	var l := PromptLabel.new(text, size, color)
+	l.add_theme_font_override("normal_font", font(bold))
+	if wrap_w > 0.0:
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.custom_minimum_size.x = wrap_w
+	return l
+
+
 ## Main-menu entry: one highlight at a time (mouse hover moves keyboard focus).
 static func menu_item(text: String) -> Button:
 	var b := Button.new()
@@ -244,7 +286,7 @@ static func menu_item(text: String) -> Button:
 	b.theme_type_variation = "MenuItem"
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	b.focus_mode = Control.FOCUS_ALL
-	b.mouse_entered.connect(b.grab_focus)
+	hover_focus(b)
 	b.focus_entered.connect(func(): Game.play_ui("res://assets/sound/ui/buttonrollover.wav", -8.0))
 	b.pressed.connect(func(): Game.play_ui("res://assets/sound/ui/buttonclickrelease.wav", -5.0))
 	return b
@@ -272,8 +314,10 @@ static func row(title: String, control: Control, title_w := 260) -> HBoxContaine
 	return h
 
 
-## Slider with a live value readout. `fmt` gets the value.
-static func slider(min_v: float, max_v: float, step: float, value: float, on_change: Callable, fmt := "%d") -> HBoxContainer:
+## Slider with a live value readout. `fmt` gets the value. The readout turns orange while the
+## slider has the focus; a held D-pad or stick repeats the step (Godot's Slider does that).
+static func slider(min_v: float, max_v: float, step: float, value: float, on_change: Callable, fmt := "%d",
+		min_w := 220) -> HBoxContainer:
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 14)
 	var s := HSlider.new()
@@ -283,7 +327,7 @@ static func slider(min_v: float, max_v: float, step: float, value: float, on_cha
 	s.value = value
 	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	s.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	s.custom_minimum_size = Vector2(220, 24)
+	s.custom_minimum_size = Vector2(min_w, 24)
 	s.focus_mode = Control.FOCUS_ALL
 	var steps := int(round((max_v - min_v) / step))
 	if steps <= 10:
@@ -297,6 +341,8 @@ static func slider(min_v: float, max_v: float, step: float, value: float, on_cha
 	s.value_changed.connect(func(x: float):
 		v.text = fmt % x
 		on_change.call(x))
+	s.focus_entered.connect(func(): v.add_theme_color_override("font_color", ORANGE))
+	s.focus_exited.connect(func(): v.add_theme_color_override("font_color", Color.WHITE))
 	s.drag_ended.connect(func(_c): Game.play_ui("res://assets/sound/ui/buttonclick.wav", -10.0))
 	return h
 

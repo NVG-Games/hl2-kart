@@ -2,13 +2,13 @@ class_name ServerBrowser
 extends Dialog
 ## FIND SERVERS, laid out like the Half-Life server browser: INTERNET (the
 ## master server's list), FAVORITES, HISTORY and LAN (broadcast). Every server
-## is queried for its name, players, status and latency.
+## is queried for its name, players, status and latency. With a pad: LB / RB switch the lists,
+## the D-pad picks a server (its address and players show under the list), A joins, Y refreshes.
 
 signal join_requested(address: String, port: int, password: String)
 
 const TABS := ["INTERNET", "FAVORITES", "HISTORY", "LAN"]
 
-var tabs: TabBar
 var list: Tree
 var status: Label
 var finder: ServerFinder
@@ -68,6 +68,7 @@ func _ready() -> void:
 		list.set_column_expand(i, i == 1)
 	list.item_activated.connect(_connect_selected)
 	list.item_selected.connect(_update_buttons)
+	list.item_selected.connect(_show_selected)
 	body.add_child(list)
 	status = UiKit.label("", 15, UiKit.TEXT_DIM)
 	body.add_child(status)
@@ -90,8 +91,49 @@ func _ready() -> void:
 		Game.play_ui("res://assets/sound/ui/buttonclick.wav", -10.0)
 		_refresh())
 	tabs.current_tab = 3 if str(Game.settings.get("master_server", "")) == "" else 0
+	set_prompts([["{ui_accept} SELECT"], ["{ui_cancel} BACK"], ["{ui_select} REFRESH", "pad"]])
+	# A connects only from a row of the list; elsewhere it picks
+	list.focus_entered.connect(_hints.bind(true))
+	list.focus_exited.connect(_hints.bind(false))
+	default_focus = tabs
 	_refresh()
 	tabs.grab_focus.call_deferred()
+
+
+func _hints(on_list: bool) -> void:
+	var first := prompt_bar.get_child(0) as PromptLabel if prompt_bar.get_child_count() > 0 else null
+	if first and not is_queued_for_deletion():
+		first.prompt = "{ui_accept} CONNECT" if on_list else "{ui_accept} SELECT"
+
+
+## A pad's Y (north) refreshes the list: taken before the list itself, which would eat it.
+func _input(event: InputEvent) -> void:
+	super(event)
+	if event is InputEventJoypadButton and event.is_action_pressed("ui_select") and is_top() and is_visible_in_tree():
+		get_viewport().set_input_as_handled()
+		Game.play_ui("res://assets/sound/ui/buttonclickrelease.wav", -5.0)
+		_refresh()
+
+
+## What only the row's tooltip told (a pad never shows tooltips): the address and who is on.
+func _show_selected() -> void:
+	var it := list.get_selected()
+	if it == null:
+		return
+	var m: Dictionary = it.get_metadata(0)
+	var who: Array = m.get("list", [])
+	status.text = "%s:%d%s" % [m.get("address", ""), int(m.get("port", 0)),
+		("  ·  " + ", ".join(PackedStringArray(who))) if not who.is_empty() else ""]
+
+
+## A connection that failed: the reason under the list, the list still open. The focus goes to the
+## list when nothing in the browser has it (the CONNECTING box that had it is going away).
+func show_error(text: String) -> void:
+	_wait = 0.0
+	status.text = text
+	var f := get_viewport().gui_get_focus_owner()
+	if f == null or f.is_queued_for_deletion() or not is_ancestor_of(f):
+		list.grab_focus.call_deferred()
 
 
 func _process(delta: float) -> void:
@@ -192,7 +234,7 @@ func _on_found(info: Dictionary) -> void:
 	it.set_custom_color(0, UiKit.ORANGE)
 	it.set_tooltip_text(1, "%s:%d\n%s" % [info["address"], int(info.get("port", 0)), ", ".join(PackedStringArray(info.get("list", [])))])
 	it.set_metadata(0, {"address": info["address"], "port": int(info.get("port", Net.DEFAULT_PORT)), "locked": info.get("locked", false),
-		"alive": true, "compatible": ok, "name": info.get("name", ""), "key": key})
+		"alive": true, "compatible": ok, "name": info.get("name", ""), "key": key, "list": info.get("list", [])})
 	_update_status()
 	_update_buttons()
 

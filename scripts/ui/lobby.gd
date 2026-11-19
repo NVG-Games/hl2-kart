@@ -2,7 +2,8 @@ class_name Lobby
 extends Control
 ## Multiplayer lobby: pick a racer and a vehicle, see who is here (ping,
 ## ready), chat. The host sets the rules and starts; when everyone is READY
-## the race starts by itself after a short countdown.
+## the race starts by itself after a short countdown. With a pad: Start toggles READY, B asks
+## before it leaves (the host's leaving stops the server), the right stick scrolls the chat.
 
 signal leave_requested
 
@@ -18,6 +19,8 @@ var status_label: Label
 var title_label: Label
 var sub_label: Label
 var address_label: Label
+var leave_button: Button
+var _confirm: MessageBox
 var _racer := 0
 var _vehicle := 0
 var _is_ready := false
@@ -27,6 +30,7 @@ func _ready() -> void:
 	theme = UiKit.theme()
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	add_to_group(InputPrompts.SCREEN_GROUP)
 	var shade := ColorRect.new()
 	shade.color = Color(0, 0, 0, 0.6)
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -65,6 +69,7 @@ func _ready() -> void:
 	left.add_theme_constant_override("separation", 10)
 	main.add_child(left)
 	picker = RacerPicker.new(100, 84)
+	picker.lock_edges(true, false)
 	left.add_child(picker)
 	picker.racer_picked.connect(func(i: int):
 		_racer = i
@@ -89,7 +94,7 @@ func _ready() -> void:
 	chat_scroll.add_child(chat_log)
 	var bar := chat_scroll.get_v_scroll_bar()
 	bar.changed.connect(func(): chat_scroll.scroll_vertical = int(bar.max_value))
-	chat_edit = UiKit.text_field("", "Say something...  (Enter)", func(_t): pass, 300)
+	chat_edit = UiKit.text_field("", "", func(_t): pass, 300)
 	chat_edit.max_length = 160
 	chat_edit.text_submitted.connect(func(t: String):
 		Net.say(t)
@@ -115,6 +120,7 @@ func _ready() -> void:
 	# the rules scroll if the window is very short, so the buttons below always stay on screen
 	var rscroll := ScrollContainer.new()
 	rscroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	rscroll.follow_focus = true
 	rframe.add_child(rscroll)
 	rules_box = VBoxContainer.new()
 	rules_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -124,9 +130,9 @@ func _ready() -> void:
 	var brow := HBoxContainer.new()
 	brow.add_theme_constant_override("separation", 14)
 	col.add_child(brow)
-	var leave := UiKit.button("STOP SERVER" if Net.is_server else "LEAVE", 200)
-	leave.pressed.connect(func(): leave_requested.emit())
-	brow.add_child(leave)
+	leave_button = UiKit.button("STOP SERVER" if Net.is_server else "LEAVE", 200)
+	leave_button.pressed.connect(_ask_leave)
+	brow.add_child(leave_button)
 	status_label = UiKit.label("", 20, Hl2Style.BRIGHT, true)
 	status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -150,6 +156,9 @@ func _ready() -> void:
 	start_button.pressed.connect(func(): Net.start_race_now())
 	start_button.visible = Net.is_server
 	brow.add_child(start_button)
+	var hints := PromptBar.new([["{ui_accept} SELECT"], ["{ui_cancel} %s" % ("STOP SERVER" if Net.is_server else "LEAVE")],
+		["{pause} READY", "pad"], ["{chat} CHAT", "key"]])
+	col.add_child(hints)
 	# my current profile
 	var me: Dictionary = Net.players.get(Net.my_id(), {})
 	_racer = _index_of(Game.CHARACTERS, me.get("character", Game.settings["character"]))
@@ -165,7 +174,39 @@ func _ready() -> void:
 	_rebuild_players()
 	_send_profile()
 	_add_chat("", "Welcome to %s. Pick a racer and a vehicle, then press READY." % Net.cfg.get("name", "the server"), "info")
+	_update_chat_hint()
+	InputPrompts.prompts_changed.connect(_update_chat_hint)
 	ready_button.grab_focus.call_deferred()
+
+
+## The safety net (InputPrompts): READY.
+func focus_default() -> bool:
+	if not is_visible_in_tree():
+		return false
+	ready_button.grab_focus()
+	return true
+
+
+## Typing needs a keyboard: the chat field says so while a pad is in use.
+func _update_chat_hint() -> void:
+	chat_edit.placeholder_text = "Chat needs a keyboard" if InputPrompts.using_pad() else "Say something...  (Enter)"
+
+
+## LEAVE / STOP SERVER and B: asked first, with CANCEL focused (B is a reflex on a pad, and the
+## host's leaving ends the server for everyone).
+func _ask_leave() -> void:
+	if _confirm and is_instance_valid(_confirm):
+		return
+	if Net.is_server:
+		_confirm = MessageBox.new("STOP SERVER", "Stop the server? Everyone in it is disconnected.", false, false, "STOP SERVER", "CANCEL")
+	else:
+		_confirm = MessageBox.new("LEAVE", "Leave the lobby?", false, false, "LEAVE", "CANCEL")
+	_confirm.focus_cancel = true
+	_confirm.answered.connect(func(ok: bool, _t: String):
+		_confirm = null
+		if ok:
+			leave_requested.emit())
+	add_child(_confirm)
 
 
 func _index_of(list: Array, id: String) -> int:
@@ -183,9 +224,15 @@ func _send_profile() -> void:
 	Net.set_profile(c, v, _is_ready)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if Net.autostart_left >= 0.0:
 		_update_status()
+	# the right stick scrolls the chat (nothing else in the lobby uses it)
+	var pad := InputPrompts.active_pad()
+	if pad >= 0 and InputPrompts.using_pad():
+		var ry := Input.get_joy_axis(pad, JOY_AXIS_RIGHT_Y)
+		if absf(ry) > 0.25:
+			chat_scroll.scroll_vertical += int(ry * 700.0 * delta)
 
 
 func _update_status() -> void:
@@ -203,6 +250,10 @@ func _update_status() -> void:
 
 # ---------------------------------------------------------------- players
 func _rebuild_players() -> void:
+	# the host's focus on a KICK button stays on that player's row (the rows are rebuilt on every
+	# ping change, every 2 s)
+	var f := get_viewport().gui_get_focus_owner() if is_inside_tree() else null
+	var kick_id: int = f.get_meta("kick_id", -1) if f and players_box.is_ancestor_of(f) else -1
 	for n in players_box.get_children():
 		n.queue_free()
 	var ids: Array = Net.players.keys()
@@ -217,6 +268,16 @@ func _rebuild_players() -> void:
 		var empty := UiKit.label("      open slot" if i >= bots else "      bot", 16, Color(1, 1, 1, 0.25))
 		empty.custom_minimum_size.y = 34
 		players_box.add_child(empty)
+	if kick_id >= 0:
+		var again: Control = null
+		for row in players_box.get_children():
+			for c in row.get_children():
+				if c is Button and int(c.get_meta("kick_id", -1)) == kick_id and not row.is_queued_for_deletion():
+					again = c
+		if again:
+			again.grab_focus()
+		else:
+			ready_button.grab_focus()
 	_update_status()
 
 
@@ -254,6 +315,7 @@ func _player_row(id: int, p: Dictionary) -> Control:
 	if Net.is_server and id != 1:
 		var kick := UiKit.button("KICK", 70)
 		kick.custom_minimum_size.y = 34
+		kick.set_meta("kick_id", id)
 		kick.pressed.connect(func(): Net.kick(id))
 		h.add_child(kick)
 	return h
@@ -309,13 +371,18 @@ func _build_rules() -> void:
 		track.set_item_disabled(i, not Game.track_installed(Game.TRACKS[i]["id"]))
 	rules_box.add_child(UiKit.row("Track", track, w))
 	if not host:
-		# everyone sees the rules; only the host changes them
+		# everyone sees the rules; only the host changes them (and the D-pad passes them by)
 		for c in [mp, grid, laps]:
-			((c as HBoxContainer).get_child(0) as HSlider).editable = false
+			var s := (c as HBoxContainer).get_child(0) as HSlider
+			s.editable = false
+			s.focus_mode = Control.FOCUS_NONE
 		bots.disabled = true
 		track.disabled = true
+		for c: Control in [bots, track]:
+			c.focus_mode = Control.FOCUS_NONE
 		for b in diff.get_children() + hazards.get_children():
 			(b as Button).disabled = true
+			(b as Button).focus_mode = Control.FOCUS_NONE
 
 
 # ---------------------------------------------------------------- chat
@@ -332,6 +399,21 @@ func _add_chat(nick: String, text: String, kind: String) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_cancel") and not chat_edit.has_focus():
+	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
-		leave_requested.emit()
+		if chat_edit.has_focus():
+			# in the chat field: B / Esc clears what was typed, then leaves the field
+			if chat_edit.text != "":
+				chat_edit.clear()
+			else:
+				chat_edit.unedit()
+				ready_button.grab_focus()
+			return
+		_ask_leave()
+	elif event is InputEventJoypadButton and event.is_action_pressed("pause"):
+		get_viewport().set_input_as_handled()
+		ready_button.button_pressed = not ready_button.button_pressed
+	elif event.is_action_pressed("chat") and not chat_edit.has_focus():
+		# Y / T: straight to the chat field, as in the race
+		get_viewport().set_input_as_handled()
+		chat_edit.grab_focus()

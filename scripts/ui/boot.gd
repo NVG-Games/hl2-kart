@@ -4,7 +4,9 @@ extends Control
 ## models, textures, sounds and tracks from them, then restarts into the menu.
 ## Built from engine defaults only (the HL2 fonts do not exist yet).
 ## When both games are found the build starts by itself after a short pause
-## ("--setup-now" on the command line skips the pause).
+## ("--setup-now" on the command line skips the pause). A pad works here too: the focus sits on
+## BUILD when it can start, else on the first CHOOSE FOLDER (Windows' folder picker itself needs
+## the mouse), or QUIT without Python.
 
 const ORANGE := Color8(255, 155, 0)
 const DIM := Color(1, 1, 1, 0.6)
@@ -13,6 +15,8 @@ var _python := ""
 var _paths := {"hl2": "", "hl1": "", "hl2_ok": false, "hl1_ok": false}
 var _rows := {}
 var _build: Button
+var _quit: Button
+var _choose_buttons: Array[Button] = []
 var _bar: ProgressBar
 var _status: Label
 var _error: Label
@@ -29,6 +33,7 @@ func _ready() -> void:
 	if Game.content_ready():
 		get_tree().change_scene_to_file.call_deferred("res://scenes/main.tscn")
 		return
+	add_to_group(InputPrompts.SCREEN_GROUP)
 	_status_path = ProjectSettings.globalize_path("user://setup_status.json")
 	_log_path = ProjectSettings.globalize_path("user://setup.log")
 	_build_ui()
@@ -93,7 +98,9 @@ func _build_ui() -> void:
 		path_l.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
 		grid.add_child(path_l)
 		var k: String = key
-		grid.add_child(_button("CHOOSE FOLDER...", func(): _choose(k)))
+		var choose := _button("CHOOSE FOLDER...", func(): _choose(k))
+		grid.add_child(choose)
+		_choose_buttons.append(choose)
 		_rows[key] = path_l
 	_bar = ProgressBar.new()
 	_bar.custom_minimum_size.y = 26
@@ -117,7 +124,8 @@ func _build_ui() -> void:
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(spacer)
-	row.add_child(_button("QUIT", func(): get_tree().quit()))
+	_quit = _button("QUIT", func(): get_tree().quit())
+	row.add_child(_quit)
 	col.add_child(_label("Free fan project, not affiliated with Valve. Half-Life content belongs to Valve Corporation. "
 		+ "github.com/" + Game.repo, 14, Color(1, 1, 1, 0.35)))
 
@@ -139,6 +147,7 @@ func _detect() -> void:
 		_error.text = "Python with numpy and Pillow was not found. The download from GitHub Releases includes it; " \
 			+ "when running from source, install Python 3 and run: pip install numpy pillow"
 		_build.disabled = true
+		focus_default.call_deferred()
 		return
 	var out := []
 	var args := [ProjectSettings.globalize_path("res://tools/steam_paths.py"), "--json"]
@@ -157,9 +166,26 @@ func _refresh() -> void:
 	for k in ["hl2", "hl1"]:
 		var ok: bool = _paths[k + "_ok"]
 		var l: Label = _rows[k]
-		l.text = ("✔  " + str(_paths[k])) if ok else "not found  (install it on Steam, or choose its folder)"
+		l.text = ("✔  " + str(_paths[k])) if ok else "not found  (install it on Steam, or choose its folder with the mouse)"
 		l.add_theme_color_override("font_color", Color(0.6, 1.0, 0.6) if ok else Color(1, 0.55, 0.45))
 	_build.disabled = _python == "" or not (_paths["hl2_ok"] and _paths["hl1_ok"]) or _pid > 0
+	if _pid <= 0:
+		focus_default.call_deferred()
+
+
+## The focus for a pad or the keyboard (also the safety net's, InputPrompts): BUILD when it can
+## start, else the first game's CHOOSE FOLDER that is still missing, or QUIT without Python.
+func focus_default() -> bool:
+	if _build == null or not is_visible_in_tree():
+		return false
+	if not _build.disabled:
+		_build.grab_focus()
+	elif _python == "" or _pid > 0:
+		_quit.grab_focus()
+	else:
+		var i := 0 if not _paths["hl2_ok"] else 1
+		_choose_buttons[i].grab_focus()
+	return true
 
 
 func _choose(key: String) -> void:

@@ -78,7 +78,7 @@ class Runner:
 		menu.setup.back.emit()
 		var o := OptionsPanel.new()
 		menu._open(o)
-		for i in 3:
+		for i in o.pages.size():
 			o._show_tab(i)
 			await _check("options_%d" % i)
 		o.close()

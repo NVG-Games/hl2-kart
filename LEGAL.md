@@ -35,6 +35,8 @@ change and share it for any non-commercial purpose.
 ## Third-party software
 
 - [Godot Engine](https://godotengine.org) 4.7, MIT license.
+- Button and key icons: [Input Prompts](https://kenney.nl/assets/input-prompts) by Kenney
+  (www.kenney.nl), CC0 1.0 (public domain), in `art/input_prompts/` with its `License.txt`.
 - License text: [PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0)
   by the PolyForm Project.
 

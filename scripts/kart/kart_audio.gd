@@ -138,6 +138,7 @@ func _process(delta: float) -> void:
 	if kart.grounded:
 		if _was_air > 0.45:
 			Game.play_3d([V8 + "vehicle_rollover1.wav", V8 + "vehicle_rollover2.wav"], global_position, -4.0, 1.0, 10.0)
+			kart.rumble(0.1, clampf(_was_air * 0.5, 0.2, 0.7), 0.15)
 		_was_air = 0.0
 	else:
 		_was_air = kart.air_time

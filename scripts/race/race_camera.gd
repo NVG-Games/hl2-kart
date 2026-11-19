@@ -36,6 +36,9 @@ func _ready() -> void:
 
 func shake(amount: float) -> void:
 	_shake = maxf(_shake, amount)
+	# an explosion or a hazard's stomp near the player's kart is felt in the pad too
+	if target and amount > 0.1:
+		target.rumble(amount * 0.5, amount, 0.15 + amount * 0.3)
 
 
 ## A rescuer takes this camera's kart (Rescuer._flash: the scanner's photo, a teleport, a Xen

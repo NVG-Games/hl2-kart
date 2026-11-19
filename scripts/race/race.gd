@@ -36,10 +36,10 @@ var net_t0 := -1.0  # online: the server's clock at GO (the start, the race time
 var _net_begun := false  # online: the server has started the race (net_begin)
 var _card: CanvasLayer  # the loading card over the first frames (WARMUP_FRAMES)
 var _warm := 0
+var _phys_frame := -1  # the physics frame of the last _physics_process (a pause leaves a gap)
 
 
 func _ready() -> void:
-	PlayerController.setup_input_map()
 	online = Net.active and Net.state == "race"
 	laps = int(Game.race_setting("laps"))
 	demo = Game.settings.get("demo", false) and not online
@@ -314,6 +314,11 @@ func _place_on_grid(k: Kart) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	# back from a pause (physics frames went by without this): the press that closed the pause
+	# menu (A, Enter, B) is not a press for the race
+	var frame := Engine.get_physics_frames()
+	var resumed := _phys_frame >= 0 and frame - _phys_frame > 1
+	_phys_frame = frame
 	_bump_karts()
 	if _phase == "intro" or _phase == "count":
 		_update_standings()
@@ -334,7 +339,9 @@ func _physics_process(delta: float) -> void:
 			if _countdown > 0.4 and _countdown < INTRO_TIME and not has_meta("intro_voice") and player:
 				set_meta("intro_voice", true)
 				player.audio.say("start", true)
-			if _countdown > INTRO_TIME or (Input.is_action_just_pressed("use_item") and not online):
+			# offline the intro skips on confirm (A / Enter, the HUD's prompt) or use item
+			if _countdown > INTRO_TIME or (not online and not resumed and (Input.is_action_just_pressed("ui_accept") \
+					or Input.is_action_just_pressed("use_item"))):
 				_phase = "count"
 				_countdown = clock + COUNT_TIME if shared else 0.0
 				if camera:
@@ -351,6 +358,8 @@ func _physics_process(delta: float) -> void:
 					Game.play_ui("res://assets/sound/hl1/fvox/beep.wav", -8.0)
 					if hud:
 						hud.big_text(str(3 - i), 0.9)
+					if player:
+						player.rumble(0.15, 0.0, 0.08)
 			# rocket start: hold accelerate during the last count
 			if _countdown > 2.0 and _countdown < COUNT_TIME:
 				if Input.get_action_strength("accelerate") > 0.5 and not input_blocked:
@@ -366,12 +375,15 @@ func _physics_process(delta: float) -> void:
 				Game.play_ui("res://assets/sound/buttons/combine_button7.wav", 0.0)
 				if hud:
 					hud.big_text("GO!", 1.0)
+				if player:
+					player.rumble(0.35, 0.35, 0.2)
 				for k in karts:
 					k._lap_start = 0.0
 					if k.remote:
 						continue
 					if k == player and k.is_player and _rocket_ok:
 						k.boost(1.2, 1.0)
+						k.rumble(0.5, 0.6, 0.35)
 					elif not k.is_player and randf() < 0.6:
 						k.boost(0.8, 0.8)
 		"race", "done":
@@ -435,6 +447,9 @@ func _bump_karts() -> void:
 			if -vrel > 3.0 and Time.get_ticks_msec() > int(_bump_cd.get(key, 0)):
 				_bump_cd[key] = Time.get_ticks_msec() + 400
 				a.audio.impact(-vrel * 1.5)
+				var buzz := clampf(-vrel / 12.0, 0.15, 0.5)
+				a.rumble(0.2, buzz, 0.1)
+				b.rumble(0.2, buzz, 0.1)
 			# HEV overcharge flattens whoever it touches, once: a kart it has already sent tumbling is
 			# not thrown again on each physics step the two still touch (each throw added its own
 			# push, and a kart held against it was flung on at up to 47 m/s, off a rail-less island)
@@ -501,6 +516,7 @@ func _finish(k: Kart) -> void:
 		camera.mode = RaceCamera.Mode.ORBIT
 		var place := finished_count
 		hud.big_text("FINISH!" if place > 1 else "1ST PLACE!", 3.0)
+		InputPrompts.rumble(0.6 if place == 1 else 0.4, 0.6 if place == 1 else 0.4, 0.6 if place == 1 else 0.4)
 		Game.play_ui("res://assets/sound/friends/friend_join.wav", 0.0)
 		k.audio.say("win" if place <= 3 else "hurt", true)
 		Game.stop_music()
@@ -565,13 +581,19 @@ func _on_kart_hit(k: Kart, by: Kart) -> void:
 func restart() -> void:
 	if online:
 		return
+	InputPrompts.stop_rumble()
 	get_tree().paused = false
 	get_tree().reload_current_scene()
 
 
 func to_menu() -> void:
+	InputPrompts.stop_rumble()
 	get_tree().paused = false
 	Game.stop_music()
 	if online:
 		Net.leave()
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
+
+
+func _exit_tree() -> void:
+	InputPrompts.stop_rumble()

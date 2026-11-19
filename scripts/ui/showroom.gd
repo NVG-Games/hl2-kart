@@ -1,12 +1,14 @@
 class_name Showroom
 extends SubViewportContainer
-## Live 3D preview of a racer standing next to their chosen (tinted) vehicle.
+## Live 3D preview of a racer standing next to their chosen (tinted) vehicle. A pad's right
+## stick turns it round (the D-pad and the left stick move the menu's focus).
 
 var vp: SubViewport
 var stage: Node3D
 var turntable: Node3D
 var cam: Camera3D
 var _t := 0.0
+var _spin := 0.0  # the right stick's turn on top of the slow sway
 
 
 func _init(px: Vector2i) -> void:
@@ -93,4 +95,9 @@ func show_character(c: Dictionary, index: int, vehicle_id := "buggy") -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
-	turntable.rotation.y = sin(_t * 0.35) * 0.3
+	var pad := InputPrompts.active_pad()
+	if pad >= 0 and InputPrompts.using_pad():
+		var rx := Input.get_joy_axis(pad, JOY_AXIS_RIGHT_X)
+		if absf(rx) > 0.2:
+			_spin = wrapf(_spin + rx * delta * 2.5, -PI, PI)
+	turntable.rotation.y = sin(_t * 0.35) * 0.3 + _spin

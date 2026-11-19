@@ -1,7 +1,8 @@
 extends Node3D
 ## Main menu in the manner of Half-Life 2's GameUI: a full-screen scene
 ## (sharp in-game stills, slow drift and cross-fade), the HALF-LIFE² logo,
-## a short column of Verdana menu entries, a now-playing strip.
+## a short column of Verdana menu entries, a now-playing strip. B on the menu goes to QUIT (it
+## does not quit); a pad plugged in or pulled out shows a note in the top right corner.
 
 ## the stills behind the menu (tests/render_ui_assets): Highway 17's own shots, then every other
 ## track's (named by its id, Game.TRACKS) that has been rendered
@@ -20,6 +21,9 @@ var setup: RaceSetup
 var lobby: Lobby
 var dialog: Dialog
 var _connecting: MessageBox
+var _toast: PanelContainer
+var _toast_label: Label
+var _toast_tween: Tween
 var _bg_index := 0
 var _bg_t := 0.0
 var _textures: Array[Texture2D] = []
@@ -28,8 +32,8 @@ var _textures: Array[Texture2D] = []
 func _ready() -> void:
 	if Net.headless_role():
 		return
-	PlayerController.setup_input_map()
 	Game.settings["demo"] = false
+	add_to_group(InputPrompts.SCREEN_GROUP)
 	ui = CanvasLayer.new()
 	add_child(ui)
 	root = Control.new()
@@ -53,6 +57,9 @@ func _ready() -> void:
 	now_playing.open_soundtrack.connect(func(): _open(SoundtrackPanel.new()))
 	root.add_child(now_playing)
 	_build_version()
+	_build_toast()
+	InputPrompts.pad_connected.connect(_on_pad_connected)
+	InputPrompts.pad_disconnected.connect(_on_pad_disconnected)
 	if Game.now_playing == "":
 		Game.play_music_mode("menu")
 	Net.joined.connect(_on_joined)
@@ -198,8 +205,14 @@ func _build_version() -> void:
 	col.add_theme_constant_override("separation", 8)
 	root.add_child(col)
 	update_box = col
+	# the version, and with a pad what confirms (the first screen a pad player sees)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 30)
+	col.add_child(row)
 	var ver := UiKit.label("v" + Game.version, 14, Color(1, 1, 1, 0.4))
-	col.add_child(ver)
+	ver.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(ver)
+	row.add_child(PromptBar.new([["{ui_accept} SELECT", "pad"]]))
 	var up := Updater.new()
 	add_child(up)
 	up.update_available.connect(func(new_version: String, url: String):
@@ -209,6 +222,67 @@ func _build_version() -> void:
 		col.add_child(b)
 		col.move_child(b, 0))
 	up.check()
+
+
+## The safety net (InputPrompts): the first entry, while the menu shows (NEW RACE and the lobby
+## have their own).
+func focus_default() -> bool:
+	if items == null or not items.visible or items.get_child_count() == 0:
+		return false
+	(items.get_child(0) as Control).grab_focus()
+	return true
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	# B on the main menu itself: to QUIT, as on a console (a second press is up to the player)
+	if items and items.visible and event.is_action_pressed("ui_cancel") and (dialog == null or not is_instance_valid(dialog)):
+		get_viewport().set_input_as_handled()
+		var quit := items.get_child(items.get_child_count() - 1) as Control
+		if not quit.has_focus():
+			quit.grab_focus()
+
+
+# ---------------------------------------------------------------- pad notes
+func _build_toast() -> void:
+	_toast = PanelContainer.new()
+	_toast.add_theme_stylebox_override("panel", UiKit.box(Color(0, 0, 0, 0.72), Color(1, 1, 1, 0.1), 1, 4, 14))
+	# top right: no dialog reaches the screen's top there (bottom right it hid CLOSE and DONE)
+	_toast.anchor_left = 1.0
+	_toast.anchor_right = 1.0
+	_toast.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_toast.offset_left = -36
+	_toast.offset_right = -36
+	_toast.offset_top = 24
+	_toast.offset_bottom = 24
+	_toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_toast.visible = false
+	_toast_label = UiKit.label("", 16, Hl2Style.BRIGHT, true)
+	_toast.add_child(_toast_label)
+	ui.add_child(_toast)
+
+
+## A short note top right (over NEW RACE and the lobby too) that fades after a few seconds.
+func toast(text: String) -> void:
+	if _toast == null:
+		return
+	_toast_label.text = text
+	_toast.visible = true
+	_toast.modulate.a = 1.0
+	if _toast_tween:
+		_toast_tween.kill()
+	_toast_tween = create_tween()
+	_toast_tween.tween_interval(3.0)
+	_toast_tween.tween_property(_toast, "modulate:a", 0.0, 0.6)
+	_toast_tween.tween_callback(func(): _toast.visible = false)
+
+
+func _on_pad_connected(_device: int, pad_name: String) -> void:
+	toast("%s connected" % (pad_name if pad_name != "" else "Controller"))
+	Game.play_ui("res://assets/sound/buttons/blip1.wav", -8.0)
+
+
+func _on_pad_disconnected(_device: int, pad_name: String) -> void:
+	toast("%s disconnected" % (pad_name if pad_name != "" else "Controller"))
 
 
 func _set_menu_visible(v: bool) -> void:
@@ -287,7 +361,7 @@ func _open_create() -> void:
 
 func _join(address: String, port: int, password: String) -> void:
 	if Net.join(address, port, password) != OK:
-		_message("CONNECT", Net.last_error)
+		_connect_error("CONNECT", Net.last_error)
 		return
 	_connecting = MessageBox.new("CONNECTING", "Connecting to %s:%d ..." % [address, port], false, false, "", "CANCEL")
 	_connecting.answered.connect(func(_ok, _t):
@@ -296,11 +370,15 @@ func _join(address: String, port: int, password: String) -> void:
 	root.add_child(_connecting)
 
 
+## The CONNECTING box goes (without answering: that would leave the server); the focus goes back
+## where it was before it opened (the browser's list or CONNECT).
 func _close_connecting() -> void:
 	if _connecting and is_instance_valid(_connecting):
 		var c := _connecting
 		_connecting = null
-		c.queue_free()
+		for con in c.answered.get_connections():
+			c.answered.disconnect(con["callable"])
+		c.close()
 
 
 func _on_joined() -> void:
@@ -312,7 +390,16 @@ func _on_joined() -> void:
 
 func _on_connect_failed(reason: String) -> void:
 	_close_connecting()
-	_message("COULD NOT CONNECT", reason)
+	_connect_error("COULD NOT CONNECT", reason)
+
+
+## A failed connection: said under FIND SERVERS' list when it is open (the player stays in it),
+## otherwise in a message.
+func _connect_error(title: String, reason: String) -> void:
+	if is_instance_valid(dialog) and dialog is ServerBrowser and not dialog.is_queued_for_deletion():
+		(dialog as ServerBrowser).show_error("%s: %s" % [title.capitalize(), reason])
+	else:
+		_message(title, reason)
 
 
 func _on_left(reason: String) -> void:

@@ -241,13 +241,17 @@ The first start builds the content the same way (or run `python tools/setup_asse
 |---|---|---|
 | Throttle | W / ↑ | A, right trigger |
 | Brake / reverse | S / ↓ | X, left trigger |
-| Steer | A / D, ← / → | left stick |
+| Steer | A / D, ← / → | left stick, D-pad |
 | Jump and drift | Shift / Space | RB |
 | Use item | E / Ctrl / Enter | LB, B |
 | Chat (online) | Y / T | |
 | Look back | C | Y |
 | Call for help | R | Back |
 | Pause | Esc / P | Start |
+
+Gamepad buttons are named as on an Xbox pad here. Any pad works (Xbox, PlayStation, Nintendo
+Switch, Steam Deck and others), and the game shows that pad's own buttons. Every control can be
+changed in Options → Controls.
 
 ## Multiplayer
 
