@@ -14,10 +14,18 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
   vibrates on crashes, boosts, landings, bumps, the countdown and explosions. If the pad you
   are racing with goes away, an offline race pauses until you reconnect it or carry on with the
   keyboard.
-- OPTIONS has a CONTROLS tab: change any key or button (three keyboard and two pad slots per
-  action; a key another action had swaps over), pick the button icons (AUTO or a family),
-  set the vibration strength and the stick's dead zone, and choose whether Nintendo pads confirm
-  with A. RESET TO DEFAULTS puts it all back.
+- OPTIONS has two tabs for the controls, KEYBOARD & MOUSE and CONTROLLER, and both can be set up
+  whatever is plugged in. CONTROLLER draws your pad big (Xbox Series, Xbox 360, PlayStation 3, 4
+  and 5, Switch Pro, Steam Deck or a plain pad) with each button's action written beside it: press
+  a label, then the new button. Two pad buttons per action; a button another action had swaps
+  over. KEYBOARD & MOUSE keeps the table of three keys per action and lights them up on a drawn
+  keyboard and mouse. Ready-made layouts: STANDARD, TRIGGERS, CLASSIC KART and LEFT-HANDED for
+  pads, WASD, ARROWS and ONE HAND for the keyboard. CONTROLLER also sets the button icons, the
+  vibration strength, the stick's dead zone and whether Nintendo pads confirm with A.
+- The pause menu shows your controls beside it, on a picture of the pad in your hands or of the
+  keyboard.
+- A HOW TO DRIVE card shows the controls for the pad or keyboard you are using while a race loads
+  and counts down. OPTIONS > GAME turns it off.
 - The bathtub has thrusters now: two propane tanks along its sides at the back, Garry's Mod
   style, with jets that follow the throttle, go long and blue-white on a boost and roar like
   a rocket.

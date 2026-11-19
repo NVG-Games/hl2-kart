@@ -172,7 +172,7 @@ static func theme() -> Theme:
 	t.set_color("font_color", "OptionButton", TEXT)
 	t.set_font("font", "OptionButton", font(false))
 	t.set_font_size("font_size", "OptionButton", 17)
-	t.set_stylebox("panel", "PopupMenu", box(Color(0.1, 0.1, 0.1, 0.97), Color(1, 1, 1, 0.18), 1, 2, 6))
+	t.set_stylebox("panel", "PopupMenu", box(Color(0.1, 0.1, 0.1, 1.0), Color(1, 1, 1, 0.18), 1, 2, 6))
 	t.set_stylebox("hover", "PopupMenu", box(ORANGE, Color(0, 0, 0, 0), 0, 2, 6))
 	t.set_color("font_hover_color", "PopupMenu", Color.BLACK)
 	t.set_color("font_color", "PopupMenu", TEXT)

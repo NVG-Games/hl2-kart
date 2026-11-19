@@ -120,6 +120,7 @@ var settings := {
 	"race_music": "random",
 	"menu_music": "random",
 	"show_minimap": true,
+	"controls_card": true,  # HOW TO DRIVE (DriveCard) while a race loads and counts down
 	"tutorial_seen": false,
 	"check_updates": true,
 	# controls (InputPrompts, InputBindings)

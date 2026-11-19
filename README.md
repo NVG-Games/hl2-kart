@@ -251,7 +251,8 @@ The first start builds the content the same way (or run `python tools/setup_asse
 
 Gamepad buttons are named as on an Xbox pad here. Any pad works (Xbox, PlayStation, Nintendo
 Switch, Steam Deck and others), and the game shows that pad's own buttons. Every control can be
-changed in Options → Controls.
+changed in Options → Keyboard & mouse and Options → Controller, which draws your pad with each
+button's action and has ready-made layouts.
 
 ## Multiplayer
 

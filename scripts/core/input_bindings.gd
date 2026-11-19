@@ -1,7 +1,8 @@
 class_name InputBindings
 extends RefCounted
 ## The game's actions and what drives them. Built into the InputMap at startup (InputPrompts) and
-## again on every change in OPTIONS > CONTROLS. A binding is kept as a short string, a "spec":
+## again on every change in OPTIONS (KEYBOARD & MOUSE, CONTROLLER). A binding is kept as a short
+## string, a "spec":
 ##   "k<physical keycode>"  a key (where it sits on the keyboard, so WASD stays WASD on AZERTY)
 ##   "m<mouse button>"      a mouse button
 ##   "b<pad button>"        a pad button, by position (JOY_BUTTON_A = the bottom face button)
@@ -18,7 +19,7 @@ const KEY := "key"  # slot class: keyboard and mouse
 const PAD := "pad"  # slot class: gamepad
 const KEY_SLOTS := 3  # Use item came with three keys (E, Ctrl, Enter)
 const PAD_SLOTS := 2
-## Gameplay actions in the order OPTIONS > CONTROLS lists them.
+## Gameplay actions in the order OPTIONS lists them (KEYBOARD & MOUSE numbers them in this order).
 const ACTIONS: Array[String] = ["accelerate", "brake", "steer_left", "steer_right", "drift", "use_item",
 	"look_back", "respawn", "pause", "chat"]
 const TITLES := {"accelerate": "Accelerate", "brake": "Brake / reverse", "steer_left": "Steer left",
@@ -76,6 +77,12 @@ static func is_reserved(spec: String) -> bool:
 ## Pause keeps Esc in its first keyboard slot and Start in its first pad slot.
 static func is_locked(action: String, _cls: String, slot: int) -> bool:
 	return action == "pause" and slot == 0
+
+
+## A pad's bottom and right face buttons confirm and go back in every menu (Nintendo pads swap
+## them), and a pause press is BACK in a dialog and START in the race setup: they never pause.
+static func refused(action: String, cls: String, spec: String) -> bool:
+	return action == "pause" and cls == PAD and spec in [button_spec(JOY_BUTTON_A), button_spec(JOY_BUTTON_B)]
 
 
 static func slot_count(action: String, cls: String) -> int:
@@ -157,6 +164,16 @@ static func slots(action: String, cls: String) -> Array:
 	return resolve(_overrides()).get(action, {}).get(cls, [])
 
 
+## Every action's slots of one class, {action: [specs]}: one resolve() for all of them (slots()
+## resolves the whole table for each action).
+static func all_slots(cls: String) -> Dictionary:
+	var t := resolve(_overrides())
+	var out := {}
+	for act in ACTIONS:
+		out[act] = t[act][cls]
+	return out
+
+
 static func get_slot(action: String, cls: String, slot: int) -> String:
 	var s := slots(action, cls)
 	return s[slot] if slot >= 0 and slot < s.size() else ""
@@ -185,13 +202,19 @@ static func find(spec: String) -> Array:
 
 ## Binds `spec` to a slot. If another slot of the same class already has it (another action's,
 ## or this action's other one), the two swap: that slot gets this slot's old binding (which may be
-## empty). Applies at once. Returns {"ok", "spec", "moved_action", "moved_slot", "moved_spec"}:
-## moved_* name the slot that took the old binding ("" / -1 when nothing moved). Refused (ok
-## false, nothing changes): a locked slot, a reserved input, a spec of the other class.
+## empty). Applies at once. Returns {"ok", "spec", "moved_action", "moved_slot", "moved_spec",
+## "dropped_spec", "why"}: moved_* name the slot that took the old binding ("" / -1 when nothing
+## moved); dropped_spec is an old binding that slot may not take (a menu button for pause: the
+## slot is left empty and the button is free). Refused (ok false, nothing changes): a locked slot,
+## a reserved input, a spec of the other class, a menu button for pause (why "menus").
 static func set_slot(action: String, cls: String, slot: int, spec: String) -> Dictionary:
-	var res := {"ok": false, "spec": spec, "moved_action": "", "moved_slot": -1, "moved_spec": ""}
+	var res := {"ok": false, "spec": spec, "moved_action": "", "moved_slot": -1, "moved_spec": "", "dropped_spec": "",
+		"why": ""}
 	if action not in ACTIONS or slot < 0 or slot >= slot_count(action, cls) or is_locked(action, cls, slot) \
 			or is_reserved(spec) or class_of(spec) != cls or event_of(spec) == null:
+		return res
+	if refused(action, cls, spec):
+		res["why"] = "menus"
 		return res
 	var t := resolve(_overrides())
 	var old: String = t[action][cls][slot]
@@ -201,10 +224,13 @@ static func set_slot(action: String, cls: String, slot: int, spec: String) -> Di
 	var hit := find(spec)
 	t[action][cls][slot] = spec
 	if not hit.is_empty():
-		t[hit[0]][cls][hit[1]] = old
+		var back := "" if refused(hit[0], cls, old) else old
+		t[hit[0]][cls][hit[1]] = back
 		res["moved_action"] = hit[0]
 		res["moved_slot"] = hit[1]
-		res["moved_spec"] = old
+		res["moved_spec"] = back
+		if back != old:
+			res["dropped_spec"] = old
 	_store(t)
 	return res
 
@@ -259,6 +285,195 @@ static func missing() -> Array:
 			var s: Array = t[act][cls]
 			if not s.is_empty() and s.count("") == s.size():
 				out.append([act, cls])
+	return out
+
+
+# ---------------------------------------------------------------- layouts (presets)
+## Ready-made layouts (OPTIONS: LAYOUT), by class, in menu order: every action's slots, slot_count long.
+## KEY: physical keycodes (k<code>); PAD: positional buttons (b0 = the bottom face button) and axes.
+const PRESETS := {
+	KEY: {
+		"wasd": {  # = defaults()
+			"accelerate": ["k87", "k4194320", ""],  # W, Up
+			"brake": ["k83", "k4194322", ""],  # S, Down
+			"steer_left": ["k65", "k4194319", ""],  # A, Left
+			"steer_right": ["k68", "k4194321", ""],  # D, Right
+			"drift": ["k4194325", "k32", ""],  # Shift, Space
+			"use_item": ["k69", "k4194326", "k4194309"],  # E, Ctrl, Enter
+			"look_back": ["k67", "", ""],  # C
+			"respawn": ["k82", "", ""],  # R
+			"pause": ["k4194305", "k80", ""],  # Esc (locked), P
+			"chat": ["k89", "k84", ""],  # Y, T
+		},
+		"arrows": {  # the right hand on the arrows, the left on Space, Shift, Ctrl, X, C, R
+			"accelerate": ["k4194320", "", ""],  # Up
+			"brake": ["k4194322", "", ""],  # Down
+			"steer_left": ["k4194319", "", ""],  # Left
+			"steer_right": ["k4194321", "", ""],  # Right
+			"drift": ["k32", "k4194325", ""],  # Space, Shift
+			"use_item": ["k4194326", "k88", ""],  # Ctrl, X
+			"look_back": ["k67", "", ""],  # C
+			"respawn": ["k82", "", ""],  # R
+			"pause": ["k4194305", "k80", ""],  # Esc, P
+			"chat": ["k89", "k84", ""],  # Y, T
+		},
+		"one_hand": {  # everything round the arrows (right Shift / Ctrl: a binding takes either side)
+			"accelerate": ["k4194320", "", ""],  # Up
+			"brake": ["k4194322", "", ""],  # Down
+			"steer_left": ["k4194319", "", ""],  # Left
+			"steer_right": ["k4194321", "", ""],  # Right
+			"drift": ["k4194325", "", ""],  # Shift
+			"use_item": ["k4194326", "k4194309", ""],  # Ctrl, Enter
+			"look_back": ["k4194318", "", ""],  # End
+			"respawn": ["k4194324", "", ""],  # Page Down
+			"pause": ["k4194305", "k80", ""],  # Esc, P
+			"chat": ["k89", "k84", ""],  # Y, T
+		},
+	},
+	PAD: {
+		"standard": {  # = defaults()
+			"accelerate": ["b0", "a5+"],  # A, RT
+			"brake": ["b2", "a4+"],  # X, LT
+			"steer_left": ["a0-", "b13"],  # LS left, D-pad left
+			"steer_right": ["a0+", "b14"],  # LS right, D-pad right
+			"drift": ["b10", ""],  # RB
+			"use_item": ["b9", "b1"],  # LB, B
+			"look_back": ["b3", ""],  # Y
+			"respawn": ["b4", ""],  # Back / View
+			"pause": ["b6", ""],  # Start (locked)
+			"chat": [],
+		},
+		"triggers": {  # gas and brake on the triggers only; the bottom button hops
+			"accelerate": ["a5+", ""],  # RT
+			"brake": ["a4+", ""],  # LT
+			"steer_left": ["a0-", "b13"],
+			"steer_right": ["a0+", "b14"],
+			"drift": ["b0", "b10"],  # A, RB
+			"use_item": ["b1", "b9"],  # B, LB
+			"look_back": ["b3", ""],  # Y
+			"respawn": ["b4", ""],
+			"pause": ["b6", ""],
+			"chat": [],
+		},
+		"classic": {  # Mario Kart's buttons by position: the right face button drives, the bottom one brakes
+			"accelerate": ["b1", ""],  # east: Nintendo A, Xbox B, Circle
+			"brake": ["b0", ""],  # south: Nintendo B, Xbox A, Cross
+			"steer_left": ["a0-", "b13"],
+			"steer_right": ["a0+", "b14"],
+			"drift": ["b10", "a5+"],  # R, ZR
+			"use_item": ["b9", "a4+"],  # L, ZL
+			"look_back": ["b3", ""],  # north: Nintendo X, Xbox Y, Triangle
+			"respawn": ["b4", ""],
+			"pause": ["b6", ""],
+			"chat": [],
+		},
+		"lefty": {  # STANDARD mirrored: steer with the right stick, drive with the D-pad and LT
+			"accelerate": ["b12", "a4+"],  # D-pad down, LT
+			"brake": ["b14", "a5+"],  # D-pad right, RT
+			"steer_left": ["a2-", ""],  # RS left
+			"steer_right": ["a2+", ""],  # RS right
+			"drift": ["b9", ""],  # LB
+			"use_item": ["b10", "b13"],  # RB, D-pad left
+			"look_back": ["b11", ""],  # D-pad up
+			"respawn": ["b4", ""],  # Back stays (Start is pause's)
+			"pause": ["b6", ""],
+			"chat": [],
+		},
+	},
+}
+const PRESET_TITLES := {"wasd": "WASD", "arrows": "ARROWS", "one_hand": "ONE HAND", "standard": "STANDARD",
+	"triggers": "TRIGGERS", "classic": "CLASSIC KART", "lefty": "LEFT-HANDED", "custom": "CUSTOM"}
+const PRESET_NOTES := {
+	"standard": "The bottom button or the right trigger drives; the stick or the D-pad steers.",
+	"triggers": "Gas and brake on the triggers; the bottom button hops.",
+	"classic": "The right face button drives and the bottom one brakes, as in classic kart games.",
+	"lefty": "Steer with the right stick; drive with the D-pad and the left trigger.",
+	"wasd": "WASD or the arrows drive; the actions sit round the left hand.",
+	"arrows": "The arrows drive; Space, Shift, Ctrl, X, C and R do the rest.",
+	"one_hand": "Everything round the arrows: Shift, Ctrl, Enter, End and Page Down.",
+	"custom": "Your own layout.",
+}
+## Short action names for the compact diagram (pause panel).
+const SHORT_TITLES := {"accelerate": "ACCELERATE", "brake": "BRAKE", "steer_left": "STEER LEFT",
+	"steer_right": "STEER RIGHT", "drift": "DRIFT", "use_item": "ITEM", "look_back": "LOOK BACK", "respawn": "CALL HELP",
+	"pause": "PAUSE", "chat": "CHAT"}
+
+
+## The presets of a class in menu order.
+static func preset_ids(cls: String) -> Array:
+	return (PRESETS.get(cls, {}) as Dictionary).keys()
+
+
+## Puts every slot of one class (KEY or PAD) to a preset, the way set_slot stores changes (only classes that
+## differ from defaults() stay in Game.settings["bindings"]); the other class is not touched. False: no such
+## preset, or a broken one (preset_problems).
+static func apply_preset(cls: String, id: String) -> bool:
+	var p = (PRESETS.get(cls, {}) as Dictionary).get(id)
+	if not p is Dictionary:
+		return false
+	var bad := preset_problems(cls, id)
+	if not bad.is_empty():
+		push_error("InputBindings: preset %s/%s is broken: %s" % [cls, id, bad])
+		return false
+	var t := resolve(_overrides())
+	for act in ACTIONS:
+		if slot_count(act, cls) > 0:
+			t[act][cls] = (p[act] as Array).duplicate()
+	_store(t)
+	return true
+
+
+## The preset a class matches now, or "custom". Slot order does not matter (W, Up = Up, W).
+static func preset_of(cls: String) -> String:
+	var t := resolve(_overrides())
+	for id in preset_ids(cls):
+		var same := true
+		for act in ACTIONS:
+			if slot_count(act, cls) == 0:
+				continue
+			var a: Array = (t[act][cls] as Array).filter(func(s): return s != "")
+			var b: Array = (PRESETS[cls][id][act] as Array).filter(func(s): return s != "")
+			a.sort()
+			b.sort()
+			if a != b:
+				same = false
+				break
+		if same:
+			return id
+	return "custom"
+
+
+## What is wrong with a preset ([] = nothing): every action has slot_count slots; every spec is valid,
+## of the class and in it once; pause's locked slot holds its default (Esc / Start) and nothing else
+## is reserved; every REQUIRED action is bound.
+static func preset_problems(cls: String, id: String) -> Array[String]:
+	var out: Array[String] = []
+	var p = (PRESETS.get(cls, {}) as Dictionary).get(id)
+	if not p is Dictionary:
+		out.append("no preset %s/%s" % [cls, id])
+		return out
+	var d := defaults()
+	var used := []
+	for act in ACTIONS:
+		var s = (p as Dictionary).get(act)
+		if not s is Array or (s as Array).size() != slot_count(act, cls):
+			out.append("%s: %s slots, not %d" % [act, str((s as Array).size()) if s is Array else "no",
+				slot_count(act, cls)])
+			continue
+		for i in (s as Array).size():
+			var spec := str(s[i])
+			if is_locked(act, cls, i):
+				if spec != str(d[act][cls][i]):
+					out.append("%s slot %d is locked to %s, not %s" % [act, i, d[act][cls][i], spec])
+			elif spec != "" and (is_reserved(spec) or class_of(spec) != cls or event_of(spec) == null):
+				out.append("%s: %s can not be bound here" % [act, spec])
+			if spec == "":
+				continue
+			if spec in used:
+				out.append("%s: %s is bound twice" % [act, spec])
+			used.append(spec)
+		if act in REQUIRED and (s as Array).count("") == (s as Array).size():
+			out.append("%s: nothing bound" % act)
 	return out
 
 
@@ -323,7 +538,7 @@ static func apply_deadzone() -> void:
 ## The menus' pad buttons: the bottom face button confirms (ui_accept) and the right one goes
 ## back (ui_cancel), or the other way round with `swap` (Nintendo pads print A on the right).
 ## LB / RB and Page Up / Page Down switch tabs (ui_tab_prev / ui_tab_next); the left face button
-## and Delete / Backspace empty a binding slot in OPTIONS > CONTROLS (ui_clear). Godot's own ui_*
+## and Delete / Backspace empty a binding slot in OPTIONS' binding tabs (ui_clear). Godot's own ui_*
 ## actions have no pad confirm or back at all.
 static func apply_ui(swap: bool) -> void:
 	for act in ["ui_accept", "ui_cancel"]:
@@ -364,7 +579,7 @@ static func resolve(o: Dictionary) -> Dictionary:
 				if is_locked(act, cls, i):
 					spec = str(def[i])
 				elif spec != "" and (is_reserved(spec) or class_of(spec) != cls or event_of(spec) == null \
-						or spec in used[cls]):
+						or spec in used[cls] or refused(act, cls, spec)):
 					spec = ""
 				if spec != "":
 					used[cls].append(spec)

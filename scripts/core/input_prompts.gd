@@ -1,7 +1,7 @@
 extends Node
 ## Autoload "InputPrompts": which device the player is using (keyboard and mouse, or a pad and its
 ## family), the icons of an action's bindings for that device, rumble on that pad, pads coming and
-## going, and listening for a new binding (OPTIONS > CONTROLS). It builds the InputMap
+## going, and listening for a new binding (OPTIONS > KEYBOARD & MOUSE / CONTROLLER). It builds the InputMap
 ## (InputBindings) at startup, after Game has loaded the settings.
 ##
 ## Prompt styles: "keyboard", or a pad style: "xbox" (One / Series: View, Menu), "xbox360" (Back,
@@ -29,7 +29,7 @@ signal rebind_cancelled(action: String, cls: String, slot: int)
 
 const KEYBOARD := "keyboard"
 const PAD_STYLES: Array[String] = ["xbox", "xbox360", "ps3", "ps4", "ps5", "switch", "steamdeck", "generic"]
-## Game.settings["prompt_style"] choices (OPTIONS > CONTROLS > BUTTON PROMPTS); "auto" = detected.
+## Game.settings["prompt_style"] choices (OPTIONS > CONTROLLER > BUTTON PROMPTS); "auto" = detected.
 const STYLE_CHOICES: Array[String] = ["auto", "xbox", "playstation", "nintendo", "steamdeck", "generic"]
 const STYLE_TITLES := {"auto": "AUTO", "xbox": "XBOX", "playstation": "PLAYSTATION", "nintendo": "NINTENDO",
 	"steamdeck": "STEAM DECK", "generic": "GENERIC"}
@@ -41,8 +41,9 @@ const STYLE_NAMES := {"xbox": "Xbox", "xbox360": "Xbox 360", "ps3": "PlayStation
 	"keyboard": "Keyboard and mouse"}
 
 const ICON_DIR := "res://art/input_prompts/"
+## Kenney's file name prefix -> its folder; "controller_" are the whole-pad pictures (ControllerDiagram).
 const ICON_FOLDERS := {"xbox_": "xbox", "playstation": "playstation", "switch_": "nintendo", "steamdeck_": "steamdeck",
-	"generic_": "generic", "keyboard_": "keyboard_mouse", "mouse_": "keyboard_mouse"}
+	"generic_": "generic", "keyboard_": "keyboard_mouse", "mouse_": "keyboard_mouse", "controller_": "devices"}
 
 const STICK_WAKE := 0.5  # a stick pushed past this (from near rest) makes its pad the active device
 const TRIGGER_WAKE := 0.35
@@ -106,9 +107,6 @@ const MENU_BUTTONS := {"xbox": ["xbox_button_view", "xbox_button_menu"], "xbox36
 const MENU_TEXT := {"xbox": ["VIEW", "MENU"], "xbox360": ["BACK", "START"], "ps3": ["SELECT", "START"],
 	"ps4": ["SHARE", "OPTIONS"], "ps5": ["CREATE", "OPTIONS"], "switch": ["MINUS", "PLUS"], "steamdeck": ["VIEW", "MENU"],
 	"generic": ["SELECT", "START"]}
-## Elite paddles, Godot order (PADDLE1 = upper right, 2 upper left, 3 lower right, 4 lower left)
-const PADDLES: Array[String] = ["xbox_elite_paddle_top_right", "xbox_elite_paddle_top_left",
-	"xbox_elite_paddle_bottom_right", "xbox_elite_paddle_bottom_left"]
 const DIRS: Array[String] = ["up", "down", "left", "right"]
 
 ## Keys Kenney draws as a symbol (letters, digits and F-keys come from _key_stem). The keys that
@@ -123,7 +121,9 @@ const KEY_ICONS := {KEY_META: "win", KEY_UP: "arrow_up", KEY_DOWN: "arrow_down",
 ## Short names for keys whose system name is long (the rest: OS.get_keycode_string, upper case).
 const KEY_TEXT := {KEY_ESCAPE: "ESC", KEY_PAGEUP: "PG UP", KEY_PAGEDOWN: "PG DN", KEY_DELETE: "DEL", KEY_INSERT: "INS",
 	KEY_CAPSLOCK: "CAPS LOCK", KEY_NUMLOCK: "NUM LOCK", KEY_SCROLLLOCK: "SCROLL LOCK", KEY_PRINT: "PRT SC",
-	KEY_KP_ENTER: "NUM ENTER", KEY_META: "WIN", KEY_CTRL: "CTRL"}
+	KEY_KP_ENTER: "NUM ENTER", KEY_META: "WIN", KEY_CTRL: "CTRL", KEY_KP_0: "NUM 0", KEY_KP_1: "NUM 1",
+	KEY_KP_2: "NUM 2", KEY_KP_3: "NUM 3", KEY_KP_4: "NUM 4", KEY_KP_5: "NUM 5", KEY_KP_6: "NUM 6", KEY_KP_7: "NUM 7",
+	KEY_KP_8: "NUM 8", KEY_KP_9: "NUM 9"}
 const MOUSE_ICONS := {MOUSE_BUTTON_RIGHT: "mouse_right", MOUSE_BUTTON_MIDDLE: "mouse_scroll",
 	MOUSE_BUTTON_XBUTTON1: "mouse_side_back", MOUSE_BUTTON_XBUTTON2: "mouse_side_forward"}
 const MOUSE_TEXT := {MOUSE_BUTTON_LEFT: "LEFT CLICK", MOUSE_BUTTON_RIGHT: "RIGHT CLICK", MOUSE_BUTTON_MIDDLE: "MIDDLE CLICK",
@@ -149,6 +149,7 @@ var _lost := false
 var _focused := true
 var _cursor_hidden := false
 var _icons := {}  # "stem@px" -> Texture2D (null: no such icon)
+var _glyph_boxes := {}  # stem -> Rect2 (glyph_box)
 var _axis_ok := {}  # joysticks SDL does not know that were used: their axes count (axis_devs)
 var _press := {}  # device -> [input ("b<button>" / "a<axis>"), msec] of its last press or push
 var _twins := {}  # device -> the pad it echoes (one pad seen as two: DS4Windows, Steam Input)
@@ -203,7 +204,7 @@ func style() -> String:
 
 ## The icon style for pad bindings: the player's choice in Options, else the family of the pad
 ## used last (or connected), else Xbox's (the usual layout on PC). Also what pad icons show while
-## the keyboard is active (OPTIONS > CONTROLS).
+## the keyboard is active (OPTIONS > CONTROLLER, the pause menu's picture).
 func pad_style() -> String:
 	var det := detected_style()
 	match str(Game.settings.get("prompt_style", "auto")):
@@ -472,7 +473,7 @@ func _wants_swap() -> bool:
 	return bool(Game.settings.get("nintendo_swap", true)) and family(pad_style()) == "nintendo"
 
 
-## OPTIONS > CONTROLS: while `on`, the menus' confirm and back buttons stay as they are (the
+## OPTIONS > CONTROLLER: while `on`, the menus' confirm and back buttons stay as they are (the
 ## Nintendo swap turned on there would make the next press of the same button go back); off
 ## applies what the settings ask for.
 func hold_swap(on: bool) -> void:
@@ -690,10 +691,44 @@ func icon(stem: String, px := 32.0) -> Texture2D:
 	return tex
 
 
+## The opaque part of an icon as a share of its 64x64 canvas (Kenney leaves a margin, more on the
+## flat shoulder buttons), cached: where to put the texture so the glyph itself fills a box.
+## Rect2(0, 0, 1, 1) for a missing or empty file.
+func glyph_box(stem: String) -> Rect2:
+	if _glyph_boxes.has(stem):
+		return _glyph_boxes[stem]
+	var box := Rect2(0, 0, 1, 1)
+	var path := icon_path(stem)
+	if path != "" and FileAccess.file_exists(path):
+		var img := Image.new()
+		if img.load_svg_from_string(FileAccess.get_file_as_string(path), 1.0) == OK and not img.is_empty():
+			var used := img.get_used_rect()
+			if used.has_area():
+				box = Rect2(Vector2(used.position) / 64.0, Vector2(used.size) / 64.0)
+	_glyph_boxes[stem] = box
+	return box
+
+
 static func icon_path(stem: String) -> String:
 	for p in ICON_FOLDERS:
 		if stem.begins_with(p):
 			return ICON_DIR + ICON_FOLDERS[p] + "/" + stem + ".svg"
+	return ""
+
+
+## One icon for both ways of a stick or the D-pad along the same line (steering: the left stick
+## pushed sideways instead of two left-stick icons that differ by a 3 px nub); "" when `neg` and
+## `pos` are not such a pair ("a0-" / "a0+": the left stick, "a2-" / "a2+": the right one,
+## "b13" / "b14": the D-pad).
+static func pair_stem(neg: String, pos: String, pad_style_id: String) -> String:
+	var fam := _icon_set(pad_style_id if pad_style_id in PAD_STYLES else "xbox")
+	match "%s|%s" % [neg, pos]:
+		"a0-|a0+":
+			return "generic_stick_horizontal" if fam == "generic" else "%s_stick_l_horizontal" % fam
+		"a2-|a2+":
+			return "generic_stick_horizontal" if fam == "generic" else "%s_stick_r_horizontal" % fam
+		"b13|b14":
+			return "%s_dpad_horizontal" % ("xbox" if fam == "generic" else fam)
 	return ""
 
 
@@ -739,7 +774,8 @@ static func icon_name(ev: InputEvent, pad_style_id: String) -> String:
 			JOY_BUTTON_DPAD_UP, JOY_BUTTON_DPAD_DOWN, JOY_BUTTON_DPAD_LEFT, JOY_BUTTON_DPAD_RIGHT:
 				return "%s_dpad_%s" % ["xbox" if fam == "generic" else fam, DIRS[bi - JOY_BUTTON_DPAD_UP]]
 			JOY_BUTTON_PADDLE1, JOY_BUTTON_PADDLE2, JOY_BUTTON_PADDLE3, JOY_BUTTON_PADDLE4:
-				return PADDLES[bi - JOY_BUTTON_PADDLE1] if fam == "xbox" else ""
+				# (Kenney's Elite paddles are thin slivers at prompt size: every family shows a P1..P4 keycap)
+				return ""
 			JOY_BUTTON_TOUCHPAD:
 				return {"ps4": "playstation4_touchpad_press", "ps5": "playstation5_touchpad_press"}.get(st, "")
 	return ""
@@ -829,14 +865,13 @@ static func _key_label(ke: InputEventKey) -> Key:
 	return lbl
 
 
-## Kenney's name for a key ("" when it has no icon for it).
+## Kenney's name for a key ("" when it has no icon for it; the numpad's digits have none on purpose:
+## their NUM 0..NUM 9 keycaps never pass for the top row's digits).
 static func _key_stem(code: Key) -> String:
 	if code >= KEY_A and code <= KEY_Z:
 		return char(code).to_lower()
 	if code >= KEY_0 and code <= KEY_9:
 		return char(code)
-	if code >= KEY_KP_0 and code <= KEY_KP_9:
-		return str(code - KEY_KP_0)
 	if code >= KEY_F1 and code <= KEY_F12:
 		return "f%d" % (code - KEY_F1 + 1)
 	return KEY_ICONS.get(code, "")
@@ -876,7 +911,7 @@ static func parse_prompt(text: String) -> Array:
 ## with vibration off, while the game is paused or in the background. A weaker buzz never cuts a
 ## stronger one short: while one runs, each motor keeps the stronger of the two.
 ## force: buzz the last used pad even while the keyboard or mouse is active, and while paused
-## (OPTIONS > CONTROLS shows the strength this way). A stronger buzz over a longer one plays for
+## (OPTIONS > CONTROLLER shows the strength this way). A stronger buzz over a longer one plays for
 ## its own time (each motor at the stronger of the two), then the longer one goes on; a weaker
 ## one that outlasts the running buzz goes on after it the same way.
 func rumble(weak: float, strong: float, seconds: float, force := false) -> void:

@@ -25,7 +25,7 @@ const ITEM_TEXT := {
 	"xenport": "A Xen portal: you come out 140 metres further down the road, at full speed.",
 }
 const COUNTS := ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"]
-## CONTROLS page rows: the actions (InputBindings, titled as in OPTIONS > CONTROLS), then the
+## CONTROLS page rows: the actions (InputBindings, titled as in OPTIONS' binding tabs), then the
 ## menus' confirm, which skips the intro
 const CONTROL_ROWS: Array[String] = ["accelerate", "brake", "steer_left", "steer_right", "drift", "use_item",
 	"look_back", "respawn", "pause", "chat", "ui_accept"]
@@ -123,7 +123,7 @@ func _fill_controls() -> void:
 		else:
 			grid.add_child(_glyphs(_specs(act, true), ps))
 	_controls_box.add_child(grid)
-	_controls_box.add_child(UiKit.prompt("Change any of them in OPTIONS > CONTROLS. In the menus {ui_accept} picks, "
+	_controls_box.add_child(UiKit.prompt("Change any of them in OPTIONS > KEYBOARD & MOUSE and CONTROLLER. In the menus {ui_accept} picks, "
 		+ "{ui_cancel} goes back and {ui_tab_prev} {ui_tab_next} switch tabs.", 16, UiKit.TEXT_DIM, false, 1080))
 
 

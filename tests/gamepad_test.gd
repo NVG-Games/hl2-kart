@@ -2,8 +2,11 @@ extends Node
 ## Headless check of the gamepad layer (InputBindings, InputPrompts, PromptLabel): pads on any
 ## device id drive the kart, the pad family's icons and names, bindings saved and loaded, reset and
 ## swapped on a clash, the Nintendo confirm / back swap, prompt text, listening for a new binding,
-## rumble, which device is active and a pad going away. Prints each failure and a total; exits 1
-## on any failure. Restores the settings it changes.
+## rumble, which device is active and a pad going away; the ready-made layouts (presets), the
+## controller pictures and their anchors, and the ControllerDiagram / KeyboardDiagram widgets (rows,
+## callout layout for every pad style, states, the drawn keyboard); OPTIONS' KEYBOARD & MOUSE and
+## CONTROLLER pages, the pause menu's controls panel and HOW TO DRIVE. Prints each failure and a
+## total; exits 1 on any failure. Restores the settings it changes.
 ## usage: godot --headless --path . res://tests/gamepad_test.tscn
 
 const KEEP := ["bindings", "prompt_style", "vibration", "stick_deadzone", "nintendo_swap"]
@@ -57,6 +60,13 @@ func _run() -> void:
 	await _test_rumble()
 	await _test_menu_repeat()
 	await _test_disconnect()
+	_test_presets()
+	_test_device_art()
+	_test_anchors()
+	await _test_controller_diagram()
+	await _test_diagram_layouts()
+	await _test_keyboard_diagram()
+	await _test_pages()
 
 
 func check(ok: bool, what: String) -> void:
@@ -280,6 +290,18 @@ func _test_icons() -> void:
 	check(InputPrompts.icon_name(_ev_axis(JOY_AXIS_TRIGGER_RIGHT, 1.0), "ps5") == "playstation_trigger_r2", "ps5 RT is R2")
 	check(InputPrompts.icon_name(_ev_axis(JOY_AXIS_TRIGGER_LEFT, 1.0), "switch") == "switch_button_zl", "switch LT is ZL")
 	check(InputPrompts.icon_name(_ev_axis(JOY_AXIS_LEFT_X, -1.0), "xbox") == "xbox_stick_l_left", "xbox stick left")
+	# the Elite paddles and the numpad's digits show keycaps (a thin sliver, a top-row digit's twin)
+	check(InputPrompts.icon_name(_ev_button(JOY_BUTTON_PADDLE1), "xbox") == "" and InputPrompts.spec_text("b16", "xbox") == "P1",
+		"an Elite paddle is a P1 keycap")
+	var kp8 := InputEventKey.new()
+	kp8.physical_keycode = KEY_KP_8
+	check(InputPrompts.icon_name(kp8, "xbox") == "" and InputPrompts.event_text(kp8, "xbox") == "NUM 8", "the numpad's 8 is NUM 8")
+	# one icon for a stick's or the D-pad's two ways (HOW TO DRIVE's STEER)
+	for st in InputPrompts.PAD_STYLES:
+		for pair in [["a0-", "a0+"], ["a2-", "a2+"], ["b13", "b14"]]:
+			var stem := InputPrompts.pair_stem(pair[0], pair[1], st)
+			check(stem != "" and FileAccess.file_exists(InputPrompts.icon_path(stem)), "%s %s: %s" % [st, pair, stem])
+	check(InputPrompts.pair_stem("a0-", "b14", "xbox") == "" and InputPrompts.pair_stem("a0+", "a0-", "xbox") == "", "no pair, no icon")
 	check(InputPrompts.icon_name(_ev_axis(JOY_AXIS_RIGHT_Y, 1.0), "steamdeck") == "steamdeck_stick_r_down", "deck right stick down")
 	check(InputPrompts.event_text(_ev_axis(JOY_AXIS_LEFT_X, 1.0), "xbox") == "LS RIGHT", "stick text")
 	check(InputPrompts.icon_name(_ev_button(JOY_BUTTON_DPAD_LEFT), "ps4") == "playstation_dpad_left", "ps4 D-pad left")
@@ -487,6 +509,21 @@ func _test_conflicts() -> void:
 	check(["accelerate", "pad"] in InputBindings.missing(), "accelerate has no pad binding left: %s" % [InputBindings.missing()])
 	InputBindings.reset()
 	check(InputBindings.missing().is_empty() and _pad_is("accelerate", JOY_BUTTON_A), "reset brings A back to accelerate")
+	# the menus' confirm and back buttons never pause (a pause press is BACK in a dialog)
+	var A := InputBindings.button_spec(JOY_BUTTON_A)
+	r = InputBindings.set_slot("pause", InputBindings.PAD, 1, A)
+	check(not r["ok"] and r["why"] == "menus" and InputBindings.slots("pause", "pad") == ["b6", ""] and _pad_is("accelerate", JOY_BUTTON_A),
+		"A can't pause: %s" % r)
+	check(not InputBindings.set_slot("pause", InputBindings.PAD, 1, InputBindings.button_spec(JOY_BUTTON_B))["ok"], "nor can B")
+	InputBindings.set_slot("pause", InputBindings.PAD, 1, InputBindings.button_spec(JOY_BUTTON_BACK))
+	r = InputBindings.set_slot("accelerate", InputBindings.PAD, 0, InputBindings.button_spec(JOY_BUTTON_BACK))
+	check(r["ok"] and r["moved_action"] == "pause" and r["moved_spec"] == "" and r["dropped_spec"] == A
+		and InputBindings.slots("pause", "pad") == ["b6", ""] and InputBindings.find(A).is_empty(),
+		"View from pause to accelerate: pause does not take A, A is free (%s)" % r)
+	Game.settings["bindings"] = {"pause": {"pad": ["b6", A]}}
+	InputBindings.apply()
+	check(InputBindings.slots("pause", "pad") == ["b6", ""], "a settings file with A on pause loses it: %s" % [InputBindings.slots("pause", "pad")])
+	InputBindings.reset()
 
 
 func _ui_pad(action: String) -> int:
@@ -760,3 +797,573 @@ func _test_disconnect() -> void:
 	_events.clear()
 	InputPrompts._on_joy_connection(4, false)
 	check(_events.is_empty(), "a pad not in use going away changes nothing")
+
+
+# ---------------------------------------------------------------- layouts, pictures, diagrams
+## The pad sets the callout layout is also checked with: every control used at once, and the
+## D-pad, the right stick and the face buttons crowded.
+const STRESS_BINDS := {
+	"stress": {"accelerate": ["b0", "a5+"], "brake": ["b2", "a4+"], "steer_left": ["a0-", "b13"],
+		"steer_right": ["a0+", "b14"], "drift": ["b10", "a1-"], "use_item": ["b9", "b1"], "look_back": ["b3", "a3+"],
+		"respawn": ["b4", "b7"], "pause": ["b6", "b8"], "chat": []},
+	"dpad_all": {"accelerate": ["b11", "a5+"], "brake": ["b12", "a4+"], "steer_left": ["a2-", "b13"],
+		"steer_right": ["a2+", "b14"], "drift": ["b10", "a1+"], "use_item": ["b9", "b3"], "look_back": ["b0", "a3-"],
+		"respawn": ["b4", "b1"], "pause": ["b6", "b2"], "chat": []},
+}
+## Each silhouette's outline in SVG units (x0, y0, x1, y1), measured from its path data.
+const OUTLINES := {"xbox": [7.99, 15.0, 56.01, 48.0], "xbox360": [7.99, 15.01, 55.99, 48.99], "ps3": [8.0, 16.0, 56.0, 46.0],
+	"ps4": [8.0, 16.0, 56.0, 46.01], "ps5": [7.99, 16.05, 56.01, 48.0], "switch": [8.0, 14.99, 56.0, 47.99],
+	"steamdeck": [8.0, 20.0, 56.0, 44.0], "generic": [7.98, 14.0, 55.99, 46.95]}
+
+
+## Every preset is a valid set of bindings; applying one gives it back from preset_of and leaves the
+## other class alone; STANDARD and WASD are the defaults.
+func _test_presets() -> void:
+	var K := InputBindings.KEY
+	var P := InputBindings.PAD
+	InputBindings.reset()
+	check(InputBindings.preset_ids(P) == ["standard", "triggers", "classic", "lefty"], "pad presets in menu order: %s"
+		% [InputBindings.preset_ids(P)])
+	check(InputBindings.preset_ids(K) == ["wasd", "arrows", "one_hand"], "key presets: %s" % [InputBindings.preset_ids(K)])
+	var d := InputBindings.defaults()
+	for cls in [K, P]:
+		for id in InputBindings.preset_ids(cls):
+			var tag := "%s/%s" % [cls, id]
+			var bad := InputBindings.preset_problems(cls, id)
+			check(bad.is_empty(), "%s is valid: %s" % [tag, bad])
+			check(InputBindings.PRESET_TITLES.has(id) and InputBindings.PRESET_NOTES.has(id), "%s has a title and a note" % tag)
+			var p: Dictionary = InputBindings.PRESETS[cls][id]
+			var seen := {}
+			for act in InputBindings.ACTIONS:
+				var s: Array = p[act]
+				check(s.size() == InputBindings.slot_count(act, cls), "%s %s has %d slots" % [tag, act, s.size()])
+				for i in s.size():
+					var spec: String = s[i]
+					if spec == "":
+						continue
+					check(not seen.has(spec), "%s: %s only once" % [tag, spec])
+					seen[spec] = true
+					check(InputBindings.event_of(spec) != null and InputBindings.class_of(spec) == cls, "%s: %s is a %s binding"
+						% [tag, spec, cls])
+					check((act == "pause" and i == 0) or not InputBindings.is_reserved(spec), "%s: %s is reserved" % [tag, spec])
+				if act in InputBindings.REQUIRED:
+					check(s.count("") < s.size(), "%s binds %s" % [tag, act])
+			check(p["pause"][0] == (InputBindings.key_spec(KEY_ESCAPE) if cls == K else InputBindings.button_spec(JOY_BUTTON_START)),
+				"%s pauses with Esc / Start" % tag)
+			if cls == P:
+				check((p["chat"] as Array).is_empty(), "%s has no chat button" % tag)
+	for act in InputBindings.ACTIONS:
+		check(InputBindings.PRESETS[P]["standard"][act] == d[act][P], "STANDARD is the default for %s" % act)
+		check(InputBindings.PRESETS[K]["wasd"][act] == d[act][K], "WASD is the default for %s" % act)
+	check(InputBindings.preset_of(P) == "standard" and InputBindings.preset_of(K) == "wasd", "the defaults are STANDARD and WASD")
+	# each applied: preset_of gives it back, the other class keeps its own change, nothing is missing
+	for cls in [K, P]:
+		var other := P if cls == K else K
+		for id in InputBindings.preset_ids(cls):
+			InputBindings.reset()
+			InputBindings.set_slot("look_back", other, 1, InputBindings.button_spec(JOY_BUTTON_RIGHT_STICK) if other == P
+				else InputBindings.key_spec(KEY_V))
+			var before := {}
+			for act in InputBindings.ACTIONS:
+				before[act] = InputBindings.slots(act, other)
+			check(InputBindings.apply_preset(cls, id), "%s/%s applies" % [cls, id])
+			check(InputBindings.preset_of(cls) == id, "%s/%s: preset_of says %s" % [cls, id, InputBindings.preset_of(cls)])
+			var same := true
+			var exact := true
+			for act in InputBindings.ACTIONS:
+				same = same and InputBindings.slots(act, other) == before[act]
+				exact = exact and InputBindings.slots(act, cls) == InputBindings.PRESETS[cls][id][act]
+			check(same, "%s/%s leaves the %s slots alone" % [cls, id, other])
+			check(exact, "%s/%s: the slots are the preset's" % [cls, id])
+			check(InputBindings.missing().is_empty(), "%s/%s leaves nothing unbound: %s" % [cls, id, InputBindings.missing()])
+	# back to the default preset: nothing stored for that class
+	InputBindings.reset()
+	InputBindings.apply_preset(P, "triggers")
+	InputBindings.apply_preset(K, "arrows")
+	InputBindings.apply_preset(P, "standard")
+	check(_stored(P).is_empty() and not _stored(K).is_empty(), "STANDARD again stores no pad slots: %s" % Game.settings["bindings"])
+	InputBindings.apply_preset(K, "wasd")
+	check(Game.settings["bindings"].is_empty(), "WASD again stores nothing: %s" % Game.settings["bindings"])
+	# one change makes it CUSTOM; the same buttons in another slot order do not
+	InputBindings.apply_preset(P, "triggers")
+	InputBindings.set_slot("drift", P, 0, InputBindings.button_spec(JOY_BUTTON_RIGHT_SHOULDER))
+	check(InputBindings.slots("drift", P) == ["b10", "b0"] and InputBindings.preset_of(P) == "triggers",
+		"the slots swapped round: still TRIGGERS (%s)" % InputBindings.preset_of(P))
+	InputBindings.set_slot("look_back", P, 1, InputBindings.button_spec(JOY_BUTTON_RIGHT_STICK))
+	check(InputBindings.preset_of(P) == "custom", "one more button: CUSTOM (%s)" % InputBindings.preset_of(P))
+	var snap: Dictionary = Game.settings["bindings"].duplicate(true)
+	check(not InputBindings.apply_preset(P, "no_such_layout") and not InputBindings.apply_preset("wheel", "standard")
+		and Game.settings["bindings"] == snap, "an unknown preset changes nothing")
+	# the InputMap follows: CLASSIC KART drives with the right face button
+	InputBindings.apply_preset(P, "classic")
+	check(_pad_is("accelerate", JOY_BUTTON_B) and _pad_is("brake", JOY_BUTTON_A) and not _pad_is("accelerate", JOY_BUTTON_A),
+		"CLASSIC KART: B (east) accelerates, A (south) brakes")
+	InputBindings.reset()
+
+
+## The ellipses inscribed in two boxes overlap (sampled round each).
+func _ellipses_meet(a: Rect2, b: Rect2) -> bool:
+	for pair in [[a, b], [b, a]]:
+		var e: Rect2 = pair[0]
+		var f: Rect2 = pair[1]
+		for i in 72:
+			var t := TAU * i / 72.0
+			var p := e.get_center() + Vector2(cos(t) * e.size.x, sin(t) * e.size.y) * 0.5
+			var d := (p - f.get_center()) / (f.size * 0.5)
+			if d.length_squared() < 1.0:
+				return true
+	return false
+
+
+## Waits `seconds` by the clock (frames in between).
+func _real_wait(seconds: float) -> void:
+	var end := Time.get_ticks_msec() + int(seconds * 1000.0)
+	while Time.get_ticks_msec() < end:
+		await _frame()
+
+
+## The overrides stored for one class: {action: specs}.
+func _stored(cls: String) -> Dictionary:
+	var out := {}
+	for act in Game.settings["bindings"]:
+		if (Game.settings["bindings"][act] as Dictionary).has(cls):
+			out[act] = Game.settings["bindings"][act][cls]
+	return out
+
+
+## The pad pictures and the icons drawn on them are shipped and load; their outlines are where the
+## anchors were measured.
+func _test_device_art() -> void:
+	for st in InputPrompts.PAD_STYLES:
+		var stem: String = ControllerDiagram.DEVICE_SVG[st]
+		var path := InputPrompts.icon_path(stem)
+		check(path == "res://art/input_prompts/devices/%s.svg" % stem, "%s's picture path: %s" % [st, path])
+		check(FileAccess.file_exists(path), "%s's picture is shipped" % st)
+		var src := FileAccess.get_file_as_string(path)
+		check(src.contains(ControllerDiagram.SVG_FILL) or src.contains(ControllerDiagram.SVG_FILL_GENERIC),
+			"%s's picture has the white fill the diagram recolours" % st)
+		var img := Image.new()
+		check(img.load_svg_from_string(src, 1.0) == OK, "%s's picture loads" % st)
+		var u := img.get_used_rect()
+		var want: Array = OUTLINES[st]
+		check(absf(u.position.x - want[0]) <= 1.05 and absf(u.position.y - want[1]) <= 1.05 and absf(u.end.x - want[2]) <= 1.05
+			and absf(u.end.y - want[3]) <= 1.05, "%s's outline %s is where it was measured %s" % [st, u, want])
+		var tex := ControllerDiagram.device_texture(st, 10.0, 0.35)
+		check(tex != null and roundi(tex.get_width()) == 640, "%s's recoloured picture loads at 10 px a unit (%s)" % [st,
+			tex.get_size() if tex else Vector2.ZERO])
+		check(ControllerDiagram.device_texture(st, 10.0, 0.35) == tex, "%s's picture is cached" % st)
+		for ctl in ControllerDiagram.HOLE_ICONS[st]:
+			var s: String = ControllerDiagram.HOLE_ICONS[st][ctl]
+			check(FileAccess.file_exists(InputPrompts.icon_path(s)) and InputPrompts.icon(s, 40.0) != null, "%s %s icon %s loads"
+				% [st, ctl, s])
+		# every control is drawn as an icon that loads, or (no icon) a keycap above or a capsule on the body
+		var drawn := {"icon": [], "keycap": [], "capsule": []}
+		for ctl in ControllerDiagram.DEVICE_ANCHORS[st]:
+			var shown := ControllerDiagram.picture_stem(st, ctl)
+			if shown != "":
+				check(InputPrompts.icon(shown, 40.0) != null, "%s %s: %s loads" % [st, ctl, shown])
+				drawn["icon"].append(ctl)
+			else:
+				drawn["keycap" if ControllerDiagram.DEVICE_ANCHORS[st][ctl]["kind"] == "above" else "capsule"].append(ctl)
+		var caps: Array = [] if st in ["xbox", "switch"] else ["back", "start"]
+		var keycaps: Array = ["lt", "lb", "rt", "rb"] if st == "generic" else []
+		drawn["capsule"].sort()
+		drawn["keycap"].sort()
+		caps.sort()
+		keycaps.sort()
+		check(drawn["capsule"] == caps and drawn["keycap"] == keycaps, "%s draws %s" % [st, drawn])
+	var gb := InputPrompts.glyph_box("xbox_button_a")
+	check(gb.position.is_equal_approx(Vector2(0.125, 0.125)) and absf(gb.size.x - 0.75) < 0.01 and absf(gb.size.y - 0.75) < 0.01,
+		"xbox A's glyph box %s" % gb)
+	gb = InputPrompts.glyph_box("xbox_lb")
+	check(absf(gb.position.y - 0.25) < 0.01 and absf(gb.size.y - 0.5) < 0.01, "LB's glyph is flat %s" % gb)
+	check(InputPrompts.glyph_box("no_such_icon") == Rect2(0, 0, 1, 1), "a missing icon's glyph box is the whole canvas")
+
+
+## Every pad input with a place on the picture has an anchor in every style; the anchors sit inside
+## the picture, on their side, without overlapping; no leader crosses another or runs through a
+## button, for every preset (and two crowded sets) in both sizes.
+func _test_anchors() -> void:
+	var sets: Dictionary = (InputBindings.PRESETS[InputBindings.PAD] as Dictionary).duplicate()
+	sets.merge(STRESS_BINDS)
+	for ctl in ControllerDiagram.REP_SPEC:
+		check(ControllerDiagram.control_of(ControllerDiagram.REP_SPEC[ctl]) == ctl, "%s's own spec shows on it" % ctl)
+	for spec in ["b5", "b15", "b16", "b20", "a4-", "a5-", "a6+"]:
+		check(ControllerDiagram.control_of(spec) == "", "%s has no place on the picture" % spec)
+	for st in InputPrompts.PAD_STYLES:
+		var anchors: Dictionary = ControllerDiagram.DEVICE_ANCHORS[st]
+		check(ControllerDiagram.PICTURE_TITLES.has(st) and ControllerDiagram.HOLE_ICONS.has(st), "%s has a title and icons" % st)
+		for spec in ControllerDiagram.CONTROL_OF:
+			check(anchors.has(ControllerDiagram.CONTROL_OF[spec]), "%s has a place for %s" % [st, spec])
+		var names: Array = anchors.keys()
+		for i in names.size():
+			var a: Dictionary = anchors[names[i]]
+			var r: Rect2 = a["icon"]
+			check(a["kind"] in ["hole", "marker", "above"], "%s %s kind %s" % [st, names[i], a["kind"]])
+			check((ControllerDiagram.DEVICE_BOUNDS[st] as Rect2).grow(0.01).encloses(r), "%s %s inside the picture" % [st, names[i]])
+			check(int(a["side"]) == (-1 if (a["at"] as Vector2).x < 32.0 else 1), "%s %s's label is on its side" % [st, names[i]])
+			for j in range(i + 1, names.size()):
+				# (boxes round a cross and a disc may share an empty corner: the PlayStation D-pad and left stick)
+				var q: Rect2 = anchors[names[j]]["icon"]
+				check(not r.intersects(q) or not _ellipses_meet(r, q), "%s %s and %s do not overlap" % [st, names[i], names[j]])
+		for id in sets:
+			for m in [ControllerDiagram.FULL, ControllerDiagram.COMPACT]:
+				var pl := ControllerDiagram.plan(st, sets[id], m)
+				var bad := ControllerDiagram.crossings(st, pl)
+				check(bad.is_empty(), "%s/%s %s: no leader crosses (%s)" % [st, id, "compact" if m == ControllerDiagram.COMPACT
+					else "full", bad])
+		var full := ControllerDiagram.plan(st, sets["standard"], ControllerDiagram.FULL)
+		var small := ControllerDiagram.plan(st, sets["standard"], ControllerDiagram.COMPACT)
+		check(full["size"] == Vector2(1012, 440) and small["size"] == Vector2(572, 220), "%s's sizes %s / %s" % [st, full["size"],
+			small["size"]])
+
+
+## OPTIONS' big diagram: a row per bound slot, the locked Start, rows following a swap, the
+## signals, listening, flashing, the picture under the mouse, the family from BUTTON PROMPTS; the
+## compact one takes no focus; a paddle is listed off the picture.
+func _test_controller_diagram() -> void:
+	var P := InputBindings.PAD
+	InputBindings.reset()
+	var d := ControllerDiagram.new()
+	d.style = "ps5"
+	d.interactive = true
+	var laid := [0]
+	d.laid_out.connect(func(): laid[0] += 1)
+	add_child(d)
+	await _frame()
+	check(d.size == Vector2(1012, 440) and d.rows().size() == 14, "ps5 STANDARD: 1012x440 and 14 rows (%s, %d)" % [d.size,
+		d.rows().size()])
+	check(laid[0] > 0, "laid_out tells the page")
+	var pause = d.row_for("pause", 0)
+	check(pause != null and is_equal_approx(pause.modulate.a, 0.6) and pause.control == "start"
+		and pause.tooltip_text.contains("always pauses"), "the Start row is the locked one")
+	check(d.first_row() == d.rows()[0] and (d.first_row() as ControllerDiagram.Row).side == -1, "the first row is the left column's top")
+	var all_ok := true
+	for r in d.rows():
+		all_ok = all_ok and r.focus_mode == Control.FOCUS_ALL and r.size == Vector2(230, 30) \
+			and r.get_meta("control") == ControllerDiagram.control_of(r.get_meta("spec"))
+	check(all_ok, "every row is focusable, 230x30, on its spec's control")
+	# focus: down the column, across to the nearest row; the edges are the page's
+	var left: Array = d.rows().filter(func(r): return r.side < 0)
+	var right: Array = d.rows().filter(func(r): return r.side > 0)
+	check(left[0].focus_neighbor_top == NodePath() and left[0].get_node(left[0].focus_neighbor_bottom) == left[1]
+		and right[-1].focus_neighbor_bottom == NodePath() and right[0].focus_neighbor_right == NodePath(),
+		"up / down within a column; the outer edges left to the page")
+	check(left[0].get_node(left[0].focus_neighbor_left) == left[0] and right.has(left[0].get_node(left[0].focus_neighbor_right))
+		and left.has(right[0].get_node(right[0].focus_neighbor_left)), "left / right between the columns")
+	# a swap moves the rows: look behind to the left face button, brake takes Triangle
+	var lb = d.row_for("look_back", 0)
+	InputBindings.set_slot("look_back", P, 0, InputBindings.button_spec(JOY_BUTTON_X))
+	await _frame()
+	check(d.row_for("look_back", 0) == lb and lb.control == "face_w", "look behind's row moved to the left face button (%s)"
+		% lb.control)
+	check(d.row_for("brake", 0).control == "face_n" and d.row_for("brake", 0).spec == "b3", "brake's row moved to the top one")
+	# the signals: A / click on a row, X / Delete on it, a click on a bound button on the picture
+	var got := []
+	d.slot_pressed.connect(func(a: String, s: int): got.append(["press", a, s]))
+	d.clear_requested.connect(func(a: String, s: int): got.append(["clear", a, s]))
+	lb.pressed.emit()
+	var clr := InputEventAction.new()
+	clr.action = &"ui_clear"
+	clr.pressed = true
+	lb.gui_input.emit(clr)
+	var ls_box: Rect2 = ControllerDiagram.DEVICE_ANCHORS["ps5"]["ls"]["icon"]
+	var at: Vector2 = d._off + d._plan["origin"] + ls_box.get_center() * d._plan["scale"]
+	check(d.control_at(at) == "ls", "the left stick is under its box (%s)" % d.control_at(at))
+	check(d._get_tooltip(at) == "LEFT STICK: STEER LEFT, STEER RIGHT", "its tooltip: %s" % d._get_tooltip(at))
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	click.position = at
+	d._gui_input(click)
+	check(got == [["press", "look_back", 0], ["clear", "look_back", 0], ["press", "steer_left", 0]],
+		"row press, row clear and a click on the stick: %s" % [got])
+	# listening: the row reads PRESS... and pulses until InputPrompts catches the new button
+	await _frame()
+	check(InputPrompts.listen("look_back", P, 0), "listen on look behind")
+	d.set_listening("look_back", 0)
+	check(lb.text == "PRESS..." and lb.icon == null and d.is_processing(), "the listening row reads PRESS...")
+	await _real_wait(0.25)  # past listen()'s arming time by the clock (a timer can fire early after a long frame)
+	await _button(JOY_BUTTON_Y, true, 1)
+	await _button(JOY_BUTTON_Y, false, 1)
+	await _frame()
+	check(InputBindings.get_slot("look_back", P, 0) == "b3" and lb.control == "face_n" and lb.text == "LOOK BEHIND"
+		and lb.icon != null, "Y caught: the row is back on Triangle (%s, %s)" % [lb.control, lb.text])
+	d.flash(["look_back|0", "brake|0"])
+	check(lb.modulate.is_equal_approx(UiKit.ORANGE) or d.is_processing(), "the changed rows flash")
+	await _wait(0.95)
+	check(lb.modulate.is_equal_approx(Color.WHITE) and not d.is_processing(), "the flash fades (%s)" % lb.modulate)
+	# the family follows BUTTON PROMPTS while style is ""
+	d.style = ""
+	Game.settings["prompt_style"] = "nintendo"
+	Game.settings_changed.emit()
+	await _frame()
+	check(d.shown_style() == "switch" and d.row_for("accelerate", 0).icon == InputPrompts.spec_icon("b0", 26.0, "switch"),
+		"style \"\" follows BUTTON PROMPTS: %s" % d.shown_style())
+	Game.settings["prompt_style"] = "auto"
+	Game.settings_changed.emit()
+	# a paddle has no place on the picture: unplaced, no row; clearing a slot drops its row
+	InputBindings.set_slot("drift", P, 1, InputBindings.button_spec(JOY_BUTTON_PADDLE1))
+	check(["drift", 1, "b16"] in d.unplaced() and d.row_for("drift", 1) == null, "a paddle is listed off the picture: %s"
+		% [d.unplaced()])
+	InputBindings.clear_slot("use_item", P, 1)
+	check(d.row_for("use_item", 1) == null and d.rows().size() == 13, "a cleared slot's row goes")
+	# the compact one: smaller, no focus anywhere
+	InputBindings.reset()
+	var c := ControllerDiagram.new()
+	c.compact = true
+	c.style = "xbox"
+	add_child(c)
+	await _frame()
+	var none := c.focus_mode == Control.FOCUS_NONE and c.mouse_filter == Control.MOUSE_FILTER_IGNORE
+	for r in c.rows():
+		none = none and r.focus_mode == Control.FOCUS_NONE and r.mouse_filter == Control.MOUSE_FILTER_IGNORE
+	check(none and c.rows().size() == 14 and c.size == Vector2(572, 220), "the compact one has no focusable control (%s)" % c.size)
+	check(c.row_for("respawn", 0).text == "CALL HELP", "the compact one's short titles")
+	# the picture alone
+	var p := ControllerDiagram.new()
+	p.callouts = false
+	p.style = "steamdeck"
+	add_child(p)
+	await _frame()
+	check(p.rows().is_empty() and p.size.x == 480.0, "the picture alone (%s)" % p.size)
+	InputBindings.reset()
+	d.queue_free()
+	c.queue_free()
+	p.queue_free()
+
+
+## Every style, every pad preset (and the crowded sets), both sizes: one row per bound input on the
+## picture, rows of the mode's size inside the widget, none over another or over a button, every
+## label whole (no ellipsis), and the drawn leaders cross nothing.
+func _test_diagram_layouts() -> void:
+	var sets: Dictionary = (InputBindings.PRESETS[InputBindings.PAD] as Dictionary).duplicate()
+	sets.merge(STRESS_BINDS)
+	var font := UiKit.font(true)
+	var bad := []
+	var n := 0
+	for st in InputPrompts.PAD_STYLES:
+		for id in sets:
+			for cm in [false, true]:
+				var m: Dictionary = ControllerDiagram.COMPACT if cm else ControllerDiagram.FULL
+				var d := ControllerDiagram.new()
+				d.style = st
+				d.compact = cm
+				d.interactive = not cm
+				d.binds = sets[id]
+				add_child(d)
+				await _frame()
+				n += 1
+				var tag := "%s/%s/%s" % [st, id, "compact" if cm else "full"]
+				var want := 0
+				for act in sets[id]:
+					for spec in sets[id][act]:
+						want += 1 if ControllerDiagram.control_of(spec) != "" else 0
+				var rows := d.rows()
+				if rows.size() != want:
+					bad.append("%s: %d rows, %d bound" % [tag, rows.size(), want])
+				var widget := Rect2(Vector2.ZERO, d.size)
+				var s: float = d._plan["scale"]
+				var o: Vector2 = d._off + d._plan["origin"]
+				for i in rows.size():
+					var r: Button = rows[i]
+					var rr := Rect2(r.position, r.size)
+					if not widget.encloses(rr) or rr.size != Vector2(m["col_w"], m["row_h"]):
+						bad.append("%s: %s at %s" % [tag, r.text, rr])
+					var sb := r.get_theme_stylebox("normal")
+					var need: float = font.get_string_size(r.text, HORIZONTAL_ALIGNMENT_LEFT, -1, m["font"]).x \
+						+ (r.icon.get_width() if r.icon else 0.0) + r.get_theme_constant("h_separation") \
+						+ sb.get_margin(SIDE_LEFT) + sb.get_margin(SIDE_RIGHT)
+					if need > rr.size.x:
+						bad.append("%s: %s is cut (%d > %d)" % [tag, r.text, need, rr.size.x])
+					for j in range(i + 1, rows.size()):
+						if rr.intersects(Rect2(rows[j].position, rows[j].size)):
+							bad.append("%s: %s over %s" % [tag, r.text, rows[j].text])
+					for ctl in ControllerDiagram.DEVICE_ANCHORS[st]:
+						var ir: Rect2 = ControllerDiagram.DEVICE_ANCHORS[st][ctl]["icon"]
+						if rr.intersects(Rect2(o + ir.position * s, ir.size * s)):
+							bad.append("%s: %s over the %s" % [tag, r.text, ctl])
+				var drawn := ControllerDiagram.crossings(st, {"blocks": d.callout_blocks(), "origin": o, "scale": s})
+				if not drawn.is_empty():
+					bad.append("%s: drawn leaders cross %s" % [tag, drawn])
+				d.queue_free()
+	check(bad.is_empty(), "%d callout layouts are tidy: %s" % [n, bad])
+	check(n == InputPrompts.PAD_STYLES.size() * 6 * 2, "every style, set and size was laid out (%d)" % n)
+
+
+## The drawn keyboard: every key of the three key presets and the mouse buttons are on it, the
+## numpad is listed off it; sizes, a click on a bound key, the tooltip.
+func _test_keyboard_diagram() -> void:
+	var k := KeyboardDiagram.new()
+	k.interactive = true
+	add_child(k)
+	await _frame()
+	check(k.size == Vector2(872, 257), "the full keyboard is 872x257 (%s)" % k.size)
+	for id in InputBindings.preset_ids(InputBindings.KEY):
+		for act in InputBindings.ACTIONS:
+			for spec in InputBindings.PRESETS[InputBindings.KEY][id][act]:
+				if spec != "":
+					check(k.key_rect(spec).has_area(), "%s's %s (%s) is on the keyboard" % [id, act, spec])
+	for mb in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_BUTTON_MIDDLE, MOUSE_BUTTON_XBUTTON1, MOUSE_BUTTON_XBUTTON2]:
+		check(k.key_rect("m%d" % mb).has_area(), "mouse button %d is on the mouse" % mb)
+	var kp := "k%d" % KEY_KP_8
+	check(not k.key_rect(kp).has_area() and KeyboardDiagram.unplaced({"accelerate": [kp, "k%d" % KEY_W, ""]})
+		== [["accelerate", 0, kp]], "the numpad is listed off the picture")
+	check(KeyboardDiagram.unplaced({}).is_empty(), "the default keys are all on the picture")
+	# both Shift keys are Shift
+	var right_shift := Rect2(Vector2(12.25, 4.25) * KeyboardDiagram.UNIT_FULL, Vector2(2.75, 1) * KeyboardDiagram.UNIT_FULL)
+	check(k.spec_at(right_shift.get_center()) == "k%d" % KEY_SHIFT, "the right Shift is Shift too")
+	var w := k.key_rect("k%d" % KEY_W).get_center()
+	check(k._get_tooltip(w) == "W: ACCELERATE" and k._get_tooltip(k.key_rect("k%d" % KEY_G).get_center()) == "G: free",
+		"tooltips: %s / %s" % [k._get_tooltip(w), k._get_tooltip(k.key_rect("k%d" % KEY_G).get_center())])
+	var got := []
+	k.key_clicked.connect(func(s: String): got.append(s))
+	for at in [w, k.key_rect("k%d" % KEY_G).get_center()]:
+		var click := InputEventMouseButton.new()
+		click.button_index = MOUSE_BUTTON_LEFT
+		click.pressed = true
+		click.position = at
+		k._gui_input(click)
+	check(got == ["k%d" % KEY_W], "a click on W says so, one on a free key nothing: %s" % [got])
+	k.pulse_spec = "k%d" % KEY_W
+	check(k.is_processing(), "a listening key pulses")
+	k.pulse_spec = ""
+	check(not k.is_processing(), "and stops")
+	var c := KeyboardDiagram.new()
+	c.compact = true
+	add_child(c)
+	await _frame()
+	check(c.size == Vector2(510, 150) and c.mouse_filter == Control.MOUSE_FILTER_IGNORE and c.focus_mode == Control.FOCUS_NONE,
+		"the compact keyboard is 510x150 and takes no input (%s)" % c.size)
+	k.queue_free()
+	c.queue_free()
+
+
+## OPTIONS' two binding tabs, the pause menu's controls panel and HOW TO DRIVE, built without the
+## Half-Life content (pad_nav walks them with the pad alone in a real race).
+func _test_pages() -> void:
+	var P := InputBindings.PAD
+	var K := InputBindings.KEY
+	InputBindings.reset()
+	var o := OptionsPanel.new()
+	add_child(o)
+	await _frame()
+	await _frame()
+	check(o.tabs.tab_count == 5 and o.pages.size() == 5 and o.pages[OptionsPanel.KEYS_TAB] == o.keys
+		and o.pages[OptionsPanel.PAD_TAB] == o.pad and o.keys.cls == K and o.pad.cls == P,
+		"OPTIONS: five tabs, KEYBOARD & MOUSE and CONTROLLER last, one slot class each")
+	check(o.frame.size == OptionsPanel.SIZE, "OPTIONS is 1400x800 (%s)" % o.frame.size)
+	o.tabs.current_tab = OptionsPanel.PAD_TAB
+	await _frame()
+	check(o.pad.visible and InputPrompts._swap_held, "CONTROLLER holds the menus' confirm / back while it shows")
+	o.tabs.current_tab = OptionsPanel.KEYS_TAB
+	await _frame()
+	check(o.keys.visible and not InputPrompts._swap_held, "KEYBOARD & MOUSE does not")
+	# LAYOUT: over a layout at once, over the player's own one only after a yes
+	var pp := o.pad
+	pp._on_layout(1)
+	check(InputBindings.preset_of(P) == "triggers" and pp.layout_dd.get_item_text(pp.layout_dd.selected) == "TRIGGERS",
+		"a layout over a layout goes in at once (%s)" % InputBindings.preset_of(P))
+	InputBindings.set_slot("look_back", P, 1, InputBindings.button_spec(JOY_BUTTON_TOUCHPAD))
+	await _frame()
+	check(pp.layout_dd.get_item_text(pp.layout_dd.selected) == "CUSTOM", "one change: CUSTOM")
+	pp._on_layout(2)
+	await _frame()
+	var box: MessageBox = null
+	for c in o.get_children():
+		if c is MessageBox:
+			box = c
+	check(box != null and InputBindings.preset_of(P) == "custom", "over CUSTOM the layout asks first")
+	if box:
+		box._answer(true)
+	await _frame()
+	check(InputBindings.preset_of(P) == "classic" and InputBindings.preset_of(K) == "wasd", "a yes puts CLASSIC KART in, the keys untouched")
+	# under the picture: a paddle, and ADD chips for the actions with a free pad slot
+	InputBindings.set_slot("drift", P, 1, InputBindings.button_spec(JOY_BUTTON_PADDLE1))
+	await _frame()
+	check(pp.extra_row("drift", 1) != null and pp._extra_head.visible, "a paddle is listed under the picture")
+	InputBindings.reset()
+	await _frame()
+	check(pp.extra_row("drift", 1) == null and not pp._extra_head.visible and pp.chip_for("drift") != null
+		and pp.chip_for("accelerate") == null and pp._add_head.visible, "STANDARD: no extra rows, ADD chips where a pad slot is free")
+	# CONTROLLER PICTURE previews a family; BUTTON PROMPTS (and so every other prompt) stays
+	var ps := InputPrompts.pad_style()
+	pp.picture_dd.select(5)
+	pp._on_picture(5)
+	await _frame()
+	check(pp.diagram.shown_style() == "ps5" and InputPrompts.pad_style() == ps, "the picture shows PlayStation 5, the prompts stay %s" % ps)
+	pp.picture_dd.select(0)
+	pp._on_picture(0)
+	await _frame()
+	check(pp.diagram.shown_style() == ps, "AUTO: the BUTTON PROMPTS family again")
+	check(pp.diagram.mouse_filter == Control.MOUSE_FILTER_STOP, "the big picture hears the mouse (hover, click, tooltips)")
+	# the foot's messages: an action's own two slots trading places, a menu button refused for pause
+	o.tabs.current_tab = OptionsPanel.PAD_TAB
+	await _frame()
+	pp._listening = "accelerate|1"
+	pp._on_captured("accelerate", P, 1, null, InputBindings.set_slot("accelerate", P, 1, "b0"))
+	check(o._hint.prompt.contains("swapped slots"), "an action's own slots: %s" % o._hint.prompt)
+	pp._listening = "pause|1"
+	pp._on_captured("pause", P, 1, null, InputBindings.set_slot("pause", P, 1, "b0"))
+	check(o._hint.prompt.contains("can't pause") and InputBindings.slots("pause", P) == ["b6", ""], "A refused for pause: %s"
+		% o._hint.prompt)
+	# the ADD chip keeps its width while it listens (the chips after it stay put)
+	var chip := pp.chip_for("drift")
+	var w0 := chip.size.x if chip else 0.0
+	pp.press_slot("drift", 1)
+	await _frame()
+	check(chip != null and chip.text == "PRESS..." and absf(chip.size.x - w0) < 0.5, "a listening chip keeps its width (%s, %s)"
+		% [w0, chip.size.x if chip else -1.0])
+	InputPrompts.cancel_listen()
+	await _frame()
+	check(chip != null and chip.text.begins_with("+ ") and chip.custom_minimum_size.x == 0.0, "and lets it go after")
+	InputBindings.reset()
+	o.tabs.current_tab = OptionsPanel.KEYS_TAB
+	await _frame()
+	# KEYBOARD & MOUSE: a click on a lit key listens on its slot
+	o.keys._on_key_clicked(InputBindings.key_spec(KEY_W))
+	check(InputPrompts.is_listening() and o.keys.listening_slot() == "accelerate|0"
+		and o.keys.keyboard.pulse_spec == InputBindings.key_spec(KEY_W), "a click on W listens on Accelerate's first key")
+	InputPrompts.cancel_listen()
+	check(not InputPrompts.is_listening() and o.keys.listening_slot() == "" and o.keys.keyboard.pulse_spec == "", "and stops")
+	o.queue_free()
+	await _frame()
+	check(not InputPrompts._swap_held, "OPTIONS gone: nothing held")
+	# the pause menu's controls: the device in use
+	var cp := PauseControls.new(false)
+	add_child(cp)
+	await _button(JOY_BUTTON_DPAD_UP, true)
+	await _button(JOY_BUTTON_DPAD_UP, false)
+	check(cp.pad_diagram != null and cp.keyboard == null and cp.pad_diagram.compact and cp.pad_diagram.rows().size() == 14,
+		"a pad in use: the compact picture with its labels")
+	await _key(KEY_F9)
+	await _key(KEY_F9, false)
+	check(cp.keyboard != null and cp.pad_diagram == null and cp._list.get_child_count() == InputBindings.ACTIONS.size() - 1,
+		"the keyboard in use: the drawn keyboard and the actions but CHAT (%d)" % (cp._list.get_child_count() if cp._list else -1))
+	check(cp.mouse_filter == Control.MOUSE_FILTER_IGNORE and cp.find_children("*", "Control", true, false).all(
+		func(c): return (c as Control).focus_mode != Control.FOCUS_ALL), "it never takes the focus")
+	cp.queue_free()
+	# HOW TO DRIVE
+	var fake := Node.new()
+	add_child(fake)
+	var card := DriveCard.new()
+	fake.add_child(card)
+	card.setup(fake)
+	await _frame()
+	check(card.layer == DriveCard.LAYER and card.shown_actions().size() == 7, "HOW TO DRIVE: 7 rows (%s)" % [card.shown_actions()])
+	var styles := []
+	for g in card.panel.find_children("*", "InputGlyph", true, false):
+		if not (g as InputGlyph).style in styles:
+			styles.append((g as InputGlyph).style)
+	check(styles == [InputPrompts.KEYBOARD], "the keyboard in use: keys (%s)" % [styles])
+	var was: bool = Game.settings.get("controls_card", true)
+	Game.settings["controls_card"] = true
+	check(DriveCard.wanted(fake), "wanted in a race")
+	Game.settings["controls_card"] = false
+	check(not DriveCard.wanted(fake), "OPTIONS > GAME turns it off")
+	Game.settings["controls_card"] = was
+	card.leave()
+	await _wait(0.6)
+	check(not is_instance_valid(card), "it fades out and goes at GO")
+	fake.queue_free()
+	InputBindings.reset()

@@ -35,6 +35,7 @@ var input_blocked := false  # online: pause menu / chat open (the race goes on)
 var net_t0 := -1.0  # online: the server's clock at GO (the start, the race time and the hazards run on it)
 var _net_begun := false  # online: the server has started the race (net_begin)
 var _card: CanvasLayer  # the loading card over the first frames (WARMUP_FRAMES)
+var drive_card: DriveCard  # HOW TO DRIVE, from the first frame to GO (null after, or when turned off)
 var _warm := 0
 var _phys_frame := -1  # the physics frame of the last _physics_process (a pause leaves a gap)
 
@@ -66,6 +67,10 @@ func _ready() -> void:
 	hud = Hud.new()
 	add_child(hud)
 	hud.setup(self)
+	if DriveCard.wanted(self):
+		drive_card = DriveCard.new()
+		add_child(drive_card)
+		drive_card.setup(self)
 	Game.race_pool = track.data.get("music", [])
 	if online:
 		hud.big_text("WAITING FOR PLAYERS", 600.0)
@@ -369,6 +374,9 @@ func _physics_process(delta: float) -> void:
 			if _countdown >= COUNT_TIME:
 				_phase = "race"
 				racing = true
+				if drive_card:
+					drive_card.leave()
+					drive_card = null
 				race_time = maxf(clock, 0.0) if shared else 0.0
 				CrowdDirector.notify(get_tree(), &"start", track.path.center[0])
 				Game.play_ui("res://assets/sound/npc/overwatch/radiovoice/off4.wav", -2.0)
@@ -522,7 +530,8 @@ func _finish(k: Kart) -> void:
 		Game.stop_music()
 		Game.play_track("hl2_song23_suitsong3" if place <= 3 else "hl2_song26", "once")
 		if not online:
-			get_tree().create_timer(6.0).timeout.connect(_show_results)
+			# (not while paused: the results wait for the pause menu to close)
+			get_tree().create_timer(6.0, false).timeout.connect(_show_results)
 	if finished_count == karts.size() and not online:
 		_show_results()
 

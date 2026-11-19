@@ -298,8 +298,13 @@ func _open(d: Dialog) -> void:
 		dialog.queue_free()
 	dialog = d
 	root.add_child(d)
+	# the version and the pad's SELECT hint sit just under a tall dialog: a second, stale hint
+	if update_box:
+		update_box.visible = false
 	var last := get_viewport().gui_get_focus_owner()
 	d.closed.connect(func():
+		if update_box and items.visible:
+			update_box.visible = true
 		if setup == null and lobby == null and items.get_child_count() > 0:
 			(items.get_child(0) if last == null or not is_instance_valid(last) else last).grab_focus())
 

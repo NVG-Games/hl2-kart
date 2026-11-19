@@ -1,21 +1,29 @@
 extends Node
 ## Layout check for every menu screen: lists controls that stick out of the
 ## window or are squeezed below their minimum size, and saves a screenshot of
-## each screen. Run at a few window shapes (--resolution 1600x900, 1280x1024, 2560x1080).
-## usage: godot --path . --resolution 1600x900 res://tests/ui_fit.tscn -- <out_prefix>
+## each screen. Run at a few window shapes (1600x900, 1280x1024, 2560x1080): --resolution with a
+## window, or the optional second argument, which also works headless (it sizes the root window:
+## 1280x720 gives a 1600x900 canvas, 1280x1024 1600x1280, 2560x1080 2133x900). Headless the
+## screenshots fail to save (no renderer): harmless.
+## usage: godot --path . --resolution 1600x900 res://tests/ui_fit.tscn -- <out_prefix> [WxH]
 
 
 func _ready() -> void:
-	get_tree().root.add_child.call_deferred(Runner.new(OS.get_cmdline_user_args()[0]))
+	var args := OS.get_cmdline_user_args()
+	get_tree().root.add_child.call_deferred(Runner.new(args[0] if args.size() > 0 else "ui_fit", args[1] if args.size() > 1 else ""))
 
 
 class Runner:
 	extends Node
 	var out := ""
+	var win := Vector2i.ZERO  # the root window's size to test at (ZERO: as it is)
 	var problems := 0
 
-	func _init(o: String) -> void:
+	func _init(o: String, size_arg := "") -> void:
 		out = o
+		var p := size_arg.to_lower().split("x")
+		if p.size() == 2 and p[0].is_valid_int() and p[1].is_valid_int():
+			win = Vector2i(int(p[0]), int(p[1]))
 		process_mode = Node.PROCESS_MODE_ALWAYS
 
 	func _check(screen: String) -> void:
@@ -48,7 +56,9 @@ class Runner:
 		for b in bad.slice(0, 12):
 			print("    ", b)
 		problems += bad.size()
-		get_viewport().get_texture().get_image().save_png("%s_%s.png" % [out, screen])
+		var img := get_viewport().get_texture().get_image()
+		if img:
+			img.save_png("%s_%s.png" % [out, screen])
 
 	func _inside_scroll(c: Node) -> bool:
 		var p := c.get_parent()
@@ -68,6 +78,10 @@ class Runner:
 
 	func _ready() -> void:
 		Game.settings["tutorial_seen"] = true
+		if win != Vector2i.ZERO:
+			get_tree().root.size = win
+			await get_tree().process_frame
+		print("window %s, canvas %s" % [get_tree().root.size, get_viewport().get_visible_rect().size])
 		get_tree().change_scene_to_file("res://scenes/main.tscn")
 		await get_tree().create_timer(1.5).timeout
 		var menu: Node = get_tree().current_scene

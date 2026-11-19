@@ -1,10 +1,12 @@
 extends Node
 ## Headless walk through every menu screen with a pad only (synthetic pad events, no window): the
 ## focus enters each screen and is never lost, B leaves every screen and closes every dialog (and
-## the focus goes back where it was), LB / RB switch tabs, OPTIONS > CONTROLS rebinds, swaps,
-## clears and cancels, the lobby asks before leaving, and in a race the intro skips on A, B resumes
-## from the pause menu and a pad going away pauses with a note. Prints each failure and a total;
-## exits 1 on any failure. Restores the settings it changes. Takes about a minute (it loads a race).
+## the focus goes back where it was), LB / RB switch tabs, OPTIONS > KEYBOARD & MOUSE and CONTROLLER
+## rebind (a table slot, a label on the pad's picture, an ADD chip), swap, clear, cancel and pick a
+## layout, the lobby asks before leaving, and in a race HOW TO DRIVE shows until GO, the intro skips
+## on A, the pause menu shows the controls beside it, B resumes from it and a pad going away pauses
+## with a note. Prints each failure and a total; exits 1 on any failure. Restores the settings it
+## changes. Takes about a minute (it loads a race).
 ## usage: godot --headless --path . res://tests/pad_nav.tscn
 
 
@@ -86,6 +88,10 @@ class Runner:
 		return null
 
 	func _ready() -> void:
+		# a 16:9 canvas (1600x900), as ui_fit does: headless the window is 0x0 and the canvas would be
+		# 1600x1600, so a panel below y 900 would still count as on the screen
+		get_tree().root.size = Vector2i(1280, 720)
+		await get_tree().process_frame
 		_saved = Game.settings.duplicate(true)
 		Game.settings["tutorial_seen"] = true
 		# no network beyond the LAN scan: the browser's other lists stay empty
@@ -149,10 +155,15 @@ class Runner:
 		check(o.tabs.current_tab == 1 and o.pages[1].visible, "RB: VIDEO")
 		await _pad(JOY_BUTTON_LEFT_SHOULDER)
 		await _pad(JOY_BUTTON_LEFT_SHOULDER)
-		check(o.tabs.current_tab == 3 and o.controls.visible, "LB from AUDIO wraps to CONTROLS")
-		check(o.prompt_bar.get_child_count() == 4, "CONTROLS hints: CHANGE, CLEAR, BACK, TABS (%d)" % o.prompt_bar.get_child_count())
+		check(o.tabs.current_tab == 4 and o.pad.visible, "LB from AUDIO wraps to CONTROLLER (%d)" % o.tabs.current_tab)
+		check(o.prompt_bar.get_child_count() == 4, "CONTROLLER hints: CHANGE, CLEAR, BACK, TABS (%d)" % o.prompt_bar.get_child_count())
+		await _pad(JOY_BUTTON_LEFT_SHOULDER)
+		check(o.tabs.current_tab == 3 and o.keys.visible, "LB again: KEYBOARD & MOUSE (%d)" % o.tabs.current_tab)
+		check(o.prompt_bar.get_child_count() == 4, "KEYBOARD & MOUSE hints: CHANGE, CLEAR, BACK, TABS (%d)" % o.prompt_bar.get_child_count())
+		await _pad(JOY_BUTTON_RIGHT_SHOULDER)
 		# a slider on VIDEO... no: on AUDIO, focus inside a page then LB/RB: the tab bar takes it
 		await _pad(JOY_BUTTON_RIGHT_SHOULDER)
+		check(o.tabs.current_tab == 0, "RB from CONTROLLER wraps to AUDIO (%d)" % o.tabs.current_tab)
 		await _move(JOY_BUTTON_DPAD_DOWN, 1, "audio")
 		check(_focus() is HSlider, "D-pad down from the tabs: the master volume slider (%s)" % _focus_name())
 		var s := _focus() as HSlider
@@ -177,89 +188,102 @@ class Runner:
 		await _frames()
 		await _pad(JOY_BUTTON_DPAD_DOWN)
 		check(_focus() != null and o.is_ancestor_of(_focus()), "safety net in a dialog (%s)" % _focus_name())
-		o.tabs.current_tab = 3
+		o.tabs.current_tab = OptionsPanel.KEYS_TAB
 		await _frames()
-		await _controls(o)
+		await _keys(o)
+		o.tabs.current_tab = OptionsPanel.PAD_TAB
+		await _frames()
+		await _pad_tab(o)
 		await _pad(JOY_BUTTON_B)
 		await _frames(3)
 		check(not is_instance_valid(o) or o.is_queued_for_deletion(), "B closes Options")
 		check(_focus() == _menu_item(menu, "OPTIONS"), "the focus is back on OPTIONS (%s)" % _focus_name())
 
-	func _slot(o: OptionsPanel, act: String, cls: String, i: int) -> Button:
-		return o.controls._slots.get("%s|%s|%d" % [act, cls, i])
+	## Picks item `want` of a dropdown with the pad alone: A opens it, the D-pad moves to the item,
+	## A picks it.
+	func _pick(dd: OptionButton, want: int, where: String) -> void:
+		dd.grab_focus()
+		await _pad(JOY_BUTTON_A)
+		await _frames(3)
+		var pop := dd.get_popup()
+		check(pop.visible, "%s: A opens the dropdown" % where)
+		for i in dd.item_count + 1:
+			if pop.get_focused_item() == want:
+				break
+			await _pad(JOY_BUTTON_DPAD_DOWN)
+		check(pop.get_focused_item() == want, "%s: the D-pad reaches %s (%d)" % [where, dd.get_item_text(want), pop.get_focused_item()])
+		await _pad(JOY_BUTTON_A)
+		await _frames(3)
 
-	func _controls(o: OptionsPanel) -> void:
-		var page := o.controls
+	func _selected(dd: OptionButton) -> String:
+		return dd.get_item_text(dd.selected) if dd.selected >= 0 else ""
+
+	# ------------------------------------------------------------ OPTIONS > KEYBOARD & MOUSE
+	func _keys(o: OptionsPanel) -> void:
+		var page := o.keys
+		var K := InputBindings.KEY
 		o.tabs.grab_focus()
-		await _move(JOY_BUTTON_DPAD_DOWN, 1, "controls")
-		check(_focus() == _slot(o, "accelerate", "pad", 0), "D-pad down with a pad: Accelerate's first pad slot (%s)" % _focus_name())
+		await _move(JOY_BUTTON_DPAD_DOWN, 1, "keys")
+		check(_focus() == page.slot_button("accelerate", 0), "KEYBOARD & MOUSE: D-pad down from the tabs: Accelerate's first key (%s)" % _focus_name())
 		# a key slot: A listens, a key binds it
-		_slot(o, "accelerate", "key", 0).grab_focus()
 		await _pad(JOY_BUTTON_A)
 		check(InputPrompts.is_listening(), "A on a slot listens")
 		check(o._hint.visible and o._hint.prompt.contains("Press a key"), "the foot says what to press: %s" % o._hint.prompt)
+		check(page.keyboard.pulse_spec == InputBindings.key_spec(KEY_W), "the drawn keyboard pulses W while its slot listens (%s)" % page.keyboard.pulse_spec)
 		await _wait(0.2)
 		await _key(KEY_K)
-		check(InputBindings.get_slot("accelerate", "key", 0) == InputBindings.key_spec(KEY_K), "K bound to Accelerate")
+		check(InputBindings.get_slot("accelerate", K, 0) == InputBindings.key_spec(KEY_K), "K bound to Accelerate")
 		check(is_instance_valid(o) and not o.is_queued_for_deletion(), "the dialog stays open")
-		check(_focus() == _slot(o, "accelerate", "key", 0), "the focus stays on the slot (%s)" % _focus_name())
-		# a pad slot: Y is Look behind's, so the two swap
-		_slot(o, "accelerate", "pad", 0).grab_focus()
-		await _pad(JOY_BUTTON_A)
-		await _wait(0.2)
-		await _pad(JOY_BUTTON_Y)
-		check(InputBindings.get_slot("accelerate", "pad", 0) == InputBindings.button_spec(JOY_BUTTON_Y), "Y bound to Accelerate")
-		check(InputBindings.get_slot("look_back", "pad", 0) == InputBindings.button_spec(JOY_BUTTON_A), "Look behind took A")
-		check(o._hint.prompt.contains("moved from LOOK BEHIND"), "the swap is told: %s" % o._hint.prompt)
-		# B binds in a listening pad slot (it does not close the dialog)
-		await _pad(JOY_BUTTON_A)
-		await _wait(0.2)
-		await _pad(JOY_BUTTON_B)
-		check(is_instance_valid(o) and not o.is_queued_for_deletion(), "B while listening does not close the dialog")
-		check(InputBindings.get_slot("accelerate", "pad", 0) == InputBindings.button_spec(JOY_BUTTON_B), "B bound while listening")
-		# Start cancels (and does not close the dialog either)
-		await _pad(JOY_BUTTON_A)
-		await _wait(0.2)
-		await _pad(JOY_BUTTON_START)
-		check(not InputPrompts.is_listening() and is_instance_valid(o) and not o.is_queued_for_deletion(), "Start cancels, the dialog stays")
-		check(InputBindings.get_slot("accelerate", "pad", 0) == InputBindings.button_spec(JOY_BUTTON_B), "a cancel changes nothing")
-		# X clears a slot; the last one of a needed action is refused
+		check(_focus() == page.slot_button("accelerate", 0), "the focus stays on the slot (%s)" % _focus_name())
+		check(page.keyboard.key_rect(InputBindings.key_spec(KEY_K)).has_area() and page.keyboard._lit.get(InputBindings.key_spec(KEY_K), -1) == 0,
+			"the drawn keyboard lights K as action 1")
+		check(InputBindings.preset_of(K) == "custom" and _selected(page.layout_dd) == "CUSTOM", "LAYOUT: CUSTOM (%s)" % _selected(page.layout_dd))
+		await _pad(JOY_BUTTON_DPAD_DOWN)
+		check(page.keyboard.highlight_action == "brake", "the focused row's keys are the highlighted ones (%s)" % page.keyboard.highlight_action)
+		# X clears a key slot; the last key of a needed action is refused
+		page.slot_button("brake", 1).grab_focus()
 		await _pad(JOY_BUTTON_X)
-		check(InputBindings.get_slot("accelerate", "pad", 0) == "", "X clears the slot")
-		_slot(o, "accelerate", "pad", 1).grab_focus()
+		check(InputBindings.get_slot("brake", K, 1) == "", "X clears a key slot")
+		page.slot_button("brake", 0).grab_focus()
 		await _pad(JOY_BUTTON_X)
-		check(InputBindings.get_slot("accelerate", "pad", 1) != "", "the last pad binding of Accelerate stays")
-		check(o._hint.prompt.contains("needs at least one"), "and the foot says why: %s" % o._hint.prompt)
+		check(InputBindings.get_slot("brake", K, 0) != "" and o._hint.prompt.contains("needs at least one key"),
+			"the last key of Brake stays, and the foot says why: %s" % o._hint.prompt)
 		# the locked slot (Esc) only explains
-		_slot(o, "pause", "key", 0).grab_focus()
+		page.slot_button("pause", 0).grab_focus()
 		await _pad(JOY_BUTTON_A)
 		check(not InputPrompts.is_listening() and o._hint.prompt.contains("can't be changed"), "Esc's slot is locked: %s" % o._hint.prompt)
-		# the settings column: vibration buzzes the pad
-		var vib := page._vib.get_child(0) as HSlider
-		vib.grab_focus()
-		InputPrompts.stop_rumble()
-		await _pad(JOY_BUTTON_DPAD_LEFT)
-		check(InputPrompts.rumble_now() != Vector3.ZERO or float(Game.settings["vibration"]) == 0.0, "a vibration change buzzes the pad")
-		InputPrompts.stop_rumble()
-		# a held D-pad keeps stepping a slider
-		var dz := page._dz.get_child(0) as HSlider
-		dz.grab_focus()
-		dz.value = dz.min_value
-		await _hold(JOY_BUTTON_DPAD_RIGHT, 1.0)
-		check(dz.value >= dz.min_value + 3 * dz.step, "holding the D-pad repeats the slider's step (%s)" % dz.value)
-		check(is_equal_approx(float(Game.settings["stick_deadzone"]), dz.value / 100.0), "the dead zone follows the slider")
-		await _move(JOY_BUTTON_DPAD_DOWN, 4, "controls settings")
-		check(page.is_ancestor_of(_focus()) or o.buttons.is_ancestor_of(_focus()), "settings column reachable (%s)" % _focus_name())
-		# RESET TO DEFAULTS asks, CANCEL focused; B answers no
-		page._reset.grab_focus()
+		# right of a row's last slot: LAYOUT, then RESET KEYS
+		page.slot_button("steer_left", InputBindings.KEY_SLOTS - 1).grab_focus()
+		await _move(JOY_BUTTON_DPAD_RIGHT, 1, "keys right")
+		check(_focus() == page.layout_dd, "right of a row's last slot: LAYOUT (%s)" % _focus_name())
+		await _move(JOY_BUTTON_DPAD_RIGHT, 1, "keys right")
+		check(_focus() == page.reset_button, "and right again: RESET KEYS (%s)" % _focus_name())
+		# a layout over CUSTOM asks first; REPLACE puts it in
+		await _pick(page.layout_dd, 1, "keys LAYOUT")
+		var box := _top_dialog()
+		check(box is MessageBox and _focus() == (box as MessageBox).cancel_button, "over CUSTOM the layout asks, CANCEL focused (%s)" % _focus_name())
+		await _move(JOY_BUTTON_DPAD_RIGHT, 1, "layout box")
+		check(box is MessageBox and _focus() == (box as MessageBox).ok_button, "D-pad right: REPLACE (%s)" % _focus_name())
 		await _pad(JOY_BUTTON_A)
 		await _frames(3)
-		var box := _top_dialog()
+		check(InputBindings.preset_of(K) == "arrows" and _selected(page.layout_dd) == "ARROWS",
+			"A on REPLACE: the ARROWS layout (%s, %s)" % [InputBindings.preset_of(K), _selected(page.layout_dd)])
+		check(InputBindings.get_slot("accelerate", K, 0) == InputBindings.key_spec(KEY_UP), "ARROWS: Up accelerates")
+		# from one layout to another: no question
+		await _pick(page.layout_dd, 0, "keys LAYOUT")
+		check(_top_dialog() == o and InputBindings.preset_of(K) == "wasd", "back to WASD without a question (%s)" % InputBindings.preset_of(K))
+		check(_focus() == page.layout_dd, "the focus is on LAYOUT (%s)" % _focus_name())
+		# RESET KEYS asks, CANCEL focused; B answers no
+		InputBindings.set_slot("accelerate", K, 0, InputBindings.key_spec(KEY_K))
+		page.reset_button.grab_focus()
+		await _pad(JOY_BUTTON_A)
+		await _frames(3)
+		box = _top_dialog()
 		check(box is MessageBox and _focus() == (box as MessageBox).cancel_button, "RESET asks, CANCEL focused (%s)" % _focus_name())
 		await _pad(JOY_BUTTON_B)
 		await _frames(3)
-		check(InputBindings.get_slot("accelerate", "key", 0) == InputBindings.key_spec(KEY_K), "B on the question resets nothing")
-		check(_focus() == page._reset, "the focus is back on RESET (%s)" % _focus_name())
+		check(InputBindings.get_slot("accelerate", K, 0) == InputBindings.key_spec(KEY_K), "B on the question resets nothing")
+		check(_focus() == page.reset_button, "the focus is back on RESET (%s)" % _focus_name())
 		await _pad(JOY_BUTTON_A)
 		await _frames(3)
 		box = _top_dialog()
@@ -267,9 +291,156 @@ class Runner:
 		check(box is MessageBox and _focus() == (box as MessageBox).ok_button, "D-pad right: the box's RESET (%s)" % _focus_name())
 		await _pad(JOY_BUTTON_A)
 		await _frames(3)
-		check(InputBindings.get_slot("accelerate", "key", 0) == InputBindings.key_spec(KEY_W) and Game.settings["bindings"].is_empty(),
-			"RESET puts the controls back (%s, focus %s)" % [Game.settings["bindings"], _focus_name()])
+		check(InputBindings.get_slot("accelerate", K, 0) == InputBindings.key_spec(KEY_W) and Game.settings["bindings"].is_empty(),
+			"RESET KEYS puts the keys back (%s, focus %s)" % [Game.settings["bindings"], _focus_name()])
 		check(_focus() != null and o.is_ancestor_of(_focus()), "the focus is in Options after the reset (%s)" % _focus_name())
+
+	# ------------------------------------------------------------ OPTIONS > CONTROLLER
+	func _rows(page: PadPage, side: int) -> Array:
+		return page.diagram.rows().filter(func(r): return (r as ControllerDiagram.Row).side == side)
+
+	func _pad_tab(o: OptionsPanel) -> void:
+		var page := o.pad
+		var P := InputBindings.PAD
+		o.tabs.grab_focus()
+		await _move(JOY_BUTTON_DPAD_DOWN, 1, "controller")
+		check(_focus() != null and _focus() == page.diagram.first_row(), "CONTROLLER: D-pad down from the tabs: the first label (%s)" % _focus_name())
+		check(page.diagram.shown_style() == InputPrompts.pad_style(), "the picture follows BUTTON PROMPTS / the pad (%s)" % page.diagram.shown_style())
+		# down the left column, across, down the right one: always on a label, always in the dialog
+		var left := _rows(page, -1)
+		var right := _rows(page, 1)
+		var walked := true
+		for i in range(1, left.size()):
+			await _pad(JOY_BUTTON_DPAD_DOWN)
+			walked = walked and _focus() == left[i]
+		check(walked and left.size() > 3, "D-pad down walks the left column's labels (%d, %s)" % [left.size(), _focus_name()])
+		await _pad(JOY_BUTTON_DPAD_RIGHT)
+		check(_focus() in right, "D-pad right: across to the right column (%s)" % _focus_name())
+		(right[0] as Control).grab_focus()
+		var on_labels := true
+		for i in range(1, right.size()):
+			await _pad(JOY_BUTTON_DPAD_DOWN)
+			on_labels = on_labels and _focus() == right[i]
+		check(on_labels, "D-pad down walks the right column's labels (%d, %s)" % [right.size(), _focus_name()])
+		await _move(JOY_BUTTON_DPAD_DOWN, 1, "right column down")
+		check(page.extras.is_ancestor_of(_focus()), "down from the last label: the extras under the picture (%s)" % _focus_name())
+		await _move(JOY_BUTTON_DPAD_UP, 1, "extras up")
+		check(_focus() in page.diagram.rows(), "up from the extras: a label (%s)" % _focus_name())
+		(right[0] as Control).grab_focus()
+		await _move(JOY_BUTTON_DPAD_RIGHT, 1, "controller right")
+		check(_focus() in page._side_controls(), "D-pad right from a right-column label: the side column (%s)" % _focus_name())
+		await _move(JOY_BUTTON_DPAD_LEFT, 1, "side left")
+		check(_focus() in page.diagram.rows(), "and left: back to a label (%s)" % _focus_name())
+		# a layout over a layout: no question
+		await _pick(page.layout_dd, 1, "pad LAYOUT")
+		check(_top_dialog() == o and InputBindings.preset_of(P) == "triggers" and _selected(page.layout_dd) == "TRIGGERS",
+			"LAYOUT: TRIGGERS, no question (%s)" % InputBindings.preset_of(P))
+		var acc = page.diagram.row_for("accelerate", 0)
+		check(acc != null and acc.control == "rt", "TRIGGERS: Accelerate's label is on RT (%s)" % (acc.control if acc else "none"))
+		await _pick(page.layout_dd, 0, "pad LAYOUT")
+		check(InputBindings.preset_of(P) == "standard", "back to STANDARD (%s)" % InputBindings.preset_of(P))
+		# rebind through a label: look behind to X, which brake had (they swap)
+		var lb = page.diagram.row_for("look_back", 0)
+		lb.grab_focus()
+		await _pad(JOY_BUTTON_A)
+		check(InputPrompts.is_listening() and lb.text == "PRESS...", "A on a label listens (%s)" % lb.text)
+		check(o._hint.prompt.contains("Press a button"), "the foot says what to press: %s" % o._hint.prompt)
+		await _wait(0.2)
+		await _pad(JOY_BUTTON_X)
+		check(InputBindings.get_slot("look_back", P, 0) == "b2", "X bound to Look behind")
+		check(page.diagram.row_for("look_back", 0) != null and page.diagram.row_for("look_back", 0).control == "face_w",
+			"its label moved to the left face button")
+		check(InputBindings.get_slot("brake", P, 0) == "b3", "Brake took Y")
+		check(_focus() == page.diagram.row_for("look_back", 0), "the focus is on Look behind's label (%s)" % _focus_name())
+		check(o._hint.prompt.contains("moved from BRAKE / REVERSE"), "the swap is told: %s" % o._hint.prompt)
+		check(InputBindings.preset_of(P) == "custom" and _selected(page.layout_dd) == "CUSTOM", "LAYOUT: CUSTOM (%s)" % _selected(page.layout_dd))
+		# B binds in a listening slot (it does not close the dialog)
+		await _pad(JOY_BUTTON_A)
+		await _wait(0.2)
+		await _pad(JOY_BUTTON_B)
+		check(is_instance_valid(o) and not o.is_queued_for_deletion(), "B while listening does not close the dialog")
+		check(InputBindings.get_slot("look_back", P, 0) == "b1", "B bound while listening")
+		# Start cancels (and does not close the dialog either)
+		await _pad(JOY_BUTTON_A)
+		await _wait(0.2)
+		await _pad(JOY_BUTTON_START)
+		check(not InputPrompts.is_listening() and is_instance_valid(o) and not o.is_queued_for_deletion(), "Start cancels, the dialog stays")
+		check(InputBindings.get_slot("look_back", P, 0) == "b1", "a cancel changes nothing")
+		# X clears a label: its action's ADD chip takes the focus; A on the chip listens
+		page.diagram.row_for("look_back", 0).grab_focus()
+		await _pad(JOY_BUTTON_X)
+		check(InputBindings.get_slot("look_back", P, 0) == "" and page.diagram.row_for("look_back", 0) == null, "X clears the slot")
+		check(page.chip_for("look_back") != null and _focus() == page.chip_for("look_back"), "the focus goes to its ADD chip (%s)" % _focus_name())
+		await _pad(JOY_BUTTON_A)
+		check(InputPrompts.is_listening() and page.chip_for("look_back") != null and page.chip_for("look_back").text == "PRESS...",
+			"A on the chip listens")
+		await _wait(0.2)
+		await _pad(JOY_BUTTON_Y)
+		check(InputBindings.get_slot("look_back", P, 0) == "b3" and _focus() == page.diagram.row_for("look_back", 0),
+			"Y from the chip: Look behind's label is back and focused (%s)" % _focus_name())
+		# the last pad binding of a needed action stays
+		page.diagram.row_for("accelerate", 0).grab_focus()
+		await _pad(JOY_BUTTON_X)
+		check(InputBindings.get_slot("accelerate", P, 0) == "", "X clears Accelerate's first pad slot")
+		page.diagram.row_for("accelerate", 1).grab_focus()
+		await _pad(JOY_BUTTON_X)
+		check(InputBindings.get_slot("accelerate", P, 1) != "", "the last pad binding of Accelerate stays")
+		check(o._hint.prompt.contains("needs at least one pad button"), "and the foot says why: %s" % o._hint.prompt)
+		# the locked Start label only explains
+		page.diagram.row_for("pause", 0).grab_focus()
+		await _pad(JOY_BUTTON_A)
+		check(not InputPrompts.is_listening() and o._hint.prompt.contains("can't be changed"), "Start's label is locked: %s" % o._hint.prompt)
+		# the settings column: vibration buzzes the pad
+		var vib := page.vib.get_child(0) as HSlider
+		vib.grab_focus()
+		InputPrompts.stop_rumble()
+		await _pad(JOY_BUTTON_DPAD_LEFT)
+		check(InputPrompts.rumble_now() != Vector3.ZERO or float(Game.settings["vibration"]) == 0.0, "a vibration change buzzes the pad")
+		InputPrompts.stop_rumble()
+		# a held D-pad keeps stepping a slider
+		var dz := page.dz.get_child(0) as HSlider
+		dz.grab_focus()
+		dz.value = dz.min_value
+		await _hold(JOY_BUTTON_DPAD_RIGHT, 1.0)
+		check(dz.value >= dz.min_value + 3 * dz.step, "holding the D-pad repeats the slider's step (%s)" % dz.value)
+		check(is_equal_approx(float(Game.settings["stick_deadzone"]), dz.value / 100.0), "the dead zone follows the slider")
+		await _move(JOY_BUTTON_DPAD_DOWN, 4, "controller settings")
+		check(page._side.is_ancestor_of(_focus()) or o.buttons.is_ancestor_of(_focus()), "settings column reachable (%s)" % _focus_name())
+		# the picture: another family, the detected one untouched
+		var det := InputPrompts.pad_style()
+		page.picture_dd.select(5)
+		page.picture_dd.item_selected.emit(5)
+		await _frames()
+		check(page.diagram.shown_style() == "ps5" and InputPrompts.pad_style() == det,
+			"CONTROLLER PICTURE: PlayStation 5 drawn, the prompts still %s (%s)" % [det, page.diagram.shown_style()])
+		page.picture_dd.select(0)
+		page.picture_dd.item_selected.emit(0)
+		await _frames()
+		# RESET CONTROLLER asks, CANCEL focused; RESET puts STANDARD back
+		page.reset_button.grab_focus()
+		await _pad(JOY_BUTTON_A)
+		await _frames(3)
+		var box := _top_dialog()
+		check(box is MessageBox and _focus() == (box as MessageBox).cancel_button, "RESET CONTROLLER asks, CANCEL focused (%s)" % _focus_name())
+		await _pad(JOY_BUTTON_B)
+		await _frames(3)
+		check(InputBindings.preset_of(P) == "custom" and _focus() == page.reset_button, "B on the question resets nothing (%s)" % _focus_name())
+		await _pad(JOY_BUTTON_A)
+		await _frames(3)
+		await _move(JOY_BUTTON_DPAD_RIGHT, 1, "reset box")
+		await _pad(JOY_BUTTON_A)
+		await _frames(3)
+		check(InputBindings.preset_of(P) == "standard" and Game.settings["bindings"].is_empty() and _selected(page.layout_dd) == "STANDARD",
+			"RESET CONTROLLER: STANDARD again (%s)" % [Game.settings["bindings"]])
+		check(_focus() != null and o.is_ancestor_of(_focus()), "the focus is in Options after the reset (%s)" % _focus_name())
+
+	## The styles the InputGlyphs under `n` draw in, each once.
+	func _glyph_styles(n: Node) -> Array:
+		var out := []
+		for g in n.find_children("*", "InputGlyph", true, false):
+			if not (g as InputGlyph).style in out:
+				out.append((g as InputGlyph).style)
+		return out
 
 	func _top_dialog() -> Dialog:
 		var s := get_tree().get_nodes_in_group(InputPrompts.SCREEN_GROUP)
@@ -437,38 +608,84 @@ class Runner:
 		await _frames(2)
 		check(hud.skip_hint.visible, "the intro shows the SKIP prompt")
 		check(hud.rescue_label.get_parsed_text().contains("STUCK?"), "the rescue hint is a prompt: %s" % hud.rescue_label.get_parsed_text())
+		# HOW TO DRIVE over the intro, clear of the HUD's prompts and boxes
+		var card: DriveCard = race.drive_card
+		check(card != null and card.panel.is_visible_in_tree(), "the intro shows HOW TO DRIVE")
+		if card:
+			var cr := card.panel.get_global_rect()
+			for c in [hud.skip_hint, hud.big, hud.minimap, hud.standings]:
+				check(not cr.intersects((c as Control).get_global_rect()), "HOW TO DRIVE %s is clear of %s %s" % [cr, c.name,
+					(c as Control).get_global_rect()])
+			check(get_viewport().get_visible_rect().encloses(cr), "HOW TO DRIVE is on the screen (%s)" % cr)
+			check(card.shown_actions().size() == 7, "HOW TO DRIVE has its 7 rows: %s" % [card.shown_actions()])
+			check(_glyph_styles(card.panel) == [InputPrompts.pad_style()], "its icons are the pad's (%s)" % [_glyph_styles(card.panel)])
+			await _key(KEY_K)
+			check(_glyph_styles(card.panel) == [InputPrompts.KEYBOARD], "a key press: the keys (%s)" % [_glyph_styles(card.panel)])
 		# paused in the intro, B (also Use item) resumes without skipping it
 		await _pad(JOY_BUTTON_START)
 		check(get_tree().paused, "Start pauses the intro")
+		check(card == null or not card.panel.is_visible_in_tree(), "the pause hides HOW TO DRIVE")
 		await _pad(JOY_BUTTON_B)
 		await _frames(3)
 		check(not get_tree().paused and race._phase == "intro", "B resumes, the intro goes on (%s)" % race._phase)
+		check(card == null or card.panel.is_visible_in_tree(), "and HOW TO DRIVE is back")
 		await _pad(JOY_BUTTON_A)
 		await _frames(2)
 		check(race._phase == "count", "A skips the intro (%s)" % race._phase)
-		for i in 20:
-			await _wait(0.5)
-			if race._phase == "race":
-				break
+		check(card == null or (is_instance_valid(card) and card.panel.is_visible_in_tree()), "HOW TO DRIVE stays for the countdown")
+		var until := Time.get_ticks_msec() + 10000
+		while race._phase != "race" and Time.get_ticks_msec() < until:
+			await _frames(1)
+		check(race._phase == "race" and race.drive_card == null, "GO (%s)" % race._phase)
+		await _wait(0.6)
+		check(card == null or not is_instance_valid(card), "HOW TO DRIVE is gone 0.6 s after GO")
+		var was: bool = Game.settings.get("controls_card", true)
+		Game.settings["controls_card"] = false
+		check(not DriveCard.wanted(race), "OPTIONS > GAME turns HOW TO DRIVE off")
+		Game.settings["controls_card"] = was
 		await _pad(JOY_BUTTON_START)
 		check(get_tree().paused and _focus() == hud.pause_panel.get_meta("first"), "Start pauses, RESUME focused (%s)" % _focus_name())
+		# the controls beside the pause menu: the pad in use, clear of the column and the HUD's boxes
+		var cp := hud.controls_panel
+		check(cp != null and cp.is_visible_in_tree() and cp.pad_diagram != null and cp.keyboard == null, "the pause menu shows the pad's controls")
+		if cp:
+			await _frames(2)
+			var pr := cp.get_global_rect()
+			var boxes: Array[Control] = [hud.pause_panel.get_child(1), hud.minimap, hud.speed_num.get_parent(), hud.time_lbl.get_parent(),
+				hud.item_box, hud.pos_num.get_parent(), hud.lap_num.get_parent(), hud.aux_label.get_parent()]
+			for c in boxes:
+				check(not pr.intersects(c.get_global_rect()), "the controls panel %s is clear of %s %s" % [pr, c.name, c.get_global_rect()])
+			check(get_viewport().get_visible_rect().encloses(pr), "the controls panel is on the screen (%s)" % pr)
+		await _move(JOY_BUTTON_DPAD_RIGHT, 1, "pause right")
+		check(_focus() == hud.pause_panel.get_meta("first"), "D-pad right from RESUME stays in the pause column (%s)" % _focus_name())
+		await _key(KEY_K)
+		check(cp and cp.keyboard != null and cp.pad_diagram == null and cp.is_visible_in_tree(), "a key press: the keyboard's controls")
+		if cp and cp.keyboard:
+			await _frames(2)
+			check(not cp.get_global_rect().intersects(hud.minimap.get_global_rect()) and get_viewport().get_visible_rect().encloses(cp.get_global_rect()),
+				"the keyboard's panel %s is clear of the minimap and on the screen" % cp.get_global_rect())
 		await _move(JOY_BUTTON_DPAD_DOWN, 2, "pause")
+		check(cp == null or cp.pad_diagram != null, "the pad again: the pad's controls")
 		await _pad(JOY_BUTTON_A)
 		await _frames(3)
 		check(hud._options != null and is_instance_valid(hud._options), "OPTIONS from the pause menu")
+		check(cp == null or not cp.visible, "OPTIONS hides the controls panel")
 		await _move(JOY_BUTTON_DPAD_LEFT, 2, "pause options")
 		check(hud._options and hud._options.is_ancestor_of(_focus()), "the focus stays in Options over the pause menu (%s)" % _focus_name())
 		await _pad(JOY_BUTTON_B)
 		await _frames(3)
 		check(get_tree().paused and _focus() == hud.pause_panel.get_meta("first"), "B closes Options, RESUME focused (%s)" % _focus_name())
+		check(cp == null or cp.is_visible_in_tree(), "and the controls panel is back")
 		await _pad(JOY_BUTTON_B)
 		await _frames(2)
 		check(not get_tree().paused and not hud.pause_panel.visible, "B resumes")
+		check(cp == null or not cp.is_visible_in_tree(), "the controls panel goes with the pause menu")
 		# the pad in use goes away: the race pauses with a note; back: the note says so, still paused
 		await _pad(JOY_BUTTON_A)
 		InputPrompts._on_joy_connection(1, false)
 		await _frames(2)
 		check(get_tree().paused and hud._pad_note.visible and hud._pad_note.text.contains("DISCONNECTED"), "a lost pad pauses the race")
+		check(cp == null or (cp.pad_diagram != null) == PauseControls.pad_in_use(), "the controls panel follows the device in use")
 		InputPrompts._on_joy_connection(1, true)
 		await _frames(2)
 		check(get_tree().paused and hud._pad_note.text.contains("CONNECTED"), "back: still paused, the note says so")

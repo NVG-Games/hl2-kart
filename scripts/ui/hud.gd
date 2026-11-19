@@ -4,7 +4,8 @@ extends CanvasLayer
 ## POSITION/LAP where HEALTH/SUIT sit, MPH where AMMO sits, AUX POWER bar
 ## for drift charge, weapon-selection box for the held item. Every control it names shows as the
 ## player's binding on the device in use (PromptLabel): the rescue hint, the intro's SKIP, the
-## item box's corner and the hints under the pause menu and the results.
+## item box's corner and the hints under the pause menu and the results. Beside the pause menu a
+## panel shows the controls on a picture of the pad or keyboard in use (PauseControls).
 
 const U := Hl2Style.UNIT
 # HudHealth / HudSuit geometry (layout units): the label, the big digits and the small "/N"
@@ -43,6 +44,8 @@ var item_glyph: InputGlyph  # use_item's button in the item box's corner
 var standings: VBoxContainer
 var minimap: Control
 var pause_panel: Control
+## Beside the pause column (and the online MENU): the controls for the device in use.
+var controls_panel: PauseControls
 var results_panel: Control
 var _shown_item := ""
 var _roulette_t := 0.0
@@ -514,10 +517,11 @@ func _build_pause() -> void:
 	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	pause_panel.add_child(dim)
 	var v := VBoxContainer.new()
+	_pause_col = v
 	v.anchor_top = 1.0
 	v.anchor_bottom = 1.0
 	v.offset_left = 120
-	v.offset_right = 700
+	v.offset_right = 680  # (the pad-lost note ends about 648; the controls panel starts at 692)
 	v.offset_bottom = -(82 * U + 24)
 	v.offset_top = v.offset_bottom
 	v.grow_vertical = Control.GROW_DIRECTION_BEGIN
@@ -561,6 +565,9 @@ func _build_pause() -> void:
 		if not pause_panel.has_meta("first"):
 			pause_panel.set_meta("first", b)
 	v.add_child(PromptBar.new([["{ui_accept} SELECT"], ["{ui_cancel} RESUME"]], 16))
+	# the controls beside it, for the pad or the keyboard in use (never focused: the D-pad stays here)
+	controls_panel = PauseControls.new(race.online)
+	pause_panel.add_child(controls_panel)
 
 
 ## The safety net (InputPrompts): RACE AGAIN on the results, RESUME in the pause menu. False in
@@ -576,13 +583,20 @@ func focus_default() -> bool:
 
 
 var _options: OptionsPanel
+var _pause_col: VBoxContainer  # PAUSED (MENU) and its entries
 
 
 func _open_options() -> void:
 	_options = OptionsPanel.new()
 	pause_panel.add_child(_options)
+	# (OPTIONS shows the controls itself; the panel is back, with any change, when it closes; the
+	# column goes too, or its words would show through the dialog)
+	controls_panel.visible = false
+	_pause_col.visible = false
 	_options.closed.connect(func():
 		_options = null
+		controls_panel.visible = true
+		_pause_col.visible = true
 		minimap.visible = Game.settings.get("show_minimap", true)
 		(pause_panel.get_meta("first") as Button).grab_focus())
 
@@ -807,6 +821,10 @@ func _update_standings() -> void:
 
 func show_results(karts: Array) -> void:
 	InputPrompts.stop_rumble()
+	# the pause menu (online: the MENU, which never stops the race) goes first: nothing can close it
+	# under the results
+	if pause_panel and pause_panel.visible:
+		_toggle_pause()
 	results_panel = Panel.new()
 	results_panel.theme = UiKit.theme()
 	results_panel.add_theme_stylebox_override("panel", Hl2Style.panel_style(Color(0, 0, 0, 0.55), 0))
@@ -887,7 +905,7 @@ func _build_chat() -> void:
 	chat_feed.anchor_top = 1.0
 	chat_feed.anchor_bottom = 1.0
 	chat_feed.offset_left = 16 * U
-	chat_feed.offset_right = 16 * U + 760
+	chat_feed.offset_right = 16 * U + 652  # (clear of the pause menu's controls panel, x 692..)
 	chat_feed.offset_top = -(92 * U) - 200
 	chat_feed.offset_bottom = -(92 * U) - 34
 	chat_feed.alignment = BoxContainer.ALIGNMENT_END

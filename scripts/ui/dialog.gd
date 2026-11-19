@@ -265,7 +265,8 @@ func _input(event: InputEvent) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_cancel") or event.is_action_pressed("pause"):
+	# (a pause press is BACK here, unless the same press confirms: a key bound to both)
+	if event.is_action_pressed("ui_cancel") or (event.is_action_pressed("pause") and not event.is_action_pressed("ui_accept")):
 		get_viewport().set_input_as_handled()
 		# B / Esc in a text field being typed in only stops the typing
 		var f := get_viewport().gui_get_focus_owner()
