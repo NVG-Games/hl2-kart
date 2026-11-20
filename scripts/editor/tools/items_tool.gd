@@ -9,6 +9,8 @@ extends EditorTool
 ## LevelDress.items_ops, one undo step) and AUTO DRESS... (4.4). The road-spot helpers here are
 ## shared with CrowdsTool and ObjectsTool. P17.
 
+## A click this far past a road's edge still places on the road (the item snaps onto it).
+const REACH := 14.0
 const MODES := ["row", "crate", "pad", "barrels", "zone"]
 const MODE_NAMES := ["CRATE ROW", "SINGLE CRATE", "BOOST PAD", "BARRELS", "LOW GRAVITY"]
 ## The kinds' icons and tips (EditorKit.icon names; {ed_*} written as keys).
@@ -218,10 +220,15 @@ func click(hit: EditorHit, mods: int) -> bool:
 		return place_crate(hit.pos) > 0
 	if hit.what == "prop":
 		return false
-	var sp := road_spot(hit)
+	# a click beside the road (up to REACH past its edge) still puts the item on it
+	var sp := road_spot(hit, REACH)
 	if sp.is_empty():
-		editor.status("Click on a road." if editor.build != null else "Wait for the track to bake.")
+		editor.refuse("Click on a road (or next to it)." if editor.build != null else "Wait for the track to bake.")
 		return true
+	var r0 := full_road(int(sp.key))
+	if r0 != null and float(sp.off) > 0.0:
+		var half := r0.width[int(sp.i)] * 0.5 - 1.5
+		sp["lat"] = clampf(float(sp.lat), -half, half)
 	match mode:
 		"row":
 			return place_row(sp) > 0

@@ -1,9 +1,10 @@
 class_name CatalogPanel
 extends PanelContainer
-## The OBJECTS drawer (1.6), in EditorUI.catalog_host (220 px at the foot of the free area):
-## category tabs (FAVOURITES, RECENT, ALL, LIGHTS & FX, the model categories, ANIMATED with SHOW
-## ANIMATED, OTHER), a search field over the key's words and the category, and a grid of 96 x 96
-## thumbnails with names, a star (favourite) and a size badge ("12 m"). A click picks a model
+## The OBJECTS drawer (1.6), in EditorUI.catalog_host at the foot of the free area (TALLER / SHORTER
+## with its arrow button): the categories as a list down its left side with their counts
+## (FAVOURITES, RECENT, ALL, LIGHTS & FX, the model categories, ANIMATED with SHOW ANIMATED, OTHER),
+## a search field over the key's words and the category, and a grid of 112 x 112 thumbnails with
+## names, a star (favourite) and a size badge ("12 m"). A click picks a model
 ## (Ctrl + click adds it to the 1-8 picked for SCATTER / ALONG ROAD); LIGHTS & FX lists the four
 ## stamps that are not models (the Breencast screen greyed without the COMBINE arch). Thumbnails
 ## come from PropThumbs (a window only; a grey card with the name until then). Cells are made a
@@ -12,8 +13,9 @@ extends PanelContainer
 signal picked(key: String, add: bool)
 signal fx_picked(id: String)
 
-const CELL := Vector2(104, 126)
-const THUMB := 96
+const CELL := Vector2(122, 146)
+const THUMB := 112
+const LIST_W := 238.0
 const PER_FRAME := 32
 const CARD_COLOR := Color(0.22, 0.23, 0.25)
 const PICKED_COLOR := Color8(255, 155, 0)
@@ -25,7 +27,8 @@ var query := ""
 var show_animated := false
 var thumbs: PropThumbs
 
-var _tabs_box: HBoxContainer
+var _tabs_box: VBoxContainer
+var _tall_button: Button
 var _tab_group := ButtonGroup.new()
 var _search: LineEdit
 var _animated: Button
@@ -59,32 +62,33 @@ func setup(ed: TrackEditor, t: ObjectsTool) -> void:
 
 func _build() -> void:
 	_built = true
+	var root := HBoxContainer.new()
+	root.add_theme_constant_override("separation", 8)
+	add_child(root)
+	# the categories: a list down the left side (it scrolls when there are more than fit)
+	var ts := ScrollContainer.new()
+	ts.name = "Categories"
+	ts.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	ts.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	ts.custom_minimum_size.x = LIST_W
+	root.add_child(ts)
+	_tabs_box = VBoxContainer.new()
+	_tabs_box.add_theme_constant_override("separation", 2)
+	_tabs_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ts.add_child(_tabs_box)
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 4)
-	add_child(v)
+	v.add_theme_constant_override("separation", 6)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	root.add_child(v)
 	var top := HBoxContainer.new()
 	top.add_theme_constant_override("separation", 6)
 	v.add_child(top)
-	# the categories scroll sideways: EditorKit's 8 px bar, the wheel scrolls the row
-	var ts := ScrollContainer.new()
-	ts.name = "Categories"
-	ts.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
-	ts.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	ts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ts.custom_minimum_size.y = EditorKit.ROW_H + 8
-	ts.gui_input.connect(func(ev: InputEvent) -> void:
-		var mb := ev as InputEventMouseButton
-		if mb != null and mb.pressed and (mb.button_index == MOUSE_BUTTON_WHEEL_UP or mb.button_index == MOUSE_BUTTON_WHEEL_DOWN):
-			ts.scroll_horizontal += 60 * (-1 if mb.button_index == MOUSE_BUTTON_WHEEL_UP else 1)
-			ts.accept_event())
-	top.add_child(ts)
-	_tabs_box = HBoxContainer.new()
-	_tabs_box.add_theme_constant_override("separation", 2)
-	ts.add_child(_tabs_box)
 	_search = LineEdit.new()
-	_search.placeholder_text = "SEARCH"
-	_search.custom_minimum_size = Vector2(150, EditorKit.ROW_H - 4)
+	_search.placeholder_text = "SEARCH: tree, rock, barrel, lamp..."
+	_search.custom_minimum_size = Vector2(260, EditorKit.ROW_H)
+	_search.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_search.clear_button_enabled = true
+	_search.right_icon = EditorKit.icon("search", 16)
 	_search.text_changed.connect(func(t: String) -> void: set_query(t))
 	_search.text_submitted.connect(func(_t: String) -> void: _search.release_focus())
 	top.add_child(_search)
@@ -92,17 +96,27 @@ func _build() -> void:
 	_animated.tooltip_text = "Creatures and machines (they stand in their bind pose)"
 	top.add_child(_animated)
 	_info = UiKit.label("", EditorKit.FONT_SMALL, UiKit.TEXT_DIM)
-	_info.custom_minimum_size.x = 90
+	_info.custom_minimum_size.x = 96
 	_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	top.add_child(_info)
+	_tall_button = Button.new()
+	_tall_button.focus_mode = Control.FOCUS_NONE
+	_tall_button.theme_type_variation = "EdFlat"
+	_tall_button.custom_minimum_size = Vector2(EditorKit.ROW_H + 4, EditorKit.ROW_H)
+	_tall_button.pressed.connect(func() -> void:
+		if editor != null and editor.ui != null:
+			editor.ui.set_catalog_tall(not editor.ui.catalog_tall)
+			_sync_tall())
+	top.add_child(_tall_button)
+	_sync_tall()
 	_scroll = ScrollContainer.new()
 	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	v.add_child(_scroll)
 	_grid = HFlowContainer.new()
 	_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_grid.add_theme_constant_override("h_separation", 4)
-	_grid.add_theme_constant_override("v_separation", 4)
+	_grid.add_theme_constant_override("h_separation", 6)
+	_grid.add_theme_constant_override("v_separation", 6)
 	_scroll.add_child(_grid)
 	thumbs = PropThumbs.new()
 	thumbs.name = "Thumbs"
@@ -111,6 +125,15 @@ func _build() -> void:
 	visibility_changed.connect(func() -> void:
 		if thumbs != null:
 			thumbs.set_process(is_visible_in_tree()))
+
+
+## The arrow that makes the drawer taller or shorter shows which way it goes.
+func _sync_tall() -> void:
+	if _tall_button == null:
+		return
+	var tall := editor != null and editor.ui != null and editor.ui.catalog_tall
+	_tall_button.icon = EditorKit.icon("chevron_down" if tall else "chevron_up", 18)
+	_tall_button.tooltip_text = "Make the catalog shorter" if tall else "Make the catalog taller (more objects at once)"
 
 
 # ---------------------------------------------------------------- state
@@ -183,11 +206,16 @@ func _build_tabs() -> void:
 		tab = PropCatalog.TAB_ALL
 	for t in list:
 		var b := Button.new()
-		b.text = t
+		var n := PropCatalog.fx_entries().size() if t == PropCatalog.TAB_FX else PropCatalog.keys(t, show_animated).size()
+		b.text = "%s  %d" % [t, n]
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.clip_text = true
+		b.tooltip_text = "%s: %d" % [t, n]
 		b.toggle_mode = true
 		b.button_group = _tab_group
 		b.theme_type_variation = "EdToggle"
-		b.custom_minimum_size.y = EditorKit.ROW_H - 4
+		b.custom_minimum_size.y = EditorKit.ROW_H - 2
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.focus_mode = Control.FOCUS_NONE
 		b.button_pressed = t == tab
 		var tt: String = t

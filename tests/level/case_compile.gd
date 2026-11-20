@@ -579,8 +579,12 @@ func _themes_case(t: Node) -> void:
 		else:
 			t.check(doc.data.env.sky == src.sky, "%s: the circuit's sky" % id)
 			if src.get("terrain_layers") is Dictionary:
-				t.check(str(doc.data.terrain.layers.base) == LevelThemes.material_key(str(src.terrain_layers.base)),
-					"%s: terrain layers as material keys" % id)
+				# the editor's own layers where the theme has them (each looks like its name), else the circuit's
+				var own: Dictionary = LevelThemes.EDITOR_LAYERS.get(id, {})
+				var want := str(own.get("base", LevelThemes.material_key(str(src.terrain_layers.base))))
+				t.check(str(doc.data.terrain.layers.base) == want, "%s: terrain layers as material keys (%s)" % [id, want])
+				if own.has("dirt"):
+					t.check(str(doc.data.terrain.layers.dirt) == str(own.dirt), "%s: DIRT paints the theme's dirt" % id)
 		t.check(doc.data.race.rescue in LevelDoc.RESCUES and LevelThemes.title(id) != "", "%s: rescue and title" % id)
 		var rep := LevelReport.new()
 		var clean := LevelDoc.sanitize(doc.data, rep)

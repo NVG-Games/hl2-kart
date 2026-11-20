@@ -12,6 +12,7 @@ const LAYER_KEYS := ["base", "dirt", "rock", "pave", "sand"]
 const BRUSH_COLOR := Color(0.55, 0.85, 1.0)
 
 static var _keep := {}
+static var _swatches := {}      # albedo path -> its 40 px swatch (null: none)
 
 var layer := 1
 var size := 12.0
@@ -46,7 +47,7 @@ func deactivate() -> void:
 
 func options(box: VBoxContainer) -> void:
 	box.add_child(EditorKit.section("LAYER"))
-	box.add_child(EditorKit.modes(LAYER_NAMES, layer, func(i: int) -> void: set_layer(i)))
+	box.add_child(_layer_row())
 	box.add_child(EditorKit.row("SIZE", EditorKit.number(size, TerrainTool.SIZE_MIN, TerrainTool.SIZE_MAX, 1.0, func(v: float) -> void: set_size(v), "%.0f", " m"),
 		EditorKit.plain("The brush radius ({ed_brush_smaller} {ed_brush_bigger}).")))
 	box.add_child(EditorKit.row("STRENGTH", EditorKit.number(strength, TerrainTool.STRENGTH_MIN, TerrainTool.STRENGTH_MAX, 0.01, func(v: float) -> void: set_strength(v), "%.2f"),
@@ -76,6 +77,70 @@ func options(box: VBoxContainer) -> void:
 	box.add_child(EditorKit.row("DIRT BY ROADS", EditorKit.number(float(auto.dirt), 0.0, 8.0, 0.5, func(v: float) -> void: _auto("dirt", v), "%.1f", " m"),
 		"0 leaves the roadsides alone."))
 	box.add_child(EditorKit.button("AUTO PAINT", func() -> void: auto_paint(), "Paints the whole ground by these rules (one undo step).", "wand"))
+
+
+## The five layers as toggles showing the texture each paints (BASE erases the other four).
+func _layer_row() -> HBoxContainer:
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 3)
+	var group := ButtonGroup.new()
+	for i in LAYER_KEYS.size():
+		var b := Button.new()
+		b.text = LAYER_NAMES[i]
+		b.icon = swatch(LAYER_KEYS[i])
+		b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+		b.theme_type_variation = "EdToggle"
+		# a swatch is a picture: never tinted (the pressed style darkens icons for the orange)
+		for c in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_hover_pressed_color", "icon_focus_color"]:
+			b.add_theme_color_override(c, Color.WHITE)
+		b.toggle_mode = true
+		b.button_group = group
+		b.button_pressed = i == layer
+		b.focus_mode = Control.FOCUS_NONE
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.custom_minimum_size = Vector2(0, 66)
+		b.tooltip_text = "Paint %s (%s)." % [LAYER_NAMES[i], _short(_layer_path(LAYER_KEYS[i]).get_file().get_basename())] 			if i > 0 else "BASE: the ground's own texture (erases the other layers)."
+		var idx := i
+		b.pressed.connect(func() -> void:
+			Game.play_ui("res://assets/sound/ui/buttonclick.wav", -10.0)
+			set_layer(idx))
+		h.add_child(b)
+	return h
+
+
+## The texture file (under assets/) layer k paints with: the bake's, else the base material's.
+func _layer_path(k: String) -> String:
+	var tl = editor.build.data.get("terrain_layers", {}) if editor != null and editor.build != null else {}
+	var p := str(tl.get(k, "")) if tl is Dictionary else ""
+	if p == "":
+		var key := str(layer_keys().get(k, ""))
+		if key != "":
+			p = "materials/%s.png" % key
+	return p
+
+
+## A small square of the texture layer k paints (null headless or without the file).
+func swatch(k: String) -> Texture2D:
+	var path := _layer_path(k)
+	if path == "":
+		return null
+	if _swatches.has(path):
+		return _swatches[path]
+	var out: Texture2D = null
+	var tex := SourceMaterials.tex(path)
+	if tex != null and DisplayServer.get_name() != "headless":
+		var img := tex.get_image()
+		if img != null and not img.is_empty():
+			if img.is_compressed():
+				img.decompress()
+			img.convert(Image.FORMAT_RGB8)   # some ground textures keep a mask in alpha (a black square)
+			while img.get_width() > 160:
+				img.shrink_x2()
+			img.resize(40, 40, Image.INTERPOLATE_BILINEAR)
+			out = ImageTexture.create_from_image(img)
+	_swatches[path] = out
+	return out
 
 
 func hints(_hit: EditorHit) -> Array:

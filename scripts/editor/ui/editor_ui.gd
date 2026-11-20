@@ -34,7 +34,23 @@ const DIFFS := ["EASY", "NORMAL", "HARD"]
 # menu ids
 enum { F_NEW, F_OPEN, F_SAVE, F_SAVE_AS, F_DUPLICATE, F_PROPS, F_OLDER, F_THUMB, F_HOST, F_FOLDER, F_EXIT_HOME, F_EXIT_MENU,
 	E_UNDO, E_REDO, E_CUT, E_COPY, E_PASTE, E_PASTE_HERE, E_DUPLICATE, E_DELETE, E_SELECT_ALL, E_DESELECT, E_REVERSE,
-	V_TOP, V_FRAME, V_HOME, V_LINE, V_ZONES, V_PINS, V_GRID, V_LABELS, V_UNHIDE, V_SPEED, V_MUSIC }
+	V_TOP, V_FRAME, V_HOME, V_LINE, V_ZONES, V_PINS, V_GRID, V_LABELS, V_UNHIDE, V_SPEED, V_MUSIC,
+	V_UI_SMALL, V_UI_MEDIUM, V_UI_LARGE }
+## The first line of every tool's options: what the tool is for and how to use it, in plain words.
+const TOOL_HOW := {
+	"select": "Click anything to select it and drag the arrows to move it. Drag a box on the ground to pick many; Delete removes them.",
+	"road": "Click the ground to add points one after another, then click the first point to close the loop. Drag a point to move it.",
+	"branch": "A shortcut: click the road where it leaves (the green parts), click the ground to lay it out, then click the road where it comes back.",
+	"terrain": "Drag on the ground to raise it; Ctrl lowers, Shift smooths. Roads can follow the ground you shape.",
+	"paint": "Pick a layer below, then drag on the ground to paint it. Ctrl + drag erases back to BASE.",
+	"objects": "Pick a model in the catalog below, then click the ground to place it. ALONG ROAD lines a road's edge with it.",
+	"items": "The race's pick-ups. Pick a kind: CRATE ROW (item boxes across the road), BOOST PAD (a speed strip), BARRELS or LOW GRAVITY, then click on the road.",
+	"hazards": "Pick a trap or an enemy below, then click on the road. Green parts of the road show where it can go.",
+	"crowds": "Pick who watches and their mood, then click beside the road to place a group of spectators.",
+	"world": "Sky, sun, fog, water and music. A THEME sets them all at once, in the style of a Half-Life place.",
+}
+## VIEW > UI SIZE: the editor's scale of its 1600 x 900 canvas (TrackEditor.apply_ui_size).
+const UI_SIZES := {V_UI_SMALL: 0.75, V_UI_MEDIUM: 0.85, V_UI_LARGE: 1.0}
 ## The status bar's hints while the pad flies (1.10): what its buttons do.
 const PAD_HINTS := [["{ed_pad_test_here} DRIVE FROM HERE"], ["{ed_pad_test} FROM THE START"], ["{ed_pad_watch} WATCH A BOT"],
 	["{ed_pad_prev_tool} {ed_pad_next_tool} TOOL"], ["{ed_pad_menu} MENU"], ["{ed_pad_help} HELP"]]
@@ -108,6 +124,10 @@ var empty_hint: PromptLabel
 var drawer: ValidationPanel
 ## P17's catalog drawer goes here (OBJECTS: 220 tall at the bottom of the free area).
 var catalog_host: Control
+## OBJECTS' drawer: CATALOG_H high, or CATALOG_TALL of the free area's height (its arrow button).
+var catalog_tall := false
+const CATALOG_H := 330.0
+const CATALOG_TALL := 0.62
 ## P16's hint cards go here (the top of the free area).
 var hint_host: Control
 ## The open EDITOR MENU (null: none).
@@ -141,6 +161,10 @@ func setup(ed: TrackEditor) -> void:
 		_build()
 	if is_inside_tree() and not get_viewport().gui_focus_changed.is_connected(_on_focus_changed):
 		get_viewport().gui_focus_changed.connect(_on_focus_changed)
+	if is_inside_tree() and not get_tree().node_added.is_connected(_no_focus):
+		get_tree().node_added.connect(_no_focus)
+	for c in find_children("*", "Control", true, false):
+		_no_focus(c)
 	if ed.history != null and not ed.history.changed.is_connected(_on_history):
 		ed.history.changed.connect(_on_history)
 	# the hints follow the device (the pad's own while it flies)
@@ -176,6 +200,12 @@ func refresh_tool() -> void:
 	for c in options_box.get_children():
 		options_box.remove_child(c)
 		c.queue_free()
+	if TOOL_HOW.has(id):
+		var how := UiKit.label(str(TOOL_HOW[id]), EditorKit.FONT_SMALL, UiKit.TEXT)
+		how.name = "ToolHow"
+		how.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		how.custom_minimum_size.x = 200
+		options_box.add_child(how)
 	editor.tool.options(options_box)
 	var title := str(TOOL_NAMES.get(id, id.to_upper()))
 	options_title.text = "TOOL OPTIONS · %s" % title
@@ -202,6 +232,27 @@ func set_report(r: LevelReport) -> void:
 		return
 	var errs := r.errors() if r != null else 0
 	var warns := r.warnings() if r != null else 0
+	# a track still being drawn (no road, or the loop not closed yet) is a draft, not an error: the
+	# badge says what is next in a calm colour; the other errors still count once it is closed
+	var draft := ""
+	if r != null:
+		for c in DRAFT_CODES:
+			if r.has(c):
+				draft = c
+				errs -= r.items.filter(func(it) -> bool: return it is Dictionary and str(it.get("code", "")) == c and str(it.get("level", "")) == "error").size()
+	if draft != "" and errs <= 0:
+		badge.text = DRAFT_TEXT[draft]
+		badge.icon = EditorKit.icon("info", 16)
+		for k in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+			badge.add_theme_color_override(k, UiKit.TEXT_DIM)
+		badge.tooltip_text = "A draft: %s" % str(DRAFT_TIPS[draft])
+		drawer.set_report(r)
+		var why0 := editor.session.drive_blocker() if editor != null and editor.session != null and editor.session.is_open() else ""
+		test_button.tooltip_text = EditorKit.plain(why0) if why0 != "" else "Drive it from the start."
+		if not bool(view_flags.pins) and editor != null and editor.markers != null:
+			editor.markers.set_issues(LevelReport.new())
+		return
+	errs = r.errors() if r != null else 0
 	badge.text = badge_text(errs, warns)
 	badge.icon = EditorKit.icon("error" if errs > 0 else ("warning" if warns > 0 else "tick"), 16)
 	var col := EditorKit.ERROR_COLOR if errs > 0 else (EditorKit.WARN_COLOR if warns > 0 else EditorKit.OK_COLOR)
@@ -366,6 +417,13 @@ static func toast_level(text: String) -> String:
 
 
 ## "RACEABLE", "RACEABLE · 5 WARNINGS", "2 ERRORS · 5 WARNINGS".
+## The checklist codes of a track still being drawn: the badge reads DRAFT for them, not ERROR.
+const DRAFT_CODES := ["no_road", "open_loop"]
+const DRAFT_TEXT := {"no_road": "DRAFT · DRAW A ROAD", "open_loop": "DRAFT · CLOSE THE LOOP"}
+const DRAFT_TIPS := {"no_road": "press ROAD (2) and click the ground to lay points.",
+	"open_loop": "click the road's first point (or press C) to close the loop, then it can be raced."}
+
+
 static func badge_text(errs: int, warns: int) -> String:
 	var w := "%d WARNING%s" % [warns, "" if warns == 1 else "S"]
 	if errs == 0:
@@ -532,7 +590,7 @@ func _build() -> void:
 	catalog_host.name = "CatalogHost"
 	catalog_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(catalog_host)
-	_place(catalog_host, 0, 1, 1, 1, TrackEditor.PANEL_LEFT, -TrackEditor.BAR_BOTTOM - 220.0, -TrackEditor.PANEL_RIGHT, -TrackEditor.BAR_BOTTOM)
+	_place(catalog_host, 0, 1, 1, 1, TrackEditor.PANEL_LEFT, -TrackEditor.BAR_BOTTOM - CATALOG_H, -TrackEditor.PANEL_RIGHT, -TrackEditor.BAR_BOTTOM)
 	empty_hint = PromptLabel.new(EditorKit.prompt(NO_ROAD), EditorKit.FONT + 2, UiKit.TEXT)
 	empty_hint.name = "EmptyHint"
 	empty_hint.add_theme_font_override("normal_font", UiKit.font(true))
@@ -571,6 +629,18 @@ func _build() -> void:
 
 
 ## Anchors (a*) and offsets (o*) in one call.
+## The catalog drawer taller (most of the free area) or back to CATALOG_H.
+func set_catalog_tall(on: bool) -> void:
+	catalog_tall = on
+	if catalog_host == null:
+		return
+	var h := CATALOG_H
+	if on:
+		var free_h := get_viewport_rect().size.y - TrackEditor.BAR_TOP - TrackEditor.BAR_BOTTOM
+		h = maxf(CATALOG_H, free_h * CATALOG_TALL)
+	catalog_host.offset_top = -TrackEditor.BAR_BOTTOM - h
+
+
 func _place(c: Control, al: float, at: float, ar: float, ab: float, ol: float, ot: float, orr: float, ob: float) -> void:
 	c.anchor_left = al
 	c.anchor_top = at
@@ -607,7 +677,8 @@ func _build_top() -> HBoxContainer:
 	view_menu = _menu("VIEW", [
 		[V_TOP, "TOP VIEW", true], [V_FRAME, "FRAME TRACK"], [V_HOME, "GO TO START"], [V_LINE, "RACING LINE", true], [-1],
 		[V_ZONES, "ZONES", true], [V_PINS, "ISSUE PINS", true], [V_GRID, "GRID", true], [V_LABELS, "LABELS", true],
-		[V_UNHIDE, "SHOW HIDDEN"], [-1], [V_SPEED, "CAMERA SPEED..."], [V_MUSIC, "MUSIC", true]])
+		[V_UNHIDE, "SHOW HIDDEN"], [-1], [V_SPEED, "CAMERA SPEED..."], [V_MUSIC, "MUSIC", true], [-1],
+		[V_UI_SMALL, "UI SIZE: SMALL", true], [V_UI_MEDIUM, "UI SIZE: MEDIUM", true], [V_UI_LARGE, "UI SIZE: LARGE", true]])
 	h.add_child(view_menu)
 	h.add_child(VSeparator.new())
 	# UNDO / REDO / SAVE, then the camera's TOP VIEW and FRAME TRACK
@@ -772,6 +843,9 @@ func _menus_state() -> void:
 	vm.set_item_checked(vm.get_item_index(V_LINE), editor.show_line)
 	for p in [[V_ZONES, "zones"], [V_PINS, "pins"], [V_GRID, "grid"], [V_LABELS, "labels"], [V_MUSIC, "music"]]:
 		vm.set_item_checked(vm.get_item_index(p[0]), bool(view_flags[p[1]]))
+	var ui_size := float(Game.settings.get("editor_ui_size", 0.85))
+	for vid in UI_SIZES:
+		vm.set_item_checked(vm.get_item_index(vid), is_equal_approx(float(UI_SIZES[vid]), ui_size))
 	var fm := file_menu.get_popup()
 	fm.set_item_disabled(fm.get_item_index(F_DUPLICATE), editor.session == null or editor.session.path == "")
 
@@ -824,6 +898,10 @@ func menu_pressed(id: int) -> void:
 			editor.refresh_markers()
 		V_SPEED:
 			_open_speed()
+		V_UI_SMALL, V_UI_MEDIUM, V_UI_LARGE:
+			Game.settings["editor_ui_size"] = float(UI_SIZES[id])
+			Game.save_settings()
+			editor.apply_ui_size()
 
 
 func _build_palette() -> VBoxContainer:
@@ -1145,9 +1223,29 @@ func _update_hints(hv: EditorHit) -> void:
 
 func _on_focus_changed(c: Control) -> void:
 	# the panels never keep the focus (no panel walking); text fields keep it while typed in
-	if c == null or not is_ancestor_of(c) or c is LineEdit or c is TextEdit:
+	if c == null or not is_ancestor_of(c) or c is LineEdit or c is TextEdit or _in_overlay(c):
 		return
 	c.release_focus.call_deferred()
+
+
+## The panels' buttons, toggles, sliders and lists never take the keyboard focus. A button that
+## took it on the mouse press and lost it to _on_focus_changed before the release dropped the
+## click (Godot cancels a press when its button loses the focus): every TOOL OPTIONS and inspector
+## button did nothing unless pressed and released in the same frame. Text fields keep their focus;
+## the help overlay and dialogs keep theirs (the pad walks them).
+func _no_focus(n: Node) -> void:
+	if not (n is Control) or n is LineEdit or n is TextEdit or not is_ancestor_of(n) or _in_overlay(n):
+		return
+	(n as Control).focus_mode = Control.FOCUS_NONE
+
+
+func _in_overlay(n: Node) -> bool:
+	var p := n
+	while p != null and p != self:
+		if p is HelpOverlay or p is Dialog:
+			return true
+		p = p.get_parent()
+	return false
 
 
 func _on_history() -> void:

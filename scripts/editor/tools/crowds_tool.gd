@@ -84,7 +84,7 @@ func click(hit: EditorHit, mods: int) -> bool:
 			return false
 		var sp := _h.road_spot(hit, REACH)
 		if sp.is_empty():
-			editor.status("Click on a road or right beside it." if editor.build != null else "Wait for the track to bake.")
+			editor.refuse("Click on a road or right beside it." if editor.build != null else "Wait for the track to bake.")
 			return true
 		return place_group(sp) > 0
 	if hit.what == "water":

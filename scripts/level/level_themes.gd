@@ -35,6 +35,23 @@ const ENV_BASE := {"sun": "sky", "ambient_energy": 1.0, "fog_begin": 180.0, "fog
 ## Track's sky ambient strength without an ambient colour (make_environment's default).
 const SKY_AMBIENT := 1.35
 const LAYER_KEYS := ["base", "dirt", "rock", "pave", "sand"]
+## The PAINT layers a theme gives a track (material keys). A circuit's own layers were picked for
+## how its generator paints them (the coast's "dirt" is grass with dirt patches, its base an olive
+## sand), so a player painting DIRT saw grass: here every layer looks like its name. Themes not
+## listed keep their circuit's (Xen's alien ground).
+const EDITOR_LAYERS := {
+	"city17": {"base": "nature/grassfloor002a", "dirt": "nature/dirtfloor001a", "rock": "nature/rockfloor006a",
+		"pave": "concrete/concretefloor006a", "sand": "nature/sandfloor009a"},
+	"coast": {"base": "nature/grassfloor002a", "dirt": "nature/dirtfloor001a", "rock": "nature/cliffface002a",
+		"pave": "concrete/concretefloor006a", "sand": "nature/sandfloor009a"},
+	"blackmesa": {"base": "nature/grassfloor002a", "dirt": "nature/dirtfloor001a", "rock": "nature/rockwall006a",
+		"pave": "concrete/concretefloor028c", "sand": "nature/sandfloor009a"},
+	"whiteforest": {"base": "nature/forest_grass_01", "dirt": "nature/forest_dirt_02", "rock": "nature/cliff01a",
+		"pave": "nature/forest_gravel_01", "sand": "nature/sandfloor009a"},
+	"novaprospekt": {"base": "nature/grassfloor002a", "dirt": "nature/dirtfloor001a", "rock": "nature/cliffface002a",
+		"pave": "concrete/concretefloor038b", "sand": "nature/sandfloor009a"},
+	"desert": {"dirt": "nature/dirtfloor011a"},
+}
 
 
 static func title(id: String) -> String:
@@ -71,10 +88,13 @@ static func ops(doc: LevelDoc, id: String) -> Array:
 	# terrain layers (material keys)
 	var tl = src.get("terrain_layers", {})
 	var tr = doc.data.get("terrain")
-	if tl is Dictionary and not (tl as Dictionary).is_empty() and tr is Dictionary:
+	var own: Dictionary = EDITOR_LAYERS.get(id, {})
+	if tr is Dictionary and ((tl is Dictionary and not (tl as Dictionary).is_empty()) or not own.is_empty()):
 		var layers: Dictionary = (tr.get("layers", {}) as Dictionary).duplicate() if tr.get("layers") is Dictionary else {}
 		for k in LAYER_KEYS:
-			var key := material_key(str(tl.get(k, "")))
+			var key := str(own.get(k, ""))
+			if key == "" and tl is Dictionary:
+				key = material_key(str(tl.get(k, "")))
 			if key != "":
 				layers[k] = key
 		out.append(LevelDoc.op_set(["terrain", "layers"], layers))

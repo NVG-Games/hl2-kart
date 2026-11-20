@@ -108,6 +108,9 @@ func set_issues(report: LevelReport) -> void:
 			# info lines have no pin, but WATCH A BOT LAP's: where the bot got stuck
 			if not (it is Dictionary) or (str(it.get("level", "")) == "info" and str(it.get("code", "")) != "bot_lap"):
 				continue
+			# a draft (no road yet, the loop still open) gets no red pin: the badge says what is next
+			if str(it.get("code", "")) in ["no_road", "open_loop"]:
+				continue
 			var p = it.get("pos", Vector3.ZERO)
 			if p is Array and (p as Array).size() >= 3:
 				p = Vector3(float(p[0]), float(p[1]), float(p[2]))

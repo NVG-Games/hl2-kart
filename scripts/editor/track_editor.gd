@@ -118,6 +118,7 @@ var _bake_t0 := 0
 var _waiters: Array = []        # [{rev, cb}] of bake_now
 var _pending: LevelBuild        # a bake held back while a drag runs
 var _preview_segs := {}         # segment index -> true: the stretch the live preview replaces
+var _scale_base := Vector2i.ZERO   # the window's content scale size before the editor's UI size
 var _pv_task := -1              # the WorkerThreadPool task of a preview being compiled
 var _pv_out: Array = [null, 0]  # its result and start time (usec)
 var _pv_next := {}              # road_key -> point_uids asked for while one compiles (newest wins)
@@ -147,6 +148,7 @@ func _ready() -> void:
 	history = session.history
 	headless = DisplayServer.get_name() == "headless"
 	async_preview = not headless
+	apply_ui_size()
 	EditorInput.apply()
 	view = get_node_or_null("View") as LevelView
 	if view == null:
@@ -224,6 +226,8 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
+	if _scale_base != Vector2i.ZERO and is_inside_tree():
+		get_window().content_scale_size = _scale_base   # the menus and the race at their own size
 	if not _ready_done:
 		return
 	_pv_cancel()     # a worker preview still compiling is waited for
@@ -601,6 +605,28 @@ func bake_now(done: Callable) -> void:
 	if _bake_started != doc.revision:
 		_bake_t = -1.0
 		_start_bake()
+
+
+## The editor's UI size (VIEW > UI SIZE, settings.editor_ui_size): the 1600 x 900 canvas grows by
+## 1 / size, so panels and text take that share of the screen they took before (0.85: 15 % less).
+func apply_ui_size() -> void:
+	if headless or not is_inside_tree():
+		return
+	var w := get_window()
+	if _scale_base == Vector2i.ZERO:
+		_scale_base = w.content_scale_size
+		if _scale_base == Vector2i.ZERO:
+			_scale_base = Vector2i(1600, 900)
+	var f := clampf(float(Game.settings.get("editor_ui_size", 0.85)), 0.6, 1.25)
+	w.content_scale_size = Vector2i(roundi(_scale_base.x / f), roundi(_scale_base.y / f))
+	if camera != null:
+		frame.call_deferred(_box if _box.size != Vector3.ZERO else track_aabb())
+
+
+## A click that did nothing, said where the player looks: a toast and the status line.
+func refuse(text: String) -> void:
+	status(text)
+	toast(text)
 
 
 func toast(text: String) -> void:

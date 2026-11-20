@@ -493,9 +493,9 @@ func click(hit: EditorHit, mods: int) -> bool:
 ## hazard's uid; 0 when refused (`refusal` and the status line say why).
 func place(hit: EditorHit) -> int:
 	refusal = ""
-	var sp := _h.road_spot(hit)
+	var sp := _h.road_spot(hit, ItemsTool.REACH)
 	if sp.is_empty():
-		return _refuse("Click on the road." if editor.build != null else "Wait for the track to bake.")
+		return _refuse("Click on the road (or next to it)." if editor.build != null else "Wait for the track to bake.")
 	if int(sp.key) != -1:
 		return _refuse("Hazards go on the main road, not on a branch.")
 	var c := choice_of(choice)
@@ -611,7 +611,7 @@ func _placed(u: int) -> void:
 
 func _refuse(why: String) -> int:
 	refusal = why
-	editor.status(why)
+	editor.refuse(why)
 	return 0
 
 

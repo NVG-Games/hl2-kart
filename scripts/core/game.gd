@@ -150,6 +150,7 @@ var settings := {
 	"track_guid": "",  # the picked custom track's guid: the pick follows it across saves (track_pick)
 	"allow_downloads": true,  # download a server's custom track in the lobby
 	"editor_hints": [],  # first-visit hints already seen
+	"editor_ui_size": 0.85,  # the track editor's panels and text: 0.75 SMALL, 0.85 MEDIUM, 1.0 LARGE
 	"editor_cam_speed": 30.0,
 	"editor_snap": {"on": true, "grid": 1.0, "angle": 15.0, "angle_on": true, "surface": true},
 	"editor_recent": [],
