@@ -1185,6 +1185,7 @@ func server_info() -> Dictionary:
 		info["cu"] = 1
 		info["msha"] = str(c["sha"]).left(16)
 		info["mkb"] = ceili(int(c.get("size", 0)) / 1024.0)
+		info["mau"] = TrackShare.clean_text(str(c.get("author", "")), 24)
 	return info
 
 

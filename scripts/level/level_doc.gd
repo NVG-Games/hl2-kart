@@ -941,7 +941,8 @@ class Clean:
 		note(code, n)
 
 
-## Text as 2.3 / 2.10 want it: control characters and [ ] { } stripped, edges trimmed, cut to max_len.
+## Text as 2.3 / 2.10 want it: control characters, [ ] { } and invisible format characters
+## (_bad_char) stripped, edges trimmed, cut to max_len.
 static func clean_text(s: String, max_len: int) -> String:
 	var src := s.left(max_len * 4 + 16)
 	var bad := false
@@ -987,8 +988,12 @@ static func is_id(s: String) -> bool:
 	return true
 
 
+## Control characters, [ ] { }, line / paragraph separators, BOM, lone surrogates, and the
+## invisible format characters a name can spoof another with: soft hyphen, zero-width space /
+## joiners, LRM / RLM, the bidi embeddings and overrides (LRE..RLO) and isolates (WJ..PDI).
 static func _bad_char(c: int) -> bool:
 	return c < 32 or c == 127 or (c >= 0x80 and c <= 0x9f) or c == 0x5b or c == 0x5d or c == 0x7b or c == 0x7d \
+		or c == 0xad or (c >= 0x200b and c <= 0x200f) or (c >= 0x202a and c <= 0x202e) or (c >= 0x2060 and c <= 0x2069) \
 		or c == 0x2028 or c == 0x2029 or c == 0xfeff or (c >= 0xd800 and c <= 0xdfff)
 
 

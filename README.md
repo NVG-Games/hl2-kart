@@ -273,7 +273,7 @@ template and the editor opens on it; press F5 at any time to drive what you have
   middle button pans, Alt + drag orbits, T is the top view and F frames the selection.
 - **Test drive:** F5 from the start, Shift + F5 from where you point, Ctrl + F5 to watch a bot
   lap; F5 or the pause menu brings you back with your lap and line. An open road can not be
-  driven: close the loop (C) first.
+  driven: click its first point (or press C) to close the loop first.
 - **Checklist:** F3 lists what keeps the track from being raced, with pins on the problems and
   FIX buttons. Undo and redo (Ctrl + Z / Ctrl + Y) cover every edit; F1 shows every key.
 - **Controller:** the mouse and keyboard edit everything; a pad flies the camera, test-drives
@@ -354,16 +354,17 @@ name (without `.hl2kt`), its name, its `c_` id or the start of its hash. Five se
 | `sv_tracks` | `--tracks` | "" | an extra folder of tracks, searched first |
 | `sv_downloads` | | 1 | 0 turns away a player who does not have the track |
 | `sv_download_rate` | | 192 | KB/s for all downloads while a race runs |
-| `mp_tracklist` | `--tracklist` | "" | tracks to rotate through, comma-separated |
+| `mp_tracklist` | `--tracklist` | "" | tracks to rotate through, comma-separated; without `mp_track` the server starts on the first |
 | `mp_rotate` | | 1 | with a list: the next track after every race |
 
 ```bash
 godot --headless --path . -- --dedicated --tracks ./mytracks --tracklist "canal_run, xen, Old Docks"
 ```
 
-Console: `tracks` lists the circuits and custom tracks, `track <name>` changes the track (after
-the race during one), `next` rotates now, `status` shows each player's download and `start`
-starts without waiting for READY (never without the track).
+Console: `tracks` lists the circuits and custom tracks, `rescan` reads the tracks folders again
+(a file added or replaced while the server runs; `tracks`, `track` and `next` do it too),
+`track <name>` changes the track (after the race during one), `next` rotates now, `status` shows
+each player's download and `start` starts without waiting for READY (never without the track).
 
 ## Sharing it with friends
 

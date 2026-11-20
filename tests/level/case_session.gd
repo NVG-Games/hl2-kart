@@ -69,6 +69,7 @@ func _templates() -> void:
 		var ms: float = t.ms(func() -> void: LevelTemplates.make(id, "T"))
 		var d := LevelTemplates.make(id, "Template " + id)
 		t.check(LevelTemplates.title(id) != "" and LevelTemplates.describe(id) != "", "%s: title and description" % id)
+		t.check(str(d.data.get("desc", "")) == "", "%s: the track starts with no description (the card's text stays the card's)" % id)
 		t.check(LevelTemplates.last_report.items.is_empty(), "%s: sanitize had nothing to clean (%s)" % [id,
 			str(LevelTemplates.last_report.to_dict()).left(300)])
 		var rep := LevelReport.new()

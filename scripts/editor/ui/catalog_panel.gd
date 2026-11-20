@@ -65,11 +65,18 @@ func _build() -> void:
 	var top := HBoxContainer.new()
 	top.add_theme_constant_override("separation", 6)
 	v.add_child(top)
+	# the categories scroll sideways: EditorKit's 8 px bar, the wheel scrolls the row
 	var ts := ScrollContainer.new()
+	ts.name = "Categories"
 	ts.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	ts.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	ts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	ts.custom_minimum_size.y = EditorKit.ROW_H + 8
+	ts.gui_input.connect(func(ev: InputEvent) -> void:
+		var mb := ev as InputEventMouseButton
+		if mb != null and mb.pressed and (mb.button_index == MOUSE_BUTTON_WHEEL_UP or mb.button_index == MOUSE_BUTTON_WHEEL_DOWN):
+			ts.scroll_horizontal += 60 * (-1 if mb.button_index == MOUSE_BUTTON_WHEEL_UP else 1)
+			ts.accept_event())
 	top.add_child(ts)
 	_tabs_box = HBoxContainer.new()
 	_tabs_box.add_theme_constant_override("separation", 2)
@@ -195,15 +202,6 @@ func _process(_delta: float) -> void:
 		_fill(PER_FRAME)
 
 
-## A click anywhere else lets go of the search field (the editor's keys work again).
-func _input(ev: InputEvent) -> void:
-	if _search == null or not _search.has_focus():
-		return
-	var mb := ev as InputEventMouseButton
-	if mb != null and mb.pressed and not _search.get_global_rect().has_point(mb.position):
-		_search.release_focus()
-
-
 ## Makes every waiting cell now (tests).
 func flush() -> void:
 	_fill(_pending.size())
@@ -237,7 +235,7 @@ func _make_cell(key: String) -> Button:
 	var is_fx := key.begins_with("fx:")
 	var fid := key.substr(3) if is_fx else ""
 	var nm := str(PropCatalog.fx_entry(fid).get("name", fid.to_upper())) if is_fx else PropCatalog.display_name(key)
-	b.tooltip_text = nm if is_fx else "%s\n%s" % [key, str(PropCatalog.fact(key).get("category", ""))]
+	b.tooltip_text = nm if is_fx else "%s\n%s\n%s" % [nm, key, str(PropCatalog.fact(key).get("category", ""))]
 	var v := VBoxContainer.new()
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.add_theme_constant_override("separation", 2)
@@ -266,8 +264,11 @@ func _make_cell(key: String) -> Button:
 	cl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(cl)
 	v.add_child(pic)
-	var lab := UiKit.label(nm, EditorKit.FONT_SMALL - 2, UiKit.TEXT)
+	# a long name ends with "..." (never cut at both ends); the tooltip has it whole
+	var lab := UiKit.label(nm.replace("_", " "), EditorKit.FONT_SMALL - 2, UiKit.TEXT)
+	lab.name = "Name"
 	lab.clip_text = true
+	lab.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.add_child(lab)
@@ -284,7 +285,8 @@ func _make_cell(key: String) -> Button:
 		badge.name = "Size"
 		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		badge.add_theme_stylebox_override("normal", UiKit.box(Color(0, 0, 0, 0.6), Color(0, 0, 0, 0), 0, 3, 2))
-		badge.position = Vector2(5, 5)
+		# the picture's lower left corner (the star has the upper right), off the model
+		badge.position = Vector2(5, 4 + THUMB - 17)
 		b.add_child(badge)
 	var star := StarButton.new()
 	star.name = "Star"

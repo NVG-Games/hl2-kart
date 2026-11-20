@@ -64,6 +64,8 @@ var _slide := {}                # {uid, sub, s0, at, za, zb}
 var _last := 0                  # the hazard placed last (Ctrl + click adds its points when nothing is selected)
 var _counts: Label
 var _desc_line := ""
+var _models := {}               # uid -> the view's stand-in model of a hazard (sync_models)
+var _models_root: Node3D
 
 
 func _init(ed: TrackEditor) -> void:
@@ -238,6 +240,80 @@ static func setback_of(hz: Dictionary) -> float:
 
 
 ## Where the marker of a hazard stands (NAN x when its road is not baked).
+## The view's stand-in models (4.2): each hazard's default model (LevelHazards.marker_model_for)
+## where its marker stands on the last bake's road, facing the road (along it in the middle), no
+## collision; a node is kept while its uid and model stay. Hidden hazards and models this install
+## lacks are left out. TrackEditor calls it after every bake and when the hidden set changes.
+func sync_models() -> void:
+	if editor == null or editor.doc == null or editor.view == null or not editor.view.is_inside_tree():
+		return
+	if _models_root == null or not is_instance_valid(_models_root):
+		_models_root = Node3D.new()
+		_models_root.name = "HazardModels"
+		editor.view.add_child(_models_root)
+		_models = {}
+	var hidden := editor.session.hidden if editor.session != null else PackedInt32Array()
+	var keep := {}
+	var m := main_road()
+	for hz in list_of():
+		if not (hz is Dictionary) or m == null:
+			continue
+		var u := int(hz.get("uid", 0))
+		var key := LevelHazards.marker_model_for(hz)
+		if u <= 0 or key == "" or u in hidden or not Game.models.has(key):
+			continue
+		var p := marker_pos(hz)
+		var s := hazard_s(hz)
+		if is_nan(p.x) or is_nan(s):
+			continue
+		var n: Node3D = _models.get(u)
+		if n == null or not is_instance_valid(n) or str(n.get_meta("model", "")) != key:
+			if n != null and is_instance_valid(n):
+				n.queue_free()
+			n = Game.spawn_model(key)
+			for c in n.find_children("*", "CollisionObject3D", true, false):
+				c.queue_free()
+			n.set_meta("model", key)
+			_models_root.add_child(n)
+			_models[u] = n
+		keep[u] = true
+		n.global_transform = model_transform(hz, m, m.idx(s), p)
+	for u in _models.keys():
+		if not keep.has(u):
+			var gone: Node3D = _models[u]
+			if gone != null and is_instance_valid(gone):
+				gone.queue_free()
+			_models.erase(u)
+
+
+## Where a hazard's stand-in model stands: the marker's spot on the ground (a ceiling turret hangs
+## upside down from it), facing the road from its side or along the race in the middle.
+func model_transform(hz: Dictionary, m: LevelRoad, i: int, p: Vector3) -> Transform3D:
+	var f := Vector3(m.fwd[i].x, 0.0, m.fwd[i].z)
+	if f.length_squared() < 1e-6:
+		f = Vector3.FORWARD
+	f = f.normalized()
+	var side := int(hz.get("side", 0))
+	var ty := str(hz.get("type", ""))
+	var ceiling := ty == "turret" and str(hz.get("mount", "floor")) == "ceiling"
+	var face := f
+	if side != 0 and not ceiling and ty != "column":
+		face = -Vector3(m.flat_right[i].x, 0.0, m.flat_right[i].z).normalized() * signf(side)
+		if face.length_squared() < 1e-6:
+			face = f
+	var b := Basis.looking_at(face, Vector3.UP)
+	if ceiling:
+		return Transform3D(Basis(face, PI) * b, p)
+	if ty == "column":
+		return Transform3D(b, p)
+	return Transform3D(b, p - Vector3.UP * 1.5)
+
+
+## The view's stand-in models by uid (tests).
+func model_nodes() -> Dictionary:
+	return _models
+
+
 func marker_pos(hz: Dictionary) -> Vector3:
 	var m := main_road()
 	var s := hazard_s(hz)
@@ -647,7 +723,7 @@ func hints(hit: EditorHit) -> Array:
 			var sides: Array = ((LevelHazards.TYPES.get(str(c.get("type", "")), {}) as Dictionary).get("placement", {}) as Dictionary).get("side", [])
 			if not sides.is_empty() and str(c.id) != "turret_ceiling":
 				side = " ON THE RIGHT" if hit.lat >= 0.0 else " ON THE LEFT"
-			out.append(["CLICK PLACE A %s%s" % [noun, side]])
+			out.append(["CLICK PLACE: %s%s" % [noun, side]])
 	elif hit.what == "road":
 		out.append(["HAZARDS GO ON THE MAIN ROAD"])
 	else:
@@ -713,26 +789,12 @@ func overlay(d: EditorDraw) -> void:
 			var f := editor.flags("hz_" + key)
 			if not f.is_empty():
 				d.flags_on_road(m, f, OK_TINT, BAD_TINT)
+	draw_zones(d)
 	for hz in list_of():
 		if not (hz is Dictionary):
 			continue
 		var u := int(hz.uid)
 		var sel := editor.selection != null and editor.selection.has(u)
-		var z := zone_s(hz)
-		if not z.is_empty():
-			var w := m.width[m.idx(float(z[0]))] * 0.5
-			var col := Color(ZONE_COLOR, 0.34 if sel else 0.18)
-			var a := float(z[0])
-			var b := float(z[1])
-			if m.closed and b - a >= m.length:
-				b = a + m.length - m.step
-			var aa := ItemsTool.wrap_s(m, a)
-			var bb := ItemsTool.wrap_s(m, b)
-			if m.closed and bb < aa:
-				d.strip_on_road(m, aa, m.length, -w, w, col)
-				d.strip_on_road(m, 0.0, bb, -w, w, col)
-			else:
-				d.strip_on_road(m, minf(aa, bb), maxf(aa, bb), -w, w, col)
 		if sel:
 			var p := marker_pos(hz)
 			var rg := range_of(hz)
@@ -743,6 +805,33 @@ func overlay(d: EditorDraw) -> void:
 				var q := point_pos(hz, k)
 				if not is_nan(q.x) and not is_nan(p.x):
 					d.line(p, q, Color(POINT_COLOR, 0.6))
+
+
+## The hazards' zone strips on the road (this tool's overlay; VIEW > ZONES in the others).
+func draw_zones(d: EditorDraw) -> void:
+	var m := main_road()
+	if m == null or d == null:
+		return
+	for hz in list_of():
+		if not (hz is Dictionary):
+			continue
+		var z := zone_s(hz)
+		if z.is_empty():
+			continue
+		var sel := editor.selection != null and editor.selection.has(int(hz.uid))
+		var w := m.width[m.idx(float(z[0]))] * 0.5
+		var col := Color(ZONE_COLOR, 0.34 if sel else 0.18)
+		var a := float(z[0])
+		var b := float(z[1])
+		if m.closed and b - a >= m.length:
+			b = a + m.length - m.step
+		var aa := ItemsTool.wrap_s(m, a)
+		var bb := ItemsTool.wrap_s(m, b)
+		if m.closed and bb < aa:
+			d.strip_on_road(m, aa, m.length, -w, w, col)
+			d.strip_on_road(m, 0.0, bb, -w, w, col)
+		else:
+			d.strip_on_road(m, minf(aa, bb), maxf(aa, bb), -w, w, col)
 
 
 ## The range ring's radius of a hazard (its p "range" or the row's default; 0 none).
@@ -828,6 +917,14 @@ func _drag_step(hit: EditorHit, phase: int) -> void:
 func _end_drag() -> void:
 	if not _drag.is_empty() and editor != null and editor.history != null:
 		editor.history.end_gesture()
+	_drag = {}
+	_slide = {}
+
+
+## Esc while the button holds a move: taken back.
+func cancel_drag() -> void:
+	if not _drag.is_empty() and editor != null and editor.history != null:
+		editor.history.cancel_gesture()
 	_drag = {}
 	_slide = {}
 
@@ -995,9 +1092,10 @@ func options(box: VBoxContainer) -> void:
 			var b := EditorKit.toggle(str(c.label) + (" ●" if str(c.setup) != "" else ""), cid == choice, func(on: bool) -> void:
 				if on:
 					set_choice(cid))
-			b.tooltip_text = str(c.desc)
+			b.tooltip_text = "%s\n%s" % [b.text, str(c.desc)]
 			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			b.clip_text = true
+			b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 			b.custom_minimum_size.x = 100
 			b.set_meta("hazard", cid)
 			b.button_group = group

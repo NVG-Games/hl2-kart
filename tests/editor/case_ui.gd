@@ -189,7 +189,12 @@ func _menu(t: Node, ed: TrackEditor) -> void:
 	if m == null:
 		return
 	var texts := m.items.map(func(b: Button) -> String: return b.text)
-	t.check(texts == EditorMenu.MAIN.map(func(e: Array) -> String: return e[0]), "its entries are 1.10's (%s)" % str(texts))
+	var same := texts.size() == EditorMenu.MAIN.size()
+	for k in mini(texts.size(), EditorMenu.MAIN.size()):
+		# UNDO / REDO add their step's name
+		if not str(texts[k]).begins_with(str(EditorMenu.MAIN[k][0])):
+			same = false
+	t.check(same, "its entries are 1.10's, with UNDO / REDO and SET THUMBNAIL (%s)" % str(texts))
 	t.check(not ed.camera.flying(), "the pad is the menu's while it is up")
 	t.check(_focus(ed) == m.items[0], "the focus starts on RESUME (%s)" % _fname(ed))
 	var walked := true

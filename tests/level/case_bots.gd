@@ -1,9 +1,10 @@
 extends RefCounted
 ## level/case_bots (P12, content): computer drivers lap the templates. race.tscn in demo mode
 ## (every kart a bot) through a test drive of 1 lap with one rival (2 karts), hazards off, at time
-## scale 4, on the oval, the figure eight and the hills: every kart finishes with at most 2
-## rescues. On the hills with the LOGGING TRAIL's ai take at 1.0: tests/branch_check.gd passes on
-## the compiled track's JSON, and, the track saved in user://tracks_test/ and found there by
+## scale 4, on the oval, the figure eight, the hills and the city block (its tunnel in a steep
+## hill face: the mouth once walled off, L3): every kart finishes with at most 2 rescues. On the
+## hills with the LOGGING TRAIL's ai take at 1.0: tests/branch_check.gd passes on the compiled
+## track's JSON, and, the track saved in user://tracks_test/ and found there by
 ## CustomTracks.refresh(), a bot takes the branch through to its merge within 3 laps (the branch
 ## passes race_stats counts, from Race.branch_log and the karts' routes).
 
@@ -30,7 +31,7 @@ class Checker extends "res://tests/branch_check.gd":
 func run(t: Node) -> void:
 	var steps := Engine.max_physics_steps_per_frame
 	Engine.max_physics_steps_per_frame = 64
-	for id in ["oval", "figure8", "hills"]:
+	for id in ["oval", "figure8", "hills", "city"]:
 		await _lap(t, id)
 	await _branch(t)
 	Engine.time_scale = 1.0

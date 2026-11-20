@@ -145,6 +145,26 @@ func drag(handle: int, screen: Vector2, cam: Camera3D, phase: int, snap: Diction
 	moved.emit(d, final)
 
 
+## A handle drag runs (TrackEditor's press or the Alt drag's own).
+func busy() -> bool:
+	return dragging >= 0 or not _own.is_empty()
+
+
+## Ends a running drag now (Esc, a dialog, a tool switch): its last move at `screen`, or with cancel
+## none (the owner takes its step back). The button's later release is ignored.
+func end_drag(screen: Vector2, cam: Camera3D, snap: Dictionary, cancel := false) -> void:
+	_own = {}
+	if dragging < 0 or _drag.is_empty():
+		dragging = -1
+		return
+	if cancel or cam == null:
+		_drag = {}
+		dragging = -1
+		_dirty = true
+		return
+	drag(int(_drag.handle), screen, cam, 2, snap)
+
+
 ## World metres per screen pixel at p (perspective: at p's depth).
 static func world_per_px(cam: Camera3D, p: Vector3) -> float:
 	var vs := cam.get_viewport().get_visible_rect().size if cam.is_inside_tree() else Vector2(1600, 900)
@@ -471,6 +491,7 @@ func _ensure_mesh() -> void:
 	_mat.vertex_color_use_as_albedo = true
 	_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	_mat.no_depth_test = true
+	_mat.disable_fog = true
 	_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_mat.render_priority = 100
 	_mi.material_override = _mat

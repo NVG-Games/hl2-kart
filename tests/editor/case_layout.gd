@@ -3,7 +3,8 @@ extends RefCounted
 ## 900, 1280 x 1024, 2560 x 1080): no control outside the window or squeezed below its minimum
 ## (ui_fit's rule: scroll contents and clipped labels aside), with the validation drawer, a card,
 ## a toast and the EDITOR MENU up; the free area between the panels is 1.3's (240 / 380 / 44 /
-## 30, 980 x 826 centred at (730, 457) on 1600 x 900) and is TrackEditor.free_rect().
+## 30, 980 x 826 centred at (730, 457) on 1600 x 900) and is TrackEditor.free_rect(). Every tool's
+## TOOL OPTIONS fit the column, show a scroll bar that can be grabbed and cut no text.
 
 const NEEDS_CONTENT := false
 const Sel := preload("res://tests/editor/case_select.gd")
@@ -60,7 +61,86 @@ func run(t: Node) -> void:
 		await t.frames(2)
 	root.size = size0
 	await t.frames(2)
+	ui.toggle_validation()
+	ui.hide_card()
+	await _tools(t, ed)
 	await Sel.close_editor(t, ed)
+
+
+## Every tool's TOOL OPTIONS at 1600 x 900 (nothing selected, then its kind selected): the contents
+## fit the column's width, a scroll bar that shows is at least 6 px wide, no button or clipped
+## label cuts its text (its tooltip has it whole).
+func _tools(t: Node, ed: TrackEditor) -> void:
+	var root: Window = t.get_tree().root
+	var size0 := root.size
+	root.size = SHAPES[0]
+	var ui := ed.ui
+	ed.selection.clear()
+	for id in TrackEditor.TOOL_IDS:
+		ed.set_tool(id)
+		await t.frames(4)
+		var sc := ui.options_scroll
+		var vb := sc.get_v_scroll_bar()
+		var room := sc.size.x - (vb.size.x if vb.visible else 0.0)
+		var want := ui.options_box.get_combined_minimum_size().x
+		var col := ui.right.get_global_rect()
+		t.check(want <= room + 0.5 and sc.get_global_rect().end.x <= col.end.x - 1.0,
+			"%s: the options fit the column's width (want %d, room %d, the scroll ends at %d of %d)" % [id, int(want), int(room), int(sc.get_global_rect().end.x), int(col.end.x)])
+		t.check(not vb.visible or vb.size.x >= 6.0, "%s: the options' scroll bar can be seen and grabbed (%s)" % [id, str(vb.size)])
+		var cut := cut_texts(ui.options_box)
+		t.check(cut.is_empty(), "%s: no option text is cut (%d: %s)" % [id, cut.size(), str(cut.slice(0, 6))])
+		var edge := col.end.x + 0.5
+		var out := []
+		for c in ui.options_box.find_children("*", "Control", true, false):
+			var ctl := c as Control
+			if ctl.is_visible_in_tree() and ctl.get_global_rect().end.x > edge:
+				out.append(_name(ctl))
+		t.check(out.is_empty(), "%s: nothing runs past the column (%s)" % [id, str(out.slice(0, 4))])
+	# an inspector of each kind the test track has
+	var d := ed.doc.data
+	for pair in [["objects", int(d.props[0].uid)], ["objects", int(d.lights[0].uid)], ["items", int(d.pads[0].uid)]]:
+		ed.set_tool(pair[0])
+		ed.select(PackedInt32Array([pair[1]]))
+		await t.frames(3)
+		ui.inspector.rebuild()
+		await t.frames(2)
+		var cut := cut_texts(ui.inspector.box)
+		t.check(cut.is_empty(), "%s inspector of %s: no text is cut (%d: %s)" % [pair[0], ed.kind_of(pair[1]), cut.size(), str(cut.slice(0, 6))])
+	ed.selection.clear()
+	ed.set_tool("select")
+	root.size = size0
+	await t.frames(2)
+
+
+## Buttons and clipped labels under n whose text is wider than they are (a list button that trims
+## with an ellipsis and has its whole text in the tooltip aside).
+static func cut_texts(n: Node) -> Array:
+	var bad := []
+	for c in n.find_children("*", "Control", true, false):
+		var ctl := c as Control
+		if not ctl.is_visible_in_tree():
+			continue
+		var txt := ""
+		var pad := 0.0
+		if ctl is Button and not (ctl is OptionButton):
+			var b := ctl as Button
+			txt = b.text
+			var sb := b.get_theme_stylebox("normal")
+			pad = sb.get_content_margin(SIDE_LEFT) + sb.get_content_margin(SIDE_RIGHT) if sb != null else 0.0
+			if b.icon != null:
+				pad += b.icon.get_width() + b.get_theme_constant("h_separation")
+		elif ctl is Label and (ctl as Label).clip_text:
+			txt = (ctl as Label).text
+		if txt == "":
+			continue
+		var f := ctl.get_theme_font("font")
+		var fs := ctl.get_theme_font_size("font_size")
+		var w := f.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + pad if f != null else 0.0
+		var trims := ctl is Button and (ctl as Button).text_overrun_behavior != TextServer.OVERRUN_NO_TRIMMING \
+			and ctl.tooltip_text.find(txt.strip_edges()) >= 0
+		if w > ctl.size.x + 1.0 and not trims:
+			bad.append("%s needs %d of %d" % [_name(ctl), int(w), int(ctl.size.x)])
+	return bad
 
 
 ## A report with long texts, every level and some fixes.

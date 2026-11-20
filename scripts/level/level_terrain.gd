@@ -91,7 +91,8 @@ func size() -> float:
 ## The road carve (3.4) from `natural` into `heights`: a bed 0.35 m under every grounded road and its
 ## treatment, flat shoulders `flat` m wide, a smoothstep `blend` back to the natural ground; tunnels
 ## keep the hill over them (natural at or above roof + 1.5 stays, natural between the floor and
-## that is a hole: the mouths); bridges keep the ground under their skirt; gap / see-saw samples
+## that is a hole: the mouths; a kept cell beside a carved one under its roof is a hole too, the
+## mouth in a steep face); bridges keep the ground under their skirt; gap / see-saw samples
 ## dip it; `pits` ({center: Vector2, radius, floor_y}) sink it; one 3 x 3 pass smooths where two
 ## carves meet; the ground stays CLEAR under every open / street surface; all within -500..1500 m.
 ## `rect` (samples) re-carves only those cells from the samples whose influence meets it; `skip`
@@ -146,6 +147,10 @@ func carve(roads: Array, flat: float, blend: float, rect := Rect2i(), pits := []
 	var capy := PackedFloat32Array()
 	capy.resize(touched.size())
 	capy.fill(INF)
+	# the roof over each tunnel-bed cell that kept the hill (NAN = not one)
+	var kept := PackedFloat32Array()
+	kept.resize(touched.size())
+	kept.fill(NAN)
 	for k in touched.size():
 		var ci := touched[k]
 		var nat := natural[ci]
@@ -173,6 +178,7 @@ func carve(roads: Array, flat: float, blend: float, rect := Rect2i(), pits := []
 					var roof: float = pr["roof"][i]
 					if nat >= roof + 1.5:
 						h = nat
+						kept[k] = roof
 					elif nat > surf + MOUTH_MIN:
 						h = NAN
 					else:
@@ -202,6 +208,10 @@ func carve(roads: Array, flat: float, blend: float, rect := Rect2i(), pits := []
 		heights[ci] = h
 		if gin and not bed:
 			avg[k] = 1
+	# 3b. the mouths in a steep face: a tunnel-bed cell that kept the hill beside a carved cell under
+	# its roof (the street's bed at the face, a tunnel floor) is a hole, or the heightmap climbs
+	# from the bed to the hill across the opening and walls it off; the portal frame covers it
+	_mouths(touched, kept)
 	# 4. pits (the tentacle's)
 	for p in pits:
 		if not p is Dictionary:
@@ -262,6 +272,41 @@ func carve(roads: Array, flat: float, blend: float, rect := Rect2i(), pits := []
 		if is_nan(h):
 			continue
 		heights[ci] = clampf(minf(h, capy[k]), HEIGHT_MIN, HEIGHT_MAX)
+
+
+## Step 3b of carve: kept[k] is the roof over touched[k] when that tunnel-bed cell kept the hill.
+## It becomes a hole when an 8-neighbour is carved (more than 0.5 m under its natural ground) to
+## under that roof. One pass on the heights step 3 made (a rect re-carve reads its neighbours
+## outside the rect as the last carve left them).
+func _mouths(touched: PackedInt32Array, kept: PackedFloat32Array) -> void:
+	var holes := PackedInt32Array()
+	for k in touched.size():
+		var roof := kept[k]
+		if is_nan(roof):
+			continue
+		var ci := touched[k]
+		var x := ci % res
+		var z := ci / res
+		var open := false
+		for dz in range(-1, 2):
+			var zz := z + dz
+			if zz < 0 or zz >= res:
+				continue
+			for dx in range(-1, 2):
+				var xx := x + dx
+				if xx < 0 or xx >= res or (dx == 0 and dz == 0):
+					continue
+				var nb := zz * res + xx
+				var v := heights[nb]
+				if not is_nan(v) and v < roof and v < natural[nb] - 0.5:
+					open = true
+					break
+			if open:
+				break
+		if open:
+			holes.append(ci)
+	for ci in holes:
+		heights[ci] = NAN
 
 
 func _alloc(cells: int) -> void:

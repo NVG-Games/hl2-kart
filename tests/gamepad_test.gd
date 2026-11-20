@@ -351,6 +351,23 @@ func _test_icons() -> void:
 	check(cap.get_height() == 21 and cap.get_width() > cap.get_height() and KeycapTexture.of("SHIFT", 21.0) == cap,
 		"a keycap is the icon's height, as wide as its name, and cached (%dx%d)" % [cap.get_width(), cap.get_height()])
 	check(InputPrompts.icon("xbox_dpad_up", 32.0) != null, "a D-pad icon (orange, not Kenney's red) loads")
+	# a keyboard key loses Kenney's margin: the key is as high as a keycap's (F5, W, [ and Z read 87 %)
+	for stem in ["keyboard_f5", "keyboard_w", "keyboard_bracket_open", "keyboard_z", "keyboard_numpad_plus"]:
+		var kt := InputPrompts.icon(stem, 22.0)
+		check(kt != null and kt.get_height() == 22 and kt.get_width() < 22, "%s: 22 px high, the key's width (%s)" % [stem,
+			kt.get_size() if kt else Vector2.ZERO])
+		var gb := InputPrompts.glyph_box(stem)
+		var svg := InputPrompts.key_svg(FileAccess.get_file_as_string(InputPrompts.icon_path(stem)), gb)
+		var img := Image.new()
+		var ok := svg != "" and img.load_svg_from_string(svg, 220.0 * KeycapTexture.KEY_SHARE / (gb.size.y * 64.0)) == OK
+		var used := img.get_used_rect() if ok else Rect2i()
+		var share := float(used.size.y) / float(img.get_height()) if ok else 0.0
+		check(ok and absf(share - KeycapTexture.KEY_SHARE) < 0.02 and used.size.x >= img.get_width() - 2
+			and absi(used.position.y - (img.get_height() - used.end.y)) <= 2,
+			"%s: the key fills %.2f of the icon's height like a keycap (%.2f), centred, full width (%s in %s)" % [stem, share,
+			KeycapTexture.KEY_SHARE, used, img.get_size() if ok else Vector2i.ZERO])
+	check(InputPrompts.key_svg("<svg viewBox=\"0 0 10 10\"/>", Rect2(0.1, 0.1, 0.8, 0.8)) == "", "key_svg leaves other SVGs alone")
+	check(InputPrompts.icon("xbox_button_a", 22.0).get_width() == 22, "pad icons keep Kenney's square canvas")
 
 
 func _ev_button(b: JoyButton) -> InputEventJoypadButton:

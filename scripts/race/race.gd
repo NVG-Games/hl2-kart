@@ -148,20 +148,7 @@ func _loading_card() -> CanvasLayer:
 	black.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	black.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(black)
-	var l := UiKit.label(loading_text(), 28, Color(1, 1, 1, 0.9), true)
-	l.anchor_left = 1.0
-	l.anchor_right = 1.0
-	l.anchor_top = 1.0
-	l.anchor_bottom = 1.0
-	l.offset_left = -260
-	l.offset_top = -80
-	if l.text != "LOADING...":
-		# a custom track's name (and author) beside it, ending where the plain card's word does
-		l.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		l.offset_right = -110
-		l.offset_left = -110
-	root.add_child(l)
+	root.add_child(UiKit.loading_word(loading_text()))
 	return c
 
 

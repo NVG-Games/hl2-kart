@@ -80,6 +80,13 @@ func drag_end(hit: EditorHit, mods: int) -> void:
 	pass
 
 
+## Esc (TrackEditor.end_press) while the button still holds a drag of this tool: the drag stops and
+## what it did so far is taken back. Base: the open gesture's step.
+func cancel_drag() -> void:
+	if editor != null and editor.history != null:
+		editor.history.cancel_gesture()
+
+
 func wheel(hit: EditorHit, mods: int, notches: int) -> bool:
 	return false
 

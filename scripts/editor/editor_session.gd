@@ -31,6 +31,8 @@ var selection := PackedInt32Array()
 var hidden := PackedInt32Array()
 var clipboard: Array = []
 var last_drive := {}
+## The last WATCH A BOT LAP's result for the checklist: {line, s, pos} ({} none; the next watch drops it).
+var bot_lap := {}
 var return_to := ""                     # "" main menu, "home" EditorHome, "host" CREATE SERVER with host_track
 var host_track := ""
 var build: LevelBuild                   # the last full bake (the test drive and the editor's return use it)
@@ -39,6 +41,9 @@ var resources: Array = []               # models / materials / textures the view
 var track_id := ""
 ## A save or a pre-save bake is running.
 var saving := false
+## True while a save writes its own meta (modified, app, content, bake) into the live document:
+## no edit (the editor keeps the last drive's trail and its bake).
+var saving_meta := false
 ## What the last open / open_copy reported (sanitize's cleaning, a recovered .tmp).
 var open_report: LevelReport
 
@@ -66,6 +71,14 @@ static func current() -> EditorSession:
 ## "MY TRACK", "MY TRACK 2"... (not taken by own tracks)
 static func auto_name() -> String:
 	return free_name("MY TRACK")
+
+
+## True for a name auto_name() makes: "MY TRACK" or "MY TRACK <n>" (any case).
+static func is_auto_name(nm: String) -> bool:
+	var s := nm.strip_edges().to_upper()
+	if s == "MY TRACK":
+		return true
+	return s.begins_with("MY TRACK ") and s.trim_prefix("MY TRACK ").is_valid_int()
 
 
 ## base, else "base 2", "base 3"... not taken by an own track or an autosave (case-insensitive).
@@ -147,6 +160,25 @@ func open_copy(p: String, as_remix: bool) -> String:
 	track_id = ""
 	_clean_rev = -1
 	return ""
+
+
+## SAVE AS: the live document becomes a copy (a free name from new_name, a new guid; outside the
+## undo history) with no file yet; the original file stays as it was and the old guid's autosave
+## goes to .trash. The next save writes a new file. The copy's name.
+func become_copy(new_name: String) -> String:
+	if doc == null:
+		return ""
+	var nm := LevelDoc.clean_text(new_name, 48)
+	nm = free_name(nm if nm != "" else str(doc.data.get("name", "MY TRACK")))
+	discard_autosave(autosave_path())
+	var now := int(Time.get_unix_time_from_system())
+	doc.apply([LevelDoc.op_set(["name"], nm), LevelDoc.op_set(["short"], nm.to_upper().left(16)),
+		LevelDoc.op_set(["guid"], Crypto.new().generate_random_bytes(16).hex_encode()), LevelDoc.op_set(["created"], now)])
+	path = ""
+	track_id = ""
+	_clean_rev = -1
+	_autosave_rev = -1
+	return nm
 
 
 ## Worker pack + atomic write, history copy, CustomTracks.note_saved; done(err). p "" = the
@@ -286,6 +318,10 @@ static func recoveries() -> Array[Dictionary]:
 	var d := DirAccess.open(dir)
 	if d == null:
 		return out
+	# an autosave cut between Windows' remove and rename left only <guid>.hl2kt.tmp: put it in place
+	for f in d.get_files():
+		if f.ends_with(LevelIO.EXT + ".tmp") and not FileAccess.file_exists(dir.path_join(f.trim_suffix(".tmp"))):
+			LevelIO.load_file(dir.path_join(f.trim_suffix(".tmp")), LevelReport.new())
 	var probe := EditorSession.new()
 	for f in d.get_files():
 		if not f.ends_with(LevelIO.EXT):
@@ -348,6 +384,7 @@ func close() -> void:
 	selection = PackedInt32Array()
 	hidden = PackedInt32Array()
 	last_drive = {}
+	bot_lap = {}
 	resources.clear()
 	_kept.clear()
 	_clean_rev = -1
@@ -366,6 +403,13 @@ func keep(res: Resource) -> void:
 	resources.append(res)
 
 
+## Why a drive is refused: a full sentence from the report (a capital first) as it is, else in TEXT_BUILD.
+static func build_text(why: String) -> String:
+	if why != "" and why[0] != why[0].to_lower():
+		return why if why.ends_with(".") else why + "."
+	return TEXT_BUILD % why.trim_suffix(".")
+
+
 ## "" or why a test drive cannot run (cannot build). The texts hold {ed_*} combos for
 ## EditorKit.prompt.
 func drive_blocker() -> String:
@@ -380,7 +424,7 @@ func drive_blocker() -> String:
 	if build != null and build.revision == doc.revision and build.report != null:
 		var why := build.report.blocks_drive()
 		if why != "" and why != "no_road" and why != "open_loop":
-			return TEXT_BUILD % why.trim_suffix(".")
+			return build_text(why)
 	return ""
 
 
@@ -389,6 +433,9 @@ func drive_blocker() -> String:
 ## Game.test_drive (opts: from "start" | "here" | "watch", route, s, lat, and the TEST DRIVE
 ## options bots / laps / hazards / difficulty over settings.editor_test) and changes the scene.
 func start_test_drive(tree: SceneTree, opts: Dictionary, done: Callable) -> void:
+	# no gesture survives the drive (the history lives on in Game.editor)
+	if history != null:
+		history.end_gesture()
 	var why := drive_blocker()
 	if why != "":
 		if done.is_valid():
@@ -435,6 +482,7 @@ func _take(d: LevelDoc) -> void:
 	selection = PackedInt32Array()
 	hidden = PackedInt32Array()
 	last_drive = {}
+	bot_lap = {}
 	_autosave_rev = -1
 	CustomTracks.forget(CustomTracks.EDIT_ID)
 
@@ -559,7 +607,9 @@ func _write(target: String, header_extra: Dictionary, b: LevelBuild, done: Calla
 	var bk = _bake_hints(b)
 	if bk != null:
 		ops.append(LevelDoc.op_set(["bake"], bk))
+	saving_meta = true
 	doc.apply(ops)
+	saving_meta = false
 	if was_current:
 		build.revision = doc.revision
 	if b != null and b.revision == rev:
@@ -588,7 +638,7 @@ func _drive(tree: SceneTree, opts: Dictionary, b: LevelBuild, done: Callable) ->
 	if b == null:
 		why = TEXT_BUILD % "the compiler gave nothing"
 	elif b.report != null and b.report.blocks_drive() != "":
-		why = TEXT_BUILD % b.report.blocks_drive().trim_suffix(".")
+		why = build_text(b.report.blocks_drive())
 	elif not (b.data.get("path") is Dictionary):
 		why = TEXT_BUILD % "it has no road to race on"
 	if why != "":

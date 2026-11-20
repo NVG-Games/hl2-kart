@@ -57,7 +57,7 @@ func options(box: VBoxContainer) -> void:
 		editor.redraw())))
 	box.add_child(EditorKit.button("PICK LAYER", func() -> void:
 		picking = true
-		editor.status("Click the ground to pick its strongest layer."), "Or {ed_mod_alt} + click without moving."))
+		editor.status("Click the ground to pick its strongest layer.", true), "Or {ed_mod_alt} + click without moving."))
 	box.add_child(EditorKit.hint("{ed_place} paints, {ed_mod_ctrl} erases to BASE."))
 	box.add_child(EditorKit.section("LAYER TEXTURES"))
 	var layers := layer_keys()
@@ -156,13 +156,21 @@ func key(ev: InputEvent) -> bool:
 			picking = false
 			return true
 		if not _stroke.is_empty():
-			var st := _stroke
-			_stroke = {}
-			var rect: Rect2i = st.rect
-			if rect.has_area():
-				editor.doc.apply([LevelDoc.op_splat(rect, LevelBrush.region_splat(st.before, editor.doc.res(), rect))])
+			cancel_drag()
 			return true
 	return false
+
+
+## Esc while the button holds a stroke: the splat under it back to the stroke's start.
+func cancel_drag() -> void:
+	if _stroke.is_empty():
+		return
+	var st := _stroke
+	_stroke = {}
+	_pending = Vector2(NAN, NAN)
+	var rect: Rect2i = st.rect
+	if rect.has_area():
+		editor.doc.apply([LevelDoc.op_splat(rect, LevelBrush.region_splat(st.before, editor.doc.res(), rect))])
 
 
 func process(_delta: float) -> void:

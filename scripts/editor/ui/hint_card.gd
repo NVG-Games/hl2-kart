@@ -15,7 +15,7 @@ const TEXTS := {
 	"select": ["Click to select, {ed_mod_shift} + click adds, drag a box to select several.",
 		"{ed_move} {ed_rotate} {ed_scale}: move, turn and size it with the gizmo.",
 		"{ed_delete} deletes, {ed_undo} undoes anything."],
-	"road": ["Click the ground to extend the road from its nearer end.",
+	"road": ["Click the ground to extend the road from the last point you added.",
 		"Click its first point (or press {ed_close_loop}) to close the loop.",
 		"Hold {ed_draw} and drag to draw a road freehand."],
 	"road_closed": ["Drag a point to move it, {ed_mod_shift} + drag for its height.",

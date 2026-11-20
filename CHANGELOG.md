@@ -12,55 +12,72 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
   has EDIT, PLAY, HOST, DUPLICATE, RENAME, DELETE, KEEP, REMIX and OPEN FOLDER. A template opens in
   the editor at once; a `.hl2kt` file dropped on the window is checked and imported. Tracks are
   saved in your tracks folder with autosave, recovery after a crash and the last five versions
-  (FILE > OLDER VERSIONS). The editor's tools:
+  (FILE > OLDER VERSIONS); the first save of a new track asks for its name, the one your friends
+  see when you host it; SAVE AS (Ctrl+Shift+S) saves a copy under a new name and leaves the
+  original as it was. The editor's tools:
   - SELECT: click, Shift / Ctrl and box selection, a move / rotate / scale gizmo with grid, angle
     and surface snaps, Alt + drag to duplicate, copy and paste between tracks, undo and redo of
-    every edit.
-  - ROAD: click to lay points and close the loop, draw a road freehand, drag points (they follow
-    the ground) and their handles with live radius, grade and width read-outs; per segment
-    jumps with kickers, banking, barriers on each side and see-saw stretches; open roads, city
-    streets, bridges with pillars and lit tunnels, and a small road style editor.
-  - BRANCH: forks and shortcuts laid in three steps on the green spots of the lap; the computer
-    drivers take them too.
+    every edit (Esc takes back a drag you are still holding); H hides the selection and SHOW
+    HIDDEN brings it back.
+  - ROAD: click round to lay points (each one after the last, Shift + click for the other end)
+    and click the first one to close the loop (a lap of 200 m to 20 km), draw a road freehand,
+    drag points (they follow the ground) and their handles with live radius, grade and width
+    read-outs; per segment jumps with kickers, banking, barriers on each side and see-saw
+    stretches; open roads, city streets, bridges with pillars and lit tunnels, and a small road
+    style editor.
+  - BRANCH: forks and shortcuts (up to 8 km each) laid in three steps on the green spots of the
+    lap; the computer drivers take them too.
   - TERRAIN: raise, lower, smooth, flatten and noise brushes, roads that follow the ground you
     sculpt, lakes, the world's size, or no terrain at all.
   - PAINT: dirt, rock, paving and sand layers with their textures, an eyedropper and AUTO PAINT.
   - OBJECTS: a catalog of the Half-Life props on your computer with categories, search,
-    favourites, recent and thumbnails; stamp, scatter and line a road with them; lights, fires,
-    embers and Breencast screens.
+    favourites, recent and thumbnails; stamp, scatter and line a road with them, turn them with
+    , and . and mark the light ones PHYSICS to be knocked over; lights, fires, embers and
+    Breencast screens.
   - ITEMS: crate rows, crates, boost pads, barrels and low-gravity zones, and AUTO ITEMS.
   - HAZARDS: all 19 traps and enemies of the circuits, with what each needs built for it (a
     level crossing's rails and signals, a footbridge for the Combine column, a tentacle pit, the
-    see-saw's ravine), green spots where a placement is legal, and EASY / NORMAL / BRUTAL.
-  - CROWDS: groups of spectators that keep off the road, drops and water, and the G-Man, a
-    hologram, birds, zombies and other extras.
-  - WORLD: seven Half-Life themes, sky, lighting presets, sun, ambient light, fog, the sea, the
-    start arch, City 17's skyline, the rescue, laps and music.
+    see-saw's ravine), green spots where a placement is legal, each one standing in the view as
+    its own model, and EASY / NORMAL / BRUTAL.
+  - CROWDS: groups of spectators that keep off the road, drops and water (stand-ins show where
+    they will be), and the G-Man, a hologram, birds, zombies and other extras.
+  - WORLD: seven Half-Life themes, sky, lighting presets, sun, ambient light, fog (seen in the
+    view while WORLD is open, so it never hides your work), the sea, the start arch, City 17's
+    skyline, the rescue, laps and music.
   - TEST DRIVE (F5): from the start, from where you point or watching a bot lap (hold Tab or RT to
-    fast forward), back to the editor with F5 or the pause menu, with your lap and the line you
-    drove shown there. An open road can not be driven: close the loop (C) first.
+    fast forward; a pin marks where the bot got stuck), back to the editor with F5 or the pause
+    menu, with your lap and the line you drove shown there. The errors the track still has stay
+    on screen while you drive, and under PAUSED in the pause menu. An open road can not be
+    driven: close the loop (C) first.
   - A checklist of what keeps a track from being raced, with pins on the problems and one-click
     FIX buttons, a COMPLEXITY meter, AUTO DRESS (crate rows, boost pads, rails on tight bends,
     scenery from the theme and a start grandstand in one step), hint cards for every tool and a
     help screen for keyboard, mouse and controller (F1).
-  - The mouse and keyboard edit everything; a controller flies the camera, test-drives (A / X / Y)
-    and works the EDITOR MENU (Start).
+  - VIEW: ZONES, a GRID drawn on the ground, LABELS with the OUTLINER's names and the issue pins;
+    the race direction (an arrow every 50 m) and the grid slots behind the start are always
+    drawn. The editor plays the menu music (VIEW > MUSIC).
+  - The mouse and keyboard edit everything; a controller flies the camera (the status bar shows
+    its buttons), test-drives (A / X / Y) and works the EDITOR MENU (Start: tools, UNDO, REDO,
+    save, the thumbnail and more).
 
   Pipes and caves are not part of the editor.
 - Custom tracks online. Host a server on one of your tracks (HOST in the TRACK EDITOR, or pick it
   in CREATE SERVER) and friends who do not have it download it in the lobby in the background,
-  with a progress bar and the time left; a download that drops resumes, a track you raced once is
+  with a progress bar and the time left; a download that drops resumes (at most two unfinished
+  downloads are kept, however many tracks a server switches through), a track you raced once is
   cached, and every file is checked before it is built. The lobby's TRACK column shows who has the
-  track; a friend whose download fails stays in the lobby with the reason and RETRY, and KEEP
-  TRACK moves a download to DOWNLOADED for good. FIND SERVERS has a TRACK column and names a
-  server's custom track with its size, and OPTIONS > GAME has DOWNLOAD TRACKS FROM SERVERS (off:
-  the lobby asks first). NEW RACE has a MY TRACKS card to race your own and downloaded tracks
-  offline.
+  track; a friend whose download fails stays in the lobby with the reason and RETRY (once every
+  30 seconds, five times a track), and KEEP TRACK moves a download to DOWNLOADED for good. FIND
+  SERVERS has a TRACK column and names a server's custom track with its author and size, and
+  OPTIONS > GAME has DOWNLOAD TRACKS FROM SERVERS (off: the lobby asks first). NEW RACE has a MY
+  TRACKS card to race your own and downloaded tracks offline.
 - Dedicated servers race custom tracks from a tracks folder: `sv_tracks` (`--tracks <dir>`) adds
   a folder, `mp_tracklist` (`--tracklist`) with `mp_rotate` rotates through tracks after every
-  race, `sv_downloads 0` turns away a player who lacks the track and `sv_download_rate` caps the
-  downloads during a race. `mp_track` also takes a custom track's file name. New console
-  commands: `tracks`, `track <name>` and `next`; `status` shows each player's download.
+  race (without `mp_track` the server starts on the list's first track), `sv_downloads 0` turns
+  away a player who lacks the track and `sv_download_rate` caps the downloads during a race.
+  `mp_track` also takes a custom track's file name. New console commands: `tracks`, `rescan`
+  (reads the tracks folder again: files added or replaced while the server runs), `track <name>`
+  and `next`; `status` shows each player's download.
 - Proper gamepad support. Any pad drives the kart, not only the first one plugged in: Xbox,
   PlayStation, Nintendo Switch, Steam Deck and others. The game recognises the pad and shows its
   own buttons everywhere (menus, the HUD, How to Play), and switches between keyboard keys and

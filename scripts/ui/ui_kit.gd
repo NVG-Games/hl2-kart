@@ -252,6 +252,23 @@ static func label(text: String, size := 18, color := TEXT, bold := false) -> Lab
 	return l
 
 
+## The loading screens' word in the bottom right corner ("LOADING...", "PREPARING TRACK...", a
+## custom track's name and author): the menu's cover and the race's loading card place it alike,
+## ending 110 px from the right and growing left, so it does not jump at the scene change.
+static func loading_word(text: String) -> Label:
+	var l := label(text, 28, Color(1, 1, 1, 0.9), true)
+	l.anchor_left = 1.0
+	l.anchor_right = 1.0
+	l.anchor_top = 1.0
+	l.anchor_bottom = 1.0
+	l.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	l.offset_left = -110
+	l.offset_right = -110
+	l.offset_top = -80
+	return l
+
+
 static func _sounds(c: Control) -> void:
 	c.mouse_entered.connect(func():
 		if c is BaseButton and not (c as BaseButton).disabled:

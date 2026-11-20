@@ -403,6 +403,45 @@ func _show_box() -> void:
 	_box_ctl.queue_redraw()
 
 
+## A move, slide or gizmo drag of SELECT is running (its gesture is open): undo and the edit keys
+## wait (TrackEditor.pressing).
+func dragging() -> bool:
+	return not _move.is_empty() or not _slide.is_empty() or not _gz.is_empty()
+
+
+## Ends every drag of SELECT where it is (its gesture closed, nothing taken back).
+func end_drags() -> void:
+	_cancel()
+	sync_gizmo()
+
+
+## Esc mid-drag (TrackEditor.end_press): the box goes, a move or slide is taken back.
+func cancel_drag() -> void:
+	var live := not _move.is_empty() or not _slide.is_empty()
+	var states: Array = _move.get("items", []) if not _move.is_empty() else []
+	_move = {}
+	_slide = {}
+	if live:
+		editor.history.cancel_gesture()
+	if not states.is_empty():
+		_preview(states, true)
+	if not _box.is_empty():
+		_box = {}
+		_show_box()
+	sync_gizmo()
+
+
+## The gizmo's drag was stopped without its last move (Esc): its step taken back.
+func cancel_gizmo() -> void:
+	if _gz.is_empty():
+		return
+	var states: Array = _gz.get("items", [])
+	_gz = {}
+	editor.history.cancel_gesture()
+	_preview(states, true)
+	sync_gizmo()
+
+
 func _cancel() -> void:
 	if not _move.is_empty():
 		editor.history.end_gesture()
@@ -712,6 +751,9 @@ static func _delete(ed: TrackEditor, uids: PackedInt32Array, step_name: String) 
 	ed.history.begin_gesture(step_name)
 	for key in groups:
 		var t: EditorTool = ed.tools.get(key, null)
+		# the owner's own refusal (a closed loop keeps 3 points) holds here too
+		if t != null and t.has_method("refuse_delete") and t.call("refuse_delete", groups[key]):
+			continue
 		var ops := t.delete_ops(groups[key]) if t != null else []
 		if not ops.is_empty():
 			ed.commit(step_name, ops)

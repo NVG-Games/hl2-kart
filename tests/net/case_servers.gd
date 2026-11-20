@@ -65,6 +65,7 @@ func run(t_: Node) -> void:
 	await _lobby_host()
 	_lobby_client()
 	await _lobby_layout()
+	await _lobby_rules()
 	# (the sounds the lobby played end before the runner quits)
 	await t.get_tree().create_timer(0.6).timeout
 	_cleanup()
@@ -176,8 +177,10 @@ func _finish_order() -> void:
 	o["tracklist"] = "canal_run, nosuch, P11 Mine Broken, Old Docks, canal_run"
 	DedicatedConfig.finish(o)
 	t.check(str(o["track"]) == ids["docks"], "finish: the track resolves after the scan")
-	t.check(o["tracklist"] is PackedStringArray and Array(o["tracklist"]) == [ids["canal"], ids["docks"]],
-		"finish: the list resolved, unknown / unusable / repeated entries left out (%s)" % [o["tracklist"]])
+	t.check(o["tracklist"] is PackedStringArray and Array(o["tracklist"]) == ["canal_run", "nosuch", "P11 Mine Broken", "Old Docks", "canal_run"],
+		"finish: the list kept as written (%s)" % [o["tracklist"]])
+	t.check(Array(DedicatedConfig.resolve_list(o["tracklist"])) == [ids["canal"], ids["docks"]],
+		"finish: the list resolves with unknown / unusable / repeated entries left out (%s)" % [DedicatedConfig.resolve_list(o["tracklist"])])
 	var o2 := DedicatedConfig.defaults()
 	o2["track"] = "nosuch"
 	DedicatedConfig.finish(o2)
@@ -193,6 +196,16 @@ func _finish_order() -> void:
 	DedicatedConfig.finish(o3)
 	DedicatedConfig.finish(o3)
 	t.check(str(o3["track"]) == ids["deeper"] and (o3["tracklist"] as PackedStringArray).is_empty(), "finish: an id stays, twice is the same")
+	# C2 N6: a list and no mp_track / --track: the list's first usable entry, never Highway 17
+	var o4 := DedicatedConfig.defaults()
+	o4["tracklist"] = "nosuch, P11 Mine Broken, Deep Cut, canal_run"
+	DedicatedConfig.finish(o4)
+	t.check(str(o4["track"]) == ids["deeper"], "finish: a list without a track starts on its first usable entry (%s)" % o4["track"])
+	var o5 := DedicatedConfig.load_options(PackedStringArray(["--tracks", ProjectSettings.globalize_path(dir), "--tracklist", "Old Docks, canal_run"]))
+	t.check(str(o5["track"]) == ids["docks"], "flags: --tracklist without --track starts on the list's first entry (%s)" % o5["track"])
+	var o6 := DedicatedConfig.load_options(PackedStringArray(["--tracks", ProjectSettings.globalize_path(dir), "--tracklist", "Old Docks, canal_run",
+		"--track", str(DedicatedConfig.defaults()["track"])]))
+	t.check(str(o6["track"]) != ids["docks"], "flags: a --track given (even the default) wins over the list (%s)" % o6["track"])
 
 
 ## A server.cfg whose mp_track names a custom file above its sv_tracks line; flags win.
@@ -216,13 +229,13 @@ func _load_options() -> void:
 	made.append(cfg)
 	var o := DedicatedConfig.load_options(PackedStringArray(["--config", cfg]))
 	t.check(str(o["track"]) == ids["canal"], "server.cfg: mp_track before sv_tracks resolves (%s)" % o["track"])
-	t.check(Array(o["tracklist"]) == [ids["docks"], ids["canal"]], "server.cfg: mp_tracklist (%s)" % [o["tracklist"]])
+	t.check(Array(DedicatedConfig.resolve_list(o["tracklist"])) == [ids["docks"], ids["canal"]], "server.cfg: mp_tracklist (%s)" % [o["tracklist"]])
 	t.check(int(o["rotate"]) == 0 and int(o["downloads"]) == 0 and int(o["download_rate"]) == 64, "server.cfg: mp_rotate, sv_downloads, sv_download_rate")
 	t.check(str(o["tracks_dir"]) == ProjectSettings.globalize_path(dir) and str(o["name"]) == "P11 test" and int(o["laps"]) == 4, "server.cfg: sv_tracks, hostname, mp_laps")
 	var o2 := DedicatedConfig.load_options(PackedStringArray(["--config", cfg, "--track", str(shas["deeper"]).left(10),
 		"--tracklist", "Deep Cut,Old Docks", "--tracks", ProjectSettings.globalize_path(dir)]))
 	t.check(str(o2["track"]) == ids["deeper"], "flags: --track by sha prefix wins over the file")
-	t.check(Array(o2["tracklist"]) == [ids["deeper"], ids["docks"]], "flags: --tracklist")
+	t.check(Array(DedicatedConfig.resolve_list(o2["tracklist"])) == [ids["deeper"], ids["docks"]], "flags: --tracklist")
 	var d := DedicatedConfig.defaults()
 	t.check(str(d["tracks_dir"]) == "" and int(d["downloads"]) == 1 and int(d["download_rate"]) == 192 and int(d["rotate"]) == 1
 		and (d["tracklist"] as PackedStringArray).is_empty(), "defaults: the five keys (6.8)")
@@ -235,7 +248,8 @@ func _set_option() -> void:
 	var o := {"track": ids["docks"]}
 	t.check(DedicatedConfig.set_option(o, "track", "canal run") and str(o["track"]) == ids["canal"], "set mp_track: a display name at once")
 	t.check(not DedicatedConfig.set_option(o, "track", "nosuch") and str(o["track"]) == ids["canal"], "set mp_track: unknown refused, kept")
-	t.check(DedicatedConfig.set_option(o, "tracklist", "deep cut, canal_run") and Array(o["tracklist"]) == [ids["deeper"], ids["canal"]], "set mp_tracklist")
+	t.check(DedicatedConfig.set_option(o, "tracklist", "deep cut, canal_run") and Array(o["tracklist"]) == ["deep cut", "canal_run"]
+		and Array(DedicatedConfig.resolve_list(o["tracklist"])) == [ids["deeper"], ids["canal"]], "set mp_tracklist: kept as written, resolves")
 	t.check(DedicatedConfig.set_option(o, "downloads", "off") and int(o["downloads"]) == 0, "set sv_downloads off")
 	t.check(not DedicatedConfig.set_option(o, "downloads", "maybe"), "sv_downloads: a bad value")
 	t.check(not DedicatedConfig.set_option(o, "download_rate", "fast") and not DedicatedConfig.set_option(o, "download_rate", "0"), "sv_download_rate: bad values")
@@ -327,6 +341,13 @@ func _dedicated() -> void:
 	t.check(not Net.share.rotate_on and not Net.cfg.has("rotate"), "console set mp_rotate: a server setting, not a rule")
 	con._command("set sv_downloads 0")
 	t.check(not Net.share.downloads, "console set sv_downloads 0")
+	Net.share.downloads = true
+	# C2 N8: the query reply names a custom track's author, and stays one datagram
+	var info := Net.server_info()
+	t.check(int(info.get("cu", 0)) == 1 and str(info.get("mau", "")) == "Tester" and str(info.get("map", "")) == "Old Docks",
+		"server_info: a custom track's name and author (%s / %s)" % [info.get("map"), info.get("mau")])
+	t.check(("I" + JSON.stringify(info)).to_utf8_buffer().size() < 1200, "server_info: the reply fits one datagram")
+	await _rescan(con)
 	# during a race a track waits for the lobby
 	Net.state = "race"
 	con._command("track canal_run")
@@ -340,6 +361,56 @@ func _dedicated() -> void:
 	for k in CustomTracks.memory_ids():
 		CustomTracks.forget(k)
 	t.check(not Net.active and not Net.dedicated, "dedicated: left")
+
+
+## C2 N7: files added or replaced while the dedicated server runs: `rescan`, `track` and the
+## rotation find them, and a track rule on a replaced file's old id follows it to the new one.
+func _rescan(con: DedicatedConsole) -> void:
+	var p := dir + "/swap_me.hl2kt"
+	var a := LevelIO.pack(_doc("Swap Me"))
+	var old_id := LevelIO.id_for(LevelIO.sha256(a))
+	_write(p, a)
+	t.check(DedicatedConfig.resolve_track("swap_me") == "", "rescan: a new file is unknown before a rescan")
+	con._command("rescan")
+	t.check(DedicatedConfig.resolve_track("swap_me") == old_id, "console rescan: the new file is found")
+	DirAccess.remove_absolute(p)
+	var p2 := dir + "/brand_new.hl2kt"
+	var bn := LevelIO.pack(_doc("Brand New"))
+	_write(p2, bn)
+	con._command("track brand_new")
+	t.check(str(Net.cfg.get("track")) == LevelIO.id_for(LevelIO.sha256(bn)), "console track: a file added while it runs (%s)" % Net.cfg.get("track"))
+	# swap_me back, raced, then replaced on disk
+	_write(p, a)
+	con._command("track swap_me")
+	t.check(str(Net.cfg.get("track")) == old_id and not Net.share.pkg.is_empty(), "console track: the file before the swap")
+	var d := _doc("Swap Me")
+	d.data["author"] = "Someone Else"
+	var b := LevelIO.pack(d)
+	var new_id := LevelIO.id_for(LevelIO.sha256(b))
+	if b.size() == a.size():
+		await t.get_tree().create_timer(1.1).timeout   # (the scan re-reads a file whose size or second changed)
+	_write(p, b)
+	t.check(new_id != old_id, "rescan: the replaced file has a new id")
+	Net.set_rule("track", old_id)
+	t.check(str(Net.cfg.get("track")) == new_id and str(Net.share.pkg.get("id", "")) == new_id and Net.cfg.get("custom") is Dictionary
+		and str(Net.cfg["custom"].get("sha", "")) == LevelIO.sha256(b), "track rule on a replaced file: followed to its new id (%s)" % Net.cfg.get("track"))
+	# the rotation follows the entry as written
+	var was_list := Net.share.tracklist
+	Net.share.tracklist = PackedStringArray(["Old Docks", "swap_me"])
+	Net.set_rule("track", ids["docks"])
+	var c := LevelIO.pack(_doc("Swap Me Again"))
+	if c.size() == b.size():
+		await t.get_tree().create_timer(1.1).timeout
+	_write(p, c)
+	t.check(Net.share.rotate_after_failure() and str(Net.cfg.get("track")) == LevelIO.id_for(LevelIO.sha256(c)),
+		"rotation: a list entry follows its file to the new id (%s)" % Net.cfg.get("track"))
+	await _wait_for(func() -> bool: return CustomTracks._prep.is_empty(), 30.0)
+	DirAccess.remove_absolute(p)
+	DirAccess.remove_absolute(p2)
+	con._command("rescan")
+	t.check(DedicatedConfig.resolve_track("swap_me") == "" and DedicatedConfig.resolve_track("brand_new") == "", "console rescan: removed files are gone")
+	Net.share.tracklist = was_list
+	Net.set_rule("track", ids["docks"])
 
 
 # ---------------------------------------------------------------- UI helpers
@@ -401,6 +472,10 @@ func _ui_helpers() -> void:
 	t.check(not ServerBrowser.have_track({"msha": "../../etc/passwd"}) and not ServerBrowser.have_track({"msha": ["x"]}), "browser: a hostile msha")
 	t.check(ServerBrowser.custom_line({"cu": 1, "map": "x", "msha": "zz", "mkb": [5]}).ends_with("1 KB download"), "browser: a hostile mkb")
 	t.check(ServerBrowser.custom_line({"cu": 1, "map": "x", "mkb": 1e12}).ends_with("16.0 MB download"), "browser: a huge mkb is capped")
+	# C2 N9: a track to download is orange, but never on the selected (orange) row
+	t.check(ServerBrowser.track_color(need, false) == UiKit.ORANGE and ServerBrowser.track_color(need, true) == UiKit.TEXT
+		and ServerBrowser.track_color(have, false) == UiKit.TEXT and ServerBrowser.track_color({"map": "Highway 17"}, false) == UiKit.TEXT,
+		"browser: the TRACK colour (orange only for a download, never on the selected row)")
 
 
 ## The host's lobby on a custom track (a listen server, UDP 27308): the track picked by id in the
@@ -423,6 +498,7 @@ func _lobby_host() -> void:
 	lobby._update_status()
 	t.check(not lobby.start_button.disabled and lobby.start_button.tooltip_text == "", "lobby host: START enabled once the host has it (%s)" % lobby.start_button.tooltip_text)
 	t.check(lobby._track_cells.has(1) and (lobby._track_cells[1] as Label).text.ends_with("OK"), "lobby host: the host's own row OK")
+	t.check(lobby.status_label.text == "Everyone is ready: press START RACE.", "lobby host: the host is not counted as waiting (%s)" % lobby.status_label.text)
 	lobby.free()
 	Net.leave()
 	for k in CustomTracks.memory_ids():
@@ -457,8 +533,10 @@ func _lobby_client() -> void:
 	sh._hist = [[0.0, 0], [3.0, 600000]]
 	lobby._on_cfg()
 	t.check(lobby.sub_label.text.begins_with("Canal Run  by Sasha  ·  CUSTOM  ·  3 laps"), "lobby: the custom sub line (%s)" % lobby.sub_label.text)
-	t.check(lobby.dl_row.visible and lobby.dl_label.text == "DOWNLOADING CANAL RUN  ·  1.4 MB  ·  42%  ·  5 s LEFT" and is_equal_approx(lobby.dl_bar.value, 0.42),
-		"lobby: the own download with size, percent and time left (%s)" % lobby.dl_label.text)
+	t.check(lobby.dl_row.visible and lobby.dl_label.text == "DOWNLOADING CANAL RUN  ·  1.4 MB" and lobby.dl_pct.visible
+		and lobby.dl_pct.text == "42%  ·  5 s LEFT" and is_equal_approx(lobby.dl_bar.value, 0.42)
+		and lobby.dl_label.tooltip_text == "DOWNLOADING CANAL RUN  ·  1.4 MB  ·  42%  ·  5 s LEFT",
+		"lobby: the own download with size, percent and time left (%s | %s)" % [lobby.dl_label.text, lobby.dl_pct.text])
 	var c9: Label = lobby._track_cells.get(9)
 	var c7: Label = lobby._track_cells.get(7)
 	t.check(c9 != null and c9.text == "NO TRACK" and c9.tooltip_text.contains("download stalled") and c7 != null and c7.text.ends_with("OK"),
@@ -470,7 +548,7 @@ func _lobby_client() -> void:
 	t.check(lobby._track_cells.get(9) == c9 and c9.text == "80%", "lobby: progress updates the cell in place")
 	sh._local["state"] = "prep"
 	lobby._show_local()
-	t.check(lobby.dl_row.visible and lobby.dl_label.text == "PREPARING TRACK...", "lobby: PREPARING TRACK...")
+	t.check(lobby.dl_row.visible and lobby.dl_label.text == "PREPARING TRACK..." and not lobby.dl_pct.visible, "lobby: PREPARING TRACK...")
 	sh._local["state"] = "fail"
 	sh._local["code"] = "stalled"
 	sh._local["why"] = TrackShare.TEXT_STALLED
@@ -481,6 +559,12 @@ func _lobby_client() -> void:
 	lobby._show_local()
 	lobby._show_local()
 	t.check(lobby.get_viewport().gui_get_focus_owner() == lobby.retry_button, "lobby: RETRY keeps the focus across refreshes")
+	# C2 N5: past the RETRY limit the reason says to ask the host and RETRY goes
+	sh._retries[str(shas["canal"])] = {"n": TrackShare.RETRY_MAX, "t": -INF, "code": "", "why": ""}
+	lobby._show_local()
+	t.check(lobby.dl_label.text == TrackShare.TEXT_RETRY_MAX % TrackShare.RETRY_MAX and not lobby.retry_button.visible,
+		"lobby: past the RETRY limit, no RETRY (%s)" % lobby.dl_label.text)
+	sh._retries.clear()
 	sh._local["code"] = "downloads off"
 	sh._local["why"] = TrackShare.TEXT_OFF
 	lobby._show_local()
@@ -563,6 +647,72 @@ func _lobby_layout() -> void:
 	lobby.free()
 	Net.players = was_players
 	root.size = was_size
+	await t.frames(2)
+
+
+## C2 N2 / N3 / N11 at a 1600 x 900 canvas, a full roster: the Track rule first and every rule
+## inside the RULES box (host and friend, the friend with the download row), its scroll bar wider
+## than 0 px, the friend's percent and time left never clipped, and the ping / READY / TRACK / KICK
+## cells in the same columns on every row (the host's own row has no KICK).
+func _lobby_rules() -> void:
+	var root: Window = t.get_tree().root
+	var was := {"size": root.size, "players": Net.players, "cfg": Net.cfg, "server": Net.is_server}
+	root.size = Vector2i(1280, 720)
+	await t.frames(2)
+	var ch: String = Game.CHARACTERS[0]["id"]
+	var vh: String = Game.VEHICLES[0]["id"]
+	var ps := {}
+	for i in 8:
+		ps[i + 1] = {"nick": "Player %d" % i, "character": ch, "vehicle": vh, "ready": i % 2 == 0, "ping": 999,
+			"host": i == 0, "track": ["ok", "get", "fail", "prep", "?", "need", "ok", "get"][i], "why": "stalled", "dl": 0.42, "missing": 0}
+	Net.players = ps
+	Net.cfg = {"name": "P11 rules", "track": ids["canal"], "laps": 3, "difficulty": 1, "bots": true, "grid": 8, "max_players": 8,
+		"custom": {"sha": shas["canal"], "size": 1468006, "name": "Canal Run", "author": "Sasha"}}
+	for host in [true, false]:
+		Net.is_server = host
+		var lobby := Lobby.new()
+		t.add_child(lobby)
+		lobby.set_process(false)
+		var who := "host" if host else "friend"
+		if not host:
+			lobby.dl_row.visible = true
+			lobby.dl_bar.visible = true
+			lobby.dl_pct.visible = true
+			lobby.dl_label.text = "DOWNLOADING A TRACK NAME THAT IS FORTY-EIGHT CHARACTERS LONG  ·  16.0 MB"
+			lobby.dl_pct.text = "42%  ·  120 s LEFT"
+		await t.frames(4)
+		var view := lobby.rscroll.get_global_rect()
+		var rows := lobby.rules_box.get_children()
+		t.check((rows[0].get_child(0) as Label).text == "Track", "lobby %s: the Track rule comes first" % who)
+		var out := []
+		for r in rows:
+			if not view.grow(0.5).encloses((r as Control).get_global_rect()):
+				out.append((r.get_child(0) as Label).text)
+		t.check(out.is_empty() and view.size.y > 100, "lobby %s: every rule inside the RULES box at 1600 x 900 (%s outside; box %d px)" % [who, out, int(view.size.y)])
+		t.check(lobby.rscroll.get_v_scroll_bar().get_combined_minimum_size().x >= 4, "lobby %s: the rules' scroll bar has a width" % who)
+		var xs := {}
+		for row in lobby.players_box.get_children():
+			if row is HBoxContainer:
+				var cells: Array = row.get_children()
+				for k in [3, 4, 5, 6]:
+					if k < cells.size():
+						if not xs.has(k):
+							xs[k] = {}
+						xs[k][int((cells[k] as Control).global_position.x)] = true
+		var cols := []
+		for k in xs:
+			cols.append((xs[k] as Dictionary).size())
+		t.check(xs.size() == (4 if host else 3) and cols.max() == 1, "lobby %s: ping / READY / TRACK%s in the same columns on every row (%s)" % [
+			who, " / KICK" if host else "", xs])
+		if not host:
+			var pr := lobby.dl_pct.get_global_rect()
+			t.check(lobby.dl_pct.size.x + 0.5 >= lobby.dl_pct.get_combined_minimum_size().x and lobby.dl_row.get_global_rect().grow(0.5).encloses(pr)
+				and absf(pr.end.x - lobby.dl_bar.get_global_rect().end.x) < 1.0, "lobby friend: the percent and time left whole, at the bar's end (%s)" % pr)
+		lobby.free()
+	Net.players = was["players"]
+	Net.cfg = was["cfg"]
+	Net.is_server = was["server"]
+	root.size = was["size"]
 	await t.frames(2)
 
 

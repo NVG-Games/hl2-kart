@@ -1,15 +1,16 @@
 class_name HelpOverlay
 extends Control
-## The help overlay (1.11; F1, the pad's Back, EDITOR MENU > HELP): full screen over a 0.85 dim,
+## The help overlay (1.11; F1, the pad's Back, EDITOR MENU > HELP): full screen over a 0.94 dim,
 ## KEYBOARD & MOUSE on the left (forced key style) and CONTROLLER on the right (the pad's style),
-## each a list of rows "icon(s) + words" drawn through EditorKit.prompt (combos expand into their
+## each column a grid of rows "icon(s) + words" (the words of a column share one left edge) drawn
+## through EditorKit.prompt (combos expand into their
 ## modifier keycaps + "+" + the key; mouse buttons are words), sections CAMERA, SELECT & MOVE,
 ## EDIT, ROAD & BRANCHES, TERRAIN & PAINT, OBJECTS, TEST DRIVE. Any key, a click, B or Back closes
 ## it (Start closes it and opens the EDITOR MENU); SHOW HINTS AGAIN brings every tool's card back.
 ## It ends with "Pipes and caves are not part of the editor." It sits in "editor_modal" while
 ## shown, so the pad stops flying the camera. P16.
 
-const DIM := 0.85
+const DIM := 0.94
 const FONT := 14
 const ICON_PX := 20.0
 const PROMPT_W := 200.0
@@ -45,7 +46,7 @@ const KEYS := [
 		["{ed_paste_here}", "PASTE IN PLACE"],
 		["{ed_duplicate}", "DUPLICATE"],
 		["{ed_delete}", "DELETE"],
-		["{ed_select_all}", "SELECT ALL OF THE TOOL'S"],
+		["{ed_select_all}", "SELECT ALL OF THE TOOL'S KIND"],
 		["{ed_save} / {ed_save_as}", "SAVE / SAVE AS"],
 		["{ed_validation}", "PROBLEMS (VALIDATION)"],
 		["{ed_cancel}", "CANCEL, DESELECT, EDITOR MENU"]]]],
@@ -204,9 +205,7 @@ func _build() -> void:
 	kcols.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	kb.add_child(kcols)
 	for col in KEYS:
-		var c := VBoxContainer.new()
-		c.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		c.add_theme_constant_override("separation", 2)
+		var c := _grid()
 		for sec in col:
 			_section(c, "keys", sec, InputPrompts.KEYBOARD)
 		kcols.add_child(c)
@@ -216,8 +215,10 @@ func _build() -> void:
 	pad.add_theme_constant_override("separation", 2)
 	pad.add_child(_heading("CONTROLLER"))
 	var pst := InputPrompts.pad_style()
+	var pg := _grid()
 	for sec in PAD:
-		_section(pad, "pad", sec, pst)
+		_section(pg, "pad", sec, pst)
+	pad.add_child(pg)
 	var note := UiKit.label(PAD_NOTE, FONT, UiKit.TEXT_DIM)
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	note.custom_minimum_size.x = PROMPT_W + WORDS_W - 60.0
@@ -251,26 +252,39 @@ func _heading(text: String) -> Label:
 	return l
 
 
-func _section(box: VBoxContainer, side: String, sec: Array, style_id: String) -> void:
+## A column of sections: [keys | words], the key column as wide as its widest prompt.
+func _grid() -> GridContainer:
+	var g := GridContainer.new()
+	g.columns = 2
+	g.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	g.add_theme_constant_override("h_separation", 10)
+	g.add_theme_constant_override("v_separation", 2)
+	return g
+
+
+func _section(grid: GridContainer, side: String, sec: Array, style_id: String) -> void:
 	var h := UiKit.label(str(sec[0]), FONT, Color.WHITE, true)
 	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	h.custom_minimum_size.y = 26
 	h.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
-	box.add_child(h)
+	grid.add_child(h)
+	var gap := Control.new()
+	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	grid.add_child(gap)
 	for r in sec[1]:
-		var row := HBoxContainer.new()
-		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		row.add_theme_constant_override("separation", 8)
 		var p := PromptLabel.new(EditorKit.prompt(str(r[0])), FONT, UiKit.TEXT)
 		p.add_theme_font_override("normal_font", UiKit.font(true))
 		p.style = style_id
 		p.icon_px = ICON_PX
-		p.custom_minimum_size.x = PROMPT_W
-		row.add_child(p)
+		p.autowrap_mode = TextServer.AUTOWRAP_OFF
+		p.fit_content = true
+		p.custom_minimum_size.x = PROMPT_W * 0.5
+		p.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		grid.add_child(p)
 		var w := UiKit.label(str(r[1]), FONT, UiKit.TEXT_DIM)
 		w.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		w.custom_minimum_size.x = WORDS_W if side == "pad" else WORDS_W - 70.0
 		w.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		row.add_child(w)
-		box.add_child(row)
+		w.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		grid.add_child(w)
 		rows.append({"side": side, "section": str(sec[0]), "prompt": p.prompt, "words": str(r[1])})

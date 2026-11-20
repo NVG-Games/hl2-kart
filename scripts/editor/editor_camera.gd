@@ -63,6 +63,7 @@ var _layer: CanvasLayer
 var _reticle: Control
 var _ghost: MeshInstance3D
 var _ghost_t := 0.0
+var _env_src: Environment       # the world's Environment that `environment` copies
 
 
 func _ready() -> void:
@@ -445,15 +446,35 @@ func _update_ghost() -> void:
 		_ghost = MeshInstance3D.new()
 		_ghost.name = "KartGhost"
 		_ghost.top_level = true
+		# a kart's size (1.8 x 1 x 3 m) with an arrow on its nose: which way FROM HERE faces (1.7)
 		var bm := BoxMesh.new()
-		bm.size = Vector3(1.4, 0.6, 2.2)
+		bm.size = Vector3(1.8, 1.0, 3.0)
 		_ghost.mesh = bm
 		var m := StandardMaterial3D.new()
 		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		m.albedo_color = Color(ORANGE, 0.5)
+		m.disable_fog = true
 		_ghost.material_override = m
 		_ghost.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var arrow := MeshInstance3D.new()
+		arrow.name = "Arrow"
+		var cone := CylinderMesh.new()
+		cone.top_radius = 0.0
+		cone.bottom_radius = 0.7
+		cone.height = 1.4
+		cone.radial_segments = 4
+		cone.rings = 1
+		arrow.mesh = cone
+		var am := StandardMaterial3D.new()
+		am.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		am.albedo_color = ORANGE
+		am.disable_fog = true
+		arrow.material_override = am
+		arrow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		# the cone's tip along -z (the ghost's forward), on the nose
+		arrow.transform = Transform3D(Basis(Vector3.RIGHT, -PI * 0.5), Vector3(0, 0.75, -2.1))
+		_ghost.add_child(arrow)
 		add_child(_ghost)
 	if not h.hit:
 		_ghost.visible = false
@@ -536,6 +557,27 @@ func toggle_top(pivot: Vector3) -> void:
 	size = clampf(view_h, TOP_SIZE_MIN, TOP_SIZE_MAX)
 	global_transform = Transform3D(Basis.looking_at(Vector3.DOWN, f.normalized()), Vector3(p.x, maxf(p.y + 500.0, TOP_HEIGHT), p.z))
 	top = true
+
+
+## The editor's own copy of the world's Environment: the race's depth fog pushed past what is
+## being edited (reach: metres from the camera to the far side of the track) and none in the top
+## view, so the road, the ground and the overlays stay apart; as_race keeps the world's own fog in
+## perspective (the WORLD tool). Copied again when the world's changes (the WORLD tool); with no
+## world environment the camera has none either.
+func sync_env(src: Environment, reach: float, as_race := false) -> void:
+	if src == null:
+		if environment != null:
+			environment = null
+		_env_src = null
+		return
+	if src != _env_src or environment == null:
+		_env_src = src
+		environment = src.duplicate()
+	var e := environment
+	e.fog_enabled = src.fog_enabled and not top
+	if e.fog_enabled:
+		e.fog_depth_begin = src.fog_depth_begin if as_race else maxf(src.fog_depth_begin, reach + 200.0)
+		e.fog_depth_end = src.fog_depth_end if as_race else maxf(src.fog_depth_end, reach + 1500.0)
 
 
 ## The perspective transform (the top view's way back).

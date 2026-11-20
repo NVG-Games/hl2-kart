@@ -688,6 +688,14 @@ func _content_case(t: Node) -> void:
 			t.check(int(counts.get(c, 0)) == int(PROBE[c]), "content: %s %d (probe %d)" % [c, int(counts.get(c, 0)), PROBE[c]])
 		t.check(int(counts.get("OTHER", 0)) == 0, "content: nothing falls in OTHER")
 		t.check(PropCatalog.count_where("physics_ok") == 105, "content: physics_ok has 105 models (%d)" % PropCatalog.count_where("physics_ok"))
+		var light := 0
+		var differ := []
+		for k in Game.models:
+			var ok := LevelCompiler._light_enough(Game.models[k], 1.0)
+			light += 1 if ok else 0
+			if ok != PropCatalog.physics_ok(k) and differ.size() < 4:
+				differ.append(k)
+		t.check(light == 105 and differ.is_empty(), "content: the compiler knocks over the catalog's 105 PHYSICS models (%d; differ %s)" % [light, str(differ)])
 		t.check(PropCatalog.count_where("big") == 36 and PropCatalog.count_where("skinned") == 138,
 			"content: 36 big, 138 skinned (%d, %d)" % [PropCatalog.count_where("big"), PropCatalog.count_where("skinned")])
 	else:
@@ -718,3 +726,27 @@ func _content_case(t: Node) -> void:
 	t.check(not b2.data.props.is_empty() and b2.data.props.all(func(p): return Game.models.has(str(p.model))) and b2.report.missing.models == 0,
 		"content: AUTO DRESS scenery uses real models (%d props)" % b2.data.props.size())
 	t.check(codes(b2, "prop_on_road").is_empty(), "content: no scenery on a road")
+	_themes_content(t, reg)
+
+
+## L4: every template and every theme compiles with nothing missing on this install: a theme's
+## terrain layer that has a texture but no materials.json entry (coast's sand, white forest's
+## grass, Xen's ground) is that texture, not a "not on this computer" warning and the default
+## grass.
+func _themes_content(t: Node, reg: Dictionary) -> void:
+	for id in LevelTemplates.IDS:
+		var td := LevelTemplates.make(id, LevelTemplates.title(id))
+		var tb := LevelCompiler.compile(td, {"registries": reg, "chunks": false})
+		t.check(tb.report.missing_total() == 0 and not tb.report.has("missing"),
+			"content: template %s has nothing missing (%s)" % [id, str(tb.report.missing)])
+	for th in LevelThemes.IDS:
+		var d := oval_doc()
+		d.apply(LevelThemes.ops(d, th))
+		var layers: Dictionary = d.data.terrain.get("layers", {})
+		var b := LevelCompiler.compile(d, {"registries": reg, "chunks": false})
+		var tl: Dictionary = b.data.get("terrain_layers", {})
+		var files := true
+		for k in tl:
+			files = files and ResourceLoader.exists("res://assets/" + str(tl[k]))
+		t.check(b.report.missing.materials == 0 and tl.size() == layers.size() and files,
+			"content: theme %s: its %d terrain layers all resolve to textures (%s)" % [th, layers.size(), str(tl)])

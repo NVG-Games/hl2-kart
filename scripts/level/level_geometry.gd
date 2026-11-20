@@ -202,7 +202,10 @@ static func _wanted(m: LevelRoad, i: int, want: Dictionary) -> bool:
 # ---------------------------------------------------------------- the surface and dashes
 
 static func _surfaces(ctx: LevelContext, m: LevelRoad, si: int, st: Dictionary, want: Dictionary, rk: int) -> void:
+	var offroad := m.grip.has(1)
 	for gr in [0, 1]:
+		if gr == 1 and not offroad:
+			continue
 		var pred := func(i: int) -> bool: return m.style[i] == si and m.grip[i] == gr and m.skip[i] == 0
 		var masked := func(i: int) -> bool: return m.skip[i] == 1
 		for run: PackedInt32Array in _runs(m, pred, false, masked):
@@ -216,44 +219,67 @@ static func _surface(ctx: LevelContext, m: LevelRoad, ids: PackedInt32Array, gro
 	var full := str(st.get("road_u", "rep")) == "full"
 	var rep := maxf(float(st.get("road_rep", 6.0)), 0.1)
 	var v := _vs(m, ids, rep, full)
+	var cnt := ids.size()
 	var A := PackedVector3Array()
+	A.resize(cnt)
 	var B := PackedVector3Array()
+	B.resize(cnt)
 	var ua := PackedFloat32Array()
+	ua.resize(cnt)
 	var ub := PackedFloat32Array()
+	ub.resize(cnt)
 	var vv := PackedFloat32Array()
+	vv.resize(cnt)
 	var nn := PackedVector3Array()
-	for q in ids.size():
+	nn.resize(cnt)
+	var pos := m.pos
+	var right := m.right
+	var up := m.up
+	var width := m.width
+	var clip_in := m.clip_in
+	var clip_side := m.clip_side
+	var w := 0  # samples in the strip being filled
+	for q in cnt:
 		var i := ids[q]
-		var hw := m.width[i] * 0.5
+		var hw := width[i] * 0.5
 		var lo := -hw
 		var hi := hw
-		var c := m.clip_in[i]
+		var c := clip_in[i]
 		if not is_nan(c):
-			if m.clip_side[i] == 1:
+			if clip_side[i] == 1:
 				hi = minf(hi, c)
 			else:
 				lo = maxf(lo, c)
 		if hi - lo < 0.2:
 			# hidden under the main road: flush what came before
-			_flush_strip(ctx, kind, mat, A, B, ua, ub, vv, nn, rk, group)
-			A = PackedVector3Array()
-			B = PackedVector3Array()
-			ua = PackedFloat32Array()
-			ub = PackedFloat32Array()
-			vv = PackedFloat32Array()
-			nn = PackedVector3Array()
+			_flush_part(ctx, kind, mat, A, B, ua, ub, vv, nn, w, rk, group)
+			w = 0
 			continue
-		A.append(m.surface(i, lo))
-		B.append(m.surface(i, hi))
+		var p := pos[i]
+		var r := right[i]
+		A[w] = p + r * lo
+		B[w] = p + r * hi
 		if full:
-			ua.append((lo + hw) / maxf(2.0 * hw, 0.01))
-			ub.append((hi + hw) / maxf(2.0 * hw, 0.01))
+			ua[w] = (lo + hw) / maxf(2.0 * hw, 0.01)
+			ub[w] = (hi + hw) / maxf(2.0 * hw, 0.01)
 		else:
-			ua.append(lo / rep)
-			ub.append(hi / rep)
-		vv.append(v[q])
-		nn.append(m.up[i])
-	_flush_strip(ctx, kind, mat, A, B, ua, ub, vv, nn, rk, group)
+			ua[w] = lo / rep
+			ub[w] = hi / rep
+		vv[w] = v[q]
+		nn[w] = up[i]
+		w += 1
+	_flush_part(ctx, kind, mat, A, B, ua, ub, vv, nn, w, rk, group)
+
+
+## _flush_strip of the first `w` samples of preallocated arrays.
+static func _flush_part(ctx: LevelContext, kind: String, mat: String, A: PackedVector3Array, B: PackedVector3Array, ua: PackedFloat32Array, ub: PackedFloat32Array, v: PackedFloat32Array, nn: PackedVector3Array, w: int, rk: int, group: String) -> void:
+	if w < 2:
+		return
+	if w == A.size():
+		ctx.meshes.strip(kind, mat, A, B, ua, ub, v, nn, nn, rk, group)
+		return
+	var n2 := nn.slice(0, w)
+	ctx.meshes.strip(kind, mat, A.slice(0, w), B.slice(0, w), ua.slice(0, w), ub.slice(0, w), v.slice(0, w), n2, n2, rk, group)
 
 
 static func _flush_strip(ctx: LevelContext, kind: String, mat: String, A: PackedVector3Array, B: PackedVector3Array, ua: PackedFloat32Array, ub: PackedFloat32Array, v: PackedFloat32Array, nn: PackedVector3Array, rk: int, group: String) -> void:
@@ -393,25 +419,45 @@ static func _open(ctx: LevelContext, m: LevelRoad, ids: PackedInt32Array, st: Di
 	var drop := float(st.get("verge_drop", 0.27))
 	var mat := str(st.get("verge", LevelStyles.FALLBACK_MAT))
 	var v := _vs(m, ids, 4.0)
+	var cnt := ids.size()
 	var E := PackedVector3Array()
+	E.resize(cnt)
 	var O := PackedVector3Array()
+	O.resize(cnt)
 	var ua := PackedFloat32Array()
+	ua.resize(cnt)
 	var ub := PackedFloat32Array()
+	ub.resize(cnt)
 	var nn := PackedVector3Array()
+	nn.resize(cnt)
 	var col := 1 if sgn > 0 else 0
-	for q in ids.size():
+	var pos := m.pos
+	var right := m.right
+	var flat := m.flat_right
+	var fwd := m.fwd
+	var up := m.up
+	var width := m.width
+	# the inside-bend squeeze (_k_in_fast), the reach looked up again only when the width changes
+	var last_tw := NAN
+	var rr := PackedFloat32Array()
+	for q in cnt:
 		var i := ids[q]
-		var ki := _k_in_fast(m, i, col, sgn)
-		var e := m.surface(i, sgn * m.width[i] * 0.5)
-		var o := e + m.flat_right[i] * (sgn * vw * ki) - UP * (drop + absf(m.right[i].y) * 1.5)
-		E.append(e)
-		O.append(o)
-		ua.append(0.0)
-		ub.append(vw * ki / 4.0)
-		var nrm := (o - e).cross(m.fwd[i])
+		var tw := maxf(m.treatment(i, col), 0.01)
+		if tw != last_tw:
+			rr = m.reach(sgn, tw)
+			last_tw = tw
+		var reach := rr[i]
+		var ki := 1.0 if reach >= tw else clampf(reach / tw, 0.0, 1.0)
+		var ri := right[i]
+		var e := pos[i] + ri * (sgn * width[i] * 0.5)
+		var o := e + flat[i] * (sgn * vw * ki) - UP * (drop + absf(ri.y) * 1.5)
+		E[q] = e
+		O[q] = o
+		ub[q] = vw * ki / 4.0
+		var nrm := (o - e).cross(fwd[i])
 		if nrm.y < 0.0:
 			nrm = -nrm
-		nn.append(nrm.normalized() if nrm.length_squared() > 1e-12 else m.up[i])
+		nn[q] = nrm.normalized() if nrm.length_squared() > 1e-12 else up[i]
 	ctx.meshes.strip("verge", mat, E, O, ua, ub, v, nn, nn, rk, group)
 
 
@@ -421,40 +467,57 @@ static func _street(ctx: LevelContext, m: LevelRoad, ids: PackedInt32Array, st: 
 	var curb_h := float(st.get("curb_h", 0.16))
 	var v3 := _vs(m, ids, 3.0)
 	var v4 := _vs(m, ids, 4.0)
+	var cnt := ids.size()
 	var e0 := PackedVector3Array()
+	e0.resize(cnt)
 	var e1 := PackedVector3Array()
+	e1.resize(cnt)
 	var e2 := PackedVector3Array()
+	e2.resize(cnt)
 	var e3 := PackedVector3Array()
+	e3.resize(cnt)
 	var e4 := PackedVector3Array()
+	e4.resize(cnt)
 	var inn := PackedVector3Array()
+	inn.resize(cnt)
 	var out := PackedVector3Array()
+	out.resize(cnt)
 	var upn := PackedVector3Array()
+	upn.resize(cnt)
+	upn.fill(UP)
 	var z := PackedFloat32Array()
+	z.resize(cnt)
 	var u06 := PackedFloat32Array()
+	u06.resize(cnt)
+	u06.fill(0.06)
 	var u12 := PackedFloat32Array()
+	u12.resize(cnt)
+	u12.fill(0.12)
 	var uw := PackedFloat32Array()
+	uw.resize(cnt)
 	var u1 := PackedFloat32Array()
-	for q in ids.size():
+	u1.resize(cnt)
+	u1.fill(0.25)
+	var pos := m.pos
+	var right := m.right
+	var flat := m.flat_right
+	var width := m.width
+	for q in cnt:
 		var i := ids[q]
-		var rf := m.flat_right[i] * sgn
-		var a := m.surface(i, sgn * m.width[i] * 0.5)
+		var rf := flat[i] * sgn
+		var a := pos[i] + right[i] * (sgn * width[i] * 0.5)
 		var b := a + UP * curb_h
 		var c := b + rf * 0.3
 		var wk := _walk(m, i, st, sgn)
 		var d := c + rf * wk
-		e0.append(a)
-		e1.append(b)
-		e2.append(c)
-		e3.append(d)
-		e4.append(d - UP * 1.0)
-		inn.append(-rf)
-		out.append(rf)
-		upn.append(UP)
-		z.append(0.0)
-		u06.append(0.06)
-		u12.append(0.12)
-		uw.append(wk / 4.0)
-		u1.append(0.25)
+		e0[q] = a
+		e1[q] = b
+		e2[q] = c
+		e3[q] = d
+		e4[q] = d - UP * 1.0
+		inn[q] = -rf
+		out[q] = rf
+		uw[q] = wk / 4.0
 	ctx.meshes.strip("side", curb, e0, e1, z, u06, v3, inn, inn, rk, group)
 	ctx.meshes.strip("road", curb, e1, e2, u06, u12, v3, upn, upn, rk, group)
 	ctx.meshes.strip("road", walk_mat, e2, e3, z, uw, v4, upn, upn, rk, group)
@@ -465,19 +528,28 @@ static func _skirt(ctx: LevelContext, m: LevelRoad, ids: PackedInt32Array, st: D
 	var mat := str(st.get("skirt", LevelStyles.FALLBACK_MAT))
 	var sh := float(st.get("skirt_h", 1.5))
 	var v := _vs(m, ids, 4.0)
+	var cnt := ids.size()
 	var E := PackedVector3Array()
+	E.resize(cnt)
 	var L := PackedVector3Array()
+	L.resize(cnt)
 	var nn := PackedVector3Array()
+	nn.resize(cnt)
 	var ua := PackedFloat32Array()
+	ua.resize(cnt)
 	var ub := PackedFloat32Array()
-	for q in ids.size():
+	ub.resize(cnt)
+	ub.fill(sh / 4.0)
+	var pos := m.pos
+	var right := m.right
+	var flat := m.flat_right
+	var width := m.width
+	for q in cnt:
 		var i := ids[q]
-		var e := m.surface(i, sgn * m.width[i] * 0.5)
-		E.append(e)
-		L.append(e - UP * sh)
-		nn.append(m.flat_right[i] * sgn)
-		ua.append(0.0)
-		ub.append(sh / 4.0)
+		var e := pos[i] + right[i] * (sgn * width[i] * 0.5)
+		E[q] = e
+		L[q] = e - UP * sh
+		nn[q] = flat[i] * sgn
 	ctx.meshes.strip("side", mat, E, L, ua, ub, v, nn, nn, rk, group)
 
 
@@ -602,7 +674,7 @@ static func _tunnel(ctx: LevelContext, m: LevelRoad, si: int, st: Dictionary, wa
 			for q in ids.size():
 				var i := ids[q]
 				var hw := m.width[i] * 0.5 + wg
-				var hgt := maxf(m.height[i], 2.0)
+				var hgt := _roof(m, ids, q, si)
 				var l := m.pos[i] - m.flat_right[i] * hw
 				var r := m.pos[i] + m.flat_right[i] * hw
 				WL.append(l)
@@ -658,7 +730,7 @@ static func _tunnel(ctx: LevelContext, m: LevelRoad, si: int, st: Dictionary, wa
 				continue
 			if not _wanted(m, i, want):
 				continue
-			_portal(ctx, m, i, wg, wall, end, rk)
+			_portal(ctx, m, i, wg, wall, end, rk, _roof(m, run, 0 if end == 0 else run.size() - 1, si))
 
 
 static func _tunnel_floor(ctx: LevelContext, m: LevelRoad, ids: PackedInt32Array, v: PackedFloat32Array, wg: float, sgn: int, mat: String, rk: int, group: String) -> void:
@@ -709,10 +781,20 @@ static func _light(ctx: LevelContext, m: LevelRoad, i: int, st: Dictionary, mat:
 		"color": color, "range": maxf(12.0, m.width[i] + 2.0 * wg), "energy": float(st.get("light_energy", 1.6))})
 
 
-## A 1.5 m frame face round a tunnel opening (walls kind): both jambs and the lintel.
-static func _portal(ctx: LevelContext, m: LevelRoad, i: int, wg: float, mat: String, end: int, rk: int) -> void:
+## The ceiling height over ids[q] in a tunnel run of style si: the sample's own, or for the open
+## sample a run carries at its end (height 0) the tunnel sample's before it, so the exit keeps
+## the tunnel's roof instead of dropping to 2 m. At least 2 m.
+static func _roof(m: LevelRoad, ids: PackedInt32Array, q: int, si: int) -> float:
+	var i := ids[q]
+	if m.style[i] != si and q > 0:
+		i = ids[q - 1]
+	return maxf(m.height[i], 2.0)
+
+
+## A 1.5 m frame face round a tunnel opening (walls kind): both jambs and the lintel, hgt over the
+## road (the tunnel's roof).
+static func _portal(ctx: LevelContext, m: LevelRoad, i: int, wg: float, mat: String, end: int, rk: int, hgt: float) -> void:
 	var hw := m.width[i] * 0.5 + wg
-	var hgt := maxf(m.height[i], 2.0)
 	var rf := m.flat_right[i]
 	var f := Vector3(m.fwd[i].x, 0.0, m.fwd[i].z)
 	f = f.normalized() if f.length_squared() > 1e-12 else Vector3(0, 0, 1)

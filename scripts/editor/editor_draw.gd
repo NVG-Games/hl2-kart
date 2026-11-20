@@ -36,6 +36,7 @@ func _init() -> void:
 		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		m.cull_mode = BaseMaterial3D.CULL_DISABLED
 		m.no_depth_test = top
+		m.disable_fog = true   # the race's depth fog never washes out the overlay
 		m.render_priority = 10 if top else 1
 		_mats.append(m)
 
@@ -121,7 +122,8 @@ func box(aabb: AABB, color: Color) -> void:
 
 ## A translucent strip on the banked road from s0 to s1 metres and lat0 to lat1 across (zones, the
 ## hovered segment, legal spots); wraps round a closed road when s1 < s0.
-func strip_on_road(r: LevelRoad, s0: float, s1: float, lat0: float, lat1: float, color: Color) -> void:
+## ground: the strip's corners never sink below it (a crowd's area off the road on hills).
+func strip_on_road(r: LevelRoad, s0: float, s1: float, lat0: float, lat1: float, color: Color, ground: LevelTerrain = null) -> void:
 	if r == null or r.n < 2:
 		return
 	var i0 := r.idx(s0)
@@ -137,7 +139,7 @@ func strip_on_road(r: LevelRoad, s0: float, s1: float, lat0: float, lat1: float,
 		var b := r.wrap(i0 + k + 1)
 		if b == a:
 			break
-		_quad_on(r, a, b, lat0, lat1, color)
+		_quad_on(r, a, b, lat0, lat1, color, ground)
 		k += 1
 
 
@@ -225,12 +227,25 @@ func _seg(a: Vector3, b: Vector3, ca: Color, cb: Color, on_top: bool) -> void:
 
 
 ## Two depth-tested triangles between samples a and b from lat0 to lat1, LIFT over the surface.
-func _quad_on(r: LevelRoad, a: int, b: int, lat0: float, lat1: float, col: Color) -> void:
+func _quad_on(r: LevelRoad, a: int, b: int, lat0: float, lat1: float, col: Color, ground: LevelTerrain = null) -> void:
 	var p0 := r.surface(a, lat0, LIFT)
 	var p1 := r.surface(a, lat1, LIFT)
 	var q0 := r.surface(b, lat0, LIFT)
 	var q1 := r.surface(b, lat1, LIFT)
+	if ground != null:
+		p0 = _on_ground(ground, p0)
+		p1 = _on_ground(ground, p1)
+		q0 = _on_ground(ground, q0)
+		q1 = _on_ground(ground, q1)
 	for p in [p0, p1, q1, p0, q1, q0]:
 		_tv0.append(p)
 		_tc0.append(col)
 	_dirty = true
+
+
+## p lifted to the ground plus LIFT where the ground is higher.
+static func _on_ground(t: LevelTerrain, p: Vector3) -> Vector3:
+	var h := t.height_at(p.x, p.z)
+	if not is_nan(h) and h + LIFT > p.y:
+		p.y = h + LIFT
+	return p

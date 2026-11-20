@@ -10,7 +10,8 @@ class_name LevelCompiler
 ## (with ctx.pits); pits + safe_drop; racing lines; geometry (roads, start line, gores, hazard
 ## setups) and the terrain chunks; gameplay data; branch export; hazards resolve (setup-less ones
 ## left out); crowds; validation; legal-spot flags (opts.flags); the build. An open main road (or a
-## road still being drawn) gets its carve and meshes for the editor and nothing to race on.
+## road still being drawn) gets its carve and meshes for the editor and nothing to race on; a road
+## over 25 km gets only lap_long (no road, carve or meshes: 6.9's bound on a received track).
 ##
 ## opts: id (String), registries (Dictionary), flags (bool), chunks (bool, default true: the
 ## terrain's render chunks are made here, on the worker), hooks ({branches, hazards, crowds}: the
@@ -27,8 +28,12 @@ const PAD_UP := 0.06
 const PAD_HALF_W := 2.25
 const BARREL_MODEL := "props_c17/oildrum001_explosive"
 const BARREL_UP := 0.6
+## A road whose length (LevelRoad.length_bounds) is over LAP_MAX x this gets no build at all
+## (a blocking lap_long, 6.9); a lap up to it is built (and lap_long past LAP_MAX).
+const LONG_SLACK := 1.25
+## A PHYSICS prop (PropCatalog.PHYS_MASS / PHYS_SIZE): kg at most, the AABB's largest side under.
 const PHYS_MASS := 60.0
-const PHYS_DIAG := 3.0
+const PHYS_SIZE := 3.0
 const KILL_BELOW := 40.0
 const BG_ABOVE := 40.0
 const DEFAULT_SKY := "sky_day01_01"
@@ -70,7 +75,13 @@ static func compile(doc: LevelDoc, opts := {}) -> LevelBuild:
 	var pts: Array = road.get("points", []) if road.get("points") is Array else []
 	var closed := bool(road.get("closed", false)) and pts.size() >= 3
 	var drivable := false
-	if pts.size() >= 2:
+	# a road far over the lap cap is refused before it is sampled: a few KB of points can make a
+	# lap of hundreds of km, minutes and GBs on every client (6.9); nothing is built for it
+	var lb := LevelRoad.length_bounds(pts, closed)
+	if lb.x > LevelValidate.LAP_MAX * LONG_SLACK or lb.y > LevelValidate.LAP_MAX * LevelRoad.LONG_BOUND:
+		LevelValidate.issue(b.report, "lap_long", {"km": maxi(roundi(lb.x / 1000.0), 21)},
+			{"road": -1, "s": 0.0, "pos": _first_pos(pts), "blocks": true})
+	elif pts.size() >= 2:
 		var zones := []
 		if closed:
 			zones.append({"a": road.get("start", {}), "before": GRID_BEFORE, "after": GRID_AFTER})
@@ -481,16 +492,18 @@ static func _props(ctx: LevelContext) -> void:
 	ctx.set_meta("props_src", src)
 
 
+## PropCatalog.physics_ok's rule at the prop's scale: a "props" model of at most PHYS_MASS kg
+## whose AABB's largest side is under PHYS_SIZE.
 static func _light_enough(info: Variant, sc: float) -> bool:
-	if not (info is Dictionary):
+	if not (info is Dictionary) or str(info.get("kind", "props")) != "props":
 		return false
 	var mass := float(info.get("mass", 1e9))
 	var a = info.get("aabb_min")
 	var z = info.get("aabb_max")
 	if not (a is Array and z is Array) or (a as Array).size() < 3 or (z as Array).size() < 3:
 		return false
-	var diag := (_v3(z) - _v3(a)).length() * sc
-	return mass <= PHYS_MASS and diag < PHYS_DIAG
+	var e := (_v3(z) - _v3(a)).abs()
+	return mass <= PHYS_MASS and maxf(e.x, maxf(e.y, e.z)) * sc < PHYS_SIZE
 
 
 ## Lights (tunnel lights first, then the doc's, 128 in all), fires, screens (combine arch only),
@@ -557,7 +570,8 @@ static func _water(ctx: LevelContext) -> void:
 
 
 ## sky (a key this install has, else sky_day01_01 and counted), env (the set keys; sun {az, el}
-## -> sun_dir), terrain_layers (material keys -> albedo paths).
+## -> sun_dir), terrain_layers (material keys -> albedo paths: the material's, else the texture at
+## materials/<key>.png when this install has it, else left out and counted).
 static func _env(ctx: LevelContext) -> void:
 	var e = ctx.doc.data.get("env", {})
 	if not (e is Dictionary):
@@ -590,6 +604,9 @@ static func _env(ctx: LevelContext) -> void:
 				tl[k] = "materials/%s.png" % key
 			elif mats.get(key) is Dictionary and str(mats[key].get("albedo", "")) != "":
 				tl[k] = str(mats[key].albedo)
+			elif ResourceLoader.exists("res://assets/materials/%s.png" % key):
+				# a texture the circuits use with no VMT entry (their sand, forest grass, Xen ground)
+				tl[k] = "materials/%s.png" % key
 			else:
 				ctx.report.add_missing("materials")
 		ctx.data["terrain_layers"] = tl
@@ -826,6 +843,13 @@ static func _game() -> Node:
 	if ml is SceneTree:
 		return (ml as SceneTree).root.get_node_or_null("Game")
 	return null
+
+
+static func _first_pos(pts: Array) -> Vector3:
+	for p in pts:
+		if p is Dictionary:
+			return _v3(p.get("pos"))
+	return Vector3.ZERO
 
 
 static func _v3(v: Variant) -> Vector3:

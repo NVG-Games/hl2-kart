@@ -506,6 +506,22 @@ func _hostile_doc() -> void:
 				bad = true
 	t.check(not bad and cn.name.length() <= 48 and cn.short.length() <= 16 and cn.author.length() == 24 and cn.desc.length() == 280
 		and cn.name.begins_with("bboost") and (sn[1] as LevelReport).has("bad_text"), "5000-char names: cut, control chars and [ ] { } stripped (bad_text)")
+	# L7: the invisible format characters a name can spoof another with (bidi overrides and isolates,
+	# zero-width, soft hyphen) are stripped from names and authors; ordinary letters stay
+	var spoof := [0x00AD, 0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0x202A, 0x202B, 0x202C, 0x202D, 0x202E,
+		0x2060, 0x2066, 0x2067, 0x2068, 0x2069]
+	var kept := []
+	for cp in spoof:
+		var sp := "Alyx" + String.chr(cp) + "Vance"
+		if LevelDoc.clean_text(sp, 48) != "AlyxVance":
+			kept.append("U+%04X" % cp)
+	var bidi := _flat()
+	bidi.name = "MY " + String.chr(0x202E) + "KCART"
+	bidi.author = String.chr(0x2066) + "Gordon" + String.chr(0x200B) + String.chr(0x2069)
+	var sb := _san(bidi)
+	t.check(kept.is_empty() and sb[0].name == "MY KCART" and sb[0].author == "Gordon"
+		and LevelDoc.clean_text("Ünïcødé ñame – ok", 48) == "Ünïcødé ñame – ok",
+		"bidi overrides, isolates, zero-width and soft hyphens are stripped (kept: %s; %s / %s)" % [str(kept), sb[0].name, sb[0].author])
 	# positions outside the world, far props, float without a sea, the world itself
 	var pos := _flat()
 	pos.world = {"size": 1000.0, "res": 7, "terrain": false}

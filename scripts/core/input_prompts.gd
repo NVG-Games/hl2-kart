@@ -674,7 +674,8 @@ func _pad_style_or(style_id: String) -> String:
 	return style_id if style_id in PAD_STYLES else pad_style()
 
 
-## An icon by its Kenney file name (stem), `px` high, cached; null when there is no such file.
+## An icon by its Kenney file name (stem), `px` high, cached; null when there is no such file. A
+## keyboard key loses Kenney's margin (key_svg): its key is as high as a keycap's beside it.
 func icon(stem: String, px := 32.0) -> Texture2D:
 	if stem == "":
 		return null
@@ -684,11 +685,33 @@ func icon(stem: String, px := 32.0) -> Texture2D:
 	var tex: Texture2D = null
 	var path := icon_path(stem)
 	if path != "" and FileAccess.file_exists(path):
-		var src := FileAccess.get_file_as_string(path)
+		var src := FileAccess.get_file_as_string(path).replace(KENNEY_RED, ACCENT)
+		var h := 64.0
+		if stem.begins_with("keyboard_"):
+			var gb := glyph_box(stem)
+			var cropped := key_svg(src, gb)
+			if cropped != "":
+				src = cropped
+				h = gb.size.y * 64.0 / KeycapTexture.KEY_SHARE
 		if src != "":
-			tex = DPITexture.create_from_string(src.replace(KENNEY_RED, ACCENT), maxf(px, 4.0) / 64.0)
+			tex = DPITexture.create_from_string(src, maxf(px, 4.0) / h)
 	_icons[key] = tex
 	return tex
+
+
+## A Kenney key's SVG cropped to the key (`box`: glyph_box, shares of the 64 px canvas) with a
+## margin above and below, so the key fills KeycapTexture.KEY_SHARE of the icon's height like a
+## keycap does (Kenney's keys fill 48 of 64: a W beside a SHIFT keycap read 87 % as high, its letter
+## too small). "" when the file is not a plain 64 x 64 canvas.
+static func key_svg(src: String, box: Rect2) -> String:
+	const HEAD := "<svg width=\"64\" height=\"64\""
+	if not src.contains(HEAD) or src.contains("viewBox") or not box.has_area() or box.size.y >= 1.0:
+		return ""
+	var used := Rect2(box.position * 64.0, box.size * 64.0)
+	var vh := used.size.y / KeycapTexture.KEY_SHARE
+	var vy := used.position.y - (vh - used.size.y) * 0.5
+	return src.replace(HEAD, "<svg width=\"%s\" height=\"%s\" viewBox=\"%s %s %s %s\"" % [used.size.x, vh, used.position.x, vy,
+		used.size.x, vh])
 
 
 ## The opaque part of an icon as a share of its 64x64 canvas (Kenney leaves a margin, more on the

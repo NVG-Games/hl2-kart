@@ -35,6 +35,7 @@ func run(t: Node) -> void:
 	_texts(t)
 	_blocking(t)
 	_road_rules(t)
+	_long_rules(t)
 	_grid_rules(t)
 	_height_rules(t)
 	_water_rules(t)
@@ -66,7 +67,7 @@ func _no_spec(s: String) -> bool:
 
 
 ## The build reports `code` with a complete text, its level and its fix id; blocks_drive is set
-## exactly when a blocking code is in the report.
+## exactly when a blocking code (or an error marked blocks: a lap too long to build) is in the report.
 func _fires(t: Node, b: LevelBuild, code: String, what: String) -> Dictionary:
 	var it := b.report.first(code)
 	t.check(not it.is_empty(), "%s: %s fires (%s)" % [what, code, str(_codes(b))])
@@ -80,7 +81,9 @@ func _fires(t: Node, b: LevelBuild, code: String, what: String) -> Dictionary:
 	var blocking := false
 	for c in LevelReport.BLOCKING:
 		blocking = blocking or b.report.has(c)
-	t.check((b.report.blocks_drive() != "") == blocking, "%s: blocks_drive only for no_road / open_loop / compile" % what)
+	for x in b.report.items:
+		blocking = blocking or (x.level == "error" and bool(x.get("blocks", false)))
+	t.check((b.report.blocks_drive() != "") == blocking, "%s: blocks_drive only for no_road / open_loop / compile / a lap too long to build" % what)
 	return it
 
 
@@ -118,6 +121,12 @@ func _texts(t: Node) -> void:
 	t.check(LevelValidate.text("steep", {"pct": 52.4, "m": 300}) == "The road climbs 52 % 300 m after the start: 45 % is the most a kart can drive.",
 		"steep's text with its numbers")
 	t.check(LevelValidate.text("nope", {}) == "", "an unknown code has no text")
+	t.check(LevelValidate.text("missing", {"count": 1}) == "1 object, material or song is not on this computer; it is left out here."
+		and LevelValidate.text("missing", {"count": 2}).begins_with("2 objects, materials or songs are"), "missing: singular for 1, plural for 2")
+	for code in LevelValidate.TEXTS_ONE:
+		var one := LevelValidate.text(code, {"count": 1})
+		t.check(one.begins_with("1 ") and _no_spec(one) and not one.contains(" are ") and one != LevelValidate.text(code, {"count": 3}),
+			"%s: its singular (%s)" % [code, one])
 	t.check(LevelValidate.text("over_cap", {}).begins_with("Too many : 0 of 0"), "missing args fill as empty / 0")
 	var p := LevelValidate.plain(LevelValidate.TEXTS.no_road)
 	t.check(not p.contains("{") and p.contains("press R"), "plain() writes the key tokens as words (%s)" % p)
@@ -141,6 +150,8 @@ func _blocking(t: Node) -> void:
 	var bc := _compile(c)
 	_fires(t, bc, "compile", "three points on one spot")
 	t.check(bc.report.blocks_drive().contains("could not be built"), "the compile failure is the drive blocker")
+	t.check(EditorSession.build_text(bc.report.blocks_drive()) == bc.report.blocks_drive(),
+		"the editor shows the compile failure once (%s)" % EditorSession.build_text(bc.report.blocks_drive()))
 	# errors that do not stop a test drive
 	var x := _doc()
 	CaseCompile.figure8(x, 0.0)
@@ -166,6 +177,8 @@ func _road_rules(t: Node) -> void:
 	var it := _fires(t, bl, "lap_long", "a 20 km lap")
 	t.check(not it.is_empty() and str(it.text).contains("20 km"), "the lap's km in the text (%s)" % it.get("text", ""))
 	t.check(not bl.report.has("budget") or bl.report.first("budget").what != "the lap length (m)", "no lap budget warning past the cap")
+	t.check(bl.roads.size() == 1 and bl.data.get("path") is Dictionary and bl.report.blocks_drive() == "",
+		"a 20 km lap is still built and can be test-driven (%s)" % bl.report.blocks_drive())
 	var o := _doc(512.0)
 	_oval(o, 240.0, 100.0)
 	_fires(t, _compile(o), "outside", "a road within 40 m of the edge")
@@ -192,6 +205,102 @@ func _road_rules(t: Node) -> void:
 	t.check(not bj.report.has("crossing") and bj.roads.size() == 2, "a branch on top of the main road inside its junction ranges: no crossing")
 	var bk := _compile(j, {"hooks": {"branches": OnTopNoRanges}})
 	t.check(bk.report.has("crossing"), "the same branch without junction ranges: a crossing")
+
+
+## 6.9's bound (L1): 400 points between the far corners of a 4096 m world (over 2000 km) pass the
+## gate and compile in well under a second, not raceable, with one blocking lap_long and nothing
+## sampled, carved or meshed; a branch over 8 km is left out with branch_long; LevelRoad's own
+## sampling never passes 3 x MAX_THIRDS samples.
+func _long_rules(t: Node) -> void:
+	var c := [Vector3(-2040, 0, -2040), Vector3(2040, 0, 2040), Vector3(-2040, 0, 2040), Vector3(2040, 0, -2040)]
+	var d := _corners(_doc(4096.0, 1), c)
+	var rep := LevelReport.new()
+	var doc := LevelIO.unpack(LevelIO.pack(d), rep)
+	t.check(doc != null and (doc.data.road.points as Array).size() == 400, "the far-corner document passes the gate (%s)" % rep.fatal())
+	if doc == null:
+		return
+	var lb := LevelRoad.length_bounds(doc.data.road.points, true)
+	var est := lb.x
+	t.check(lb.y > 2000000.0 and est <= lb.y and est > 0.5 * lb.y and is_equal_approx(LevelRoad.poly_length(doc.data.road.points, true), lb.y),
+		"length_bounds brackets the lap (about %.0f km, at most %.0f km)" % [est / 1000.0, lb.y / 1000.0])
+	# the estimate is the true length within 1 %, the bound over it, on a lap that is built
+	var w := _doc()
+	CaseCompile.figure8(w, 8.0)
+	var wb := LevelRoad.length_bounds(w.data.road.points, true)
+	var wl := _compile(w).roads[0].length
+	t.check(absf(wb.x - wl) < 0.01 * wl and wb.y >= wl, "on a figure eight: about %.1f, true %.1f, at most %.1f m" % [wb.x, wl, wb.y])
+	var t0 := Time.get_ticks_usec()
+	var b := LevelCompiler.compile(doc, {"registries": REG})
+	var ms := (Time.get_ticks_usec() - t0) / 1000.0
+	t.check(ms < 1000.0, "a 2000+ km lap compiles in under 1 s (%.0f ms)" % ms)
+	var it := _fires(t, b, "lap_long", "a 2000+ km lap")
+	t.check(b.report.all_of("lap_long").size() == 1 and str(it.get("text", "")).contains("%d km" % roundi(est / 1000.0)),
+		"one lap_long, naming the lap's km (%s)" % it.get("text", ""))
+	t.check(not b.report.raceable() and b.report.blocks_drive() == str(it.get("text", "")) and not b.report.has("compile"),
+		"not raceable, and the lap_long is what stops a test drive (%s)" % b.report.blocks_drive())
+	t.check(EditorSession.build_text(b.report.blocks_drive()) == b.report.blocks_drive()
+		and EditorSession.build_text("the road has no length") == "The track could not be built: the road has no length.",
+		"the editor shows the lap_long as it is (%s)" % EditorSession.build_text(b.report.blocks_drive()))
+	t.check(b.roads.is_empty() and not (b.data.get("path") is Dictionary) and b.meshes.triangles() == 0,
+		"nothing sampled or meshed (%d roads, %d triangles)" % [b.roads.size(), b.meshes.triangles()])
+	# on terrain: not carved
+	var tr := _corners(_doc(1024.0, 257), [Vector3(-480, 0, -480), Vector3(480, 0, 480), Vector3(-480, 0, 480), Vector3(480, 0, -480)])
+	var bt := LevelCompiler.compile(tr, {"registries": REG, "chunks": false})
+	t.check(bt.report.has("lap_long") and bt.terrain != null and is_zero_approx(bt.terrain.height_at(0.0, 0.0))
+		and is_zero_approx(bt.terrain.height_at(-480.0, -480.0)), "a 560 km lap on terrain: lap_long, the ground not carved")
+	# an open road as long: refused the same way, still told to close the loop
+	doc.data.road.closed = false
+	var bo := LevelCompiler.compile(doc, {"registries": REG, "chunks": false})
+	t.check(bo.report.has("lap_long") and bo.report.has("open_loop") and bo.roads.is_empty(), "an open 2000+ km road: lap_long, open_loop, nothing built (%s)" % str(_codes(bo)))
+	# LevelRoad's own backstop: an open road of about 50 km samples 3 x MAX_THIRDS + 1 times
+	var zz := []
+	for i in 10:
+		var p: Vector3 = c[i % 4]
+		zz.append({"uid": i + 1, "pos": [p.x, 0.0, p.z], "width": 14.0, "style": "asphalt"})
+	var r := LevelRoad.build(zz, {}, false)
+	t.check(r.length > 3.0 * LevelRoad.MAX_THIRDS * 2.0 and r.n == 3 * LevelRoad.MAX_THIRDS + 1,
+		"a %.0f km road samples at most 3 x %d + 1 times (%d)" % [r.length / 1000.0, LevelRoad.MAX_THIRDS, r.n])
+	# a branch over 8 km is left out unsampled, the lap still built
+	var e := _doc(4096.0)
+	var op := _oval(e, 600.0, 400.0, 24)
+	e.data.branches = [{"uid": 900, "name": "LONG WAY", "kind": "road", "fork": {"p": int(op[2].uid), "t": 0.5},
+		"merge": {"p": int(op[8].uid), "t": 0.5}, "side": 0, "merge_side": 0,
+		"points": [{"uid": 901, "pos": [1900.0, 0.0, 1900.0], "width": 12.0, "style": "asphalt"},
+			{"uid": 902, "pos": [-1900.0, 0.0, 1900.0], "width": 12.0, "style": "asphalt"},
+			{"uid": 903, "pos": [-1900.0, 0.0, -1900.0], "width": 12.0, "style": "asphalt"}]}]
+	e.data.next_uid = 1000
+	var be := _compile(e)
+	var bi := _fires(t, be, "branch_long", "a 9 km branch")
+	t.check(not bi.is_empty() and str(bi.text).contains("LONG WAY") and str(bi.text).contains(" km long") and not str(bi.text).contains(" 0 km"),
+		"branch_long names the branch and its km (%s)" % bi.get("text", ""))
+	t.check(be.roads.size() == 1 and be.data.get("path") is Dictionary and be.report.blocks_drive() == "",
+		"the lap is still built without the branch (%d roads)" % be.roads.size())
+	# four branches of about 7 km: the first two are sampled, the next would pass 20 km in all
+	var f := _doc(4096.0)
+	var fp := _oval(f, 600.0, 400.0, 24)
+	f.data.branches = []
+	for q in 4:
+		f.data.branches.append({"uid": 910 + q * 10, "name": "WAY %d" % (q + 1), "kind": "road",
+			"fork": {"p": int(fp[1 + q].uid), "t": 0.5}, "merge": {"p": int(fp[8 + q].uid), "t": 0.5}, "side": 0, "merge_side": 0,
+			"points": [{"uid": 911 + q * 10, "pos": [1900.0, 0.0, 1900.0], "width": 12.0, "style": "asphalt"},
+				{"uid": 912 + q * 10, "pos": [-900.0, 0.0, 1900.0], "width": 12.0, "style": "asphalt"}]})
+	var bf := _compile(f)
+	var longs := bf.report.all_of("branch_long")
+	var names := []
+	for lg in longs:
+		names.append(str(lg.name))
+	t.check(names == ["WAY 3", "WAY 4"] and str(longs[0].text).contains("20 km in all") if longs.size() == 2 else false,
+		"branches past 20 km in all are left out, in doc order (%s: %s)" % [str(names), str(longs[0].text) if not longs.is_empty() else ""])
+
+
+## 400 points alternating between the four corners `c` (nudged 0.5 m apart).
+func _corners(d: LevelDoc, c: Array) -> LevelDoc:
+	var pts := []
+	for i in 400:
+		var p: Vector3 = c[i % 4] + Vector3(i * 0.5, 0, 0)
+		pts.append({"uid": d.new_uid(), "pos": [p.x, p.y, p.z], "width": 14.0, "style": "asphalt"})
+	d.data.road = {"closed": true, "start": {"p": pts[0].uid, "t": 0.0}, "points": pts}
+	return d
 
 
 ## A branch lying on the main road's samples 30..60 (exported 10..20), its junction ranges
@@ -397,6 +506,25 @@ func _content_rules(t: Node) -> void:
 		"the unknown model, sky and song are left out here")
 	var ps := _fires(t, bm, "prop_static", "a 75 kg physics prop")
 	t.check(not ps.is_empty() and not bm.data.props[0].has("physics"), "too heavy to knock over: compiled static")
+	# L5: PHYSICS compiles as the catalog offers it (PropCatalog.physics_ok: a props model, its AABB's
+	# largest side under 3 m), at the prop's scale
+	var models := {"x/fence": {"mass": 30.0, "aabb_min": [-1.4, 0, -0.1], "aabb_max": [1.4, 2.0, 0.1]},
+		"x/pole": {"mass": 20.0, "aabb_min": [0, 0, 0], "aabb_max": [0.2, 3.2, 0.2]},
+		"x/gib": {"mass": 5.0, "kind": "gibs", "aabb_min": [0, 0, 0], "aabb_max": [0.5, 0.5, 0.5]}}
+	var ph := _doc()
+	_oval(ph)
+	ph.data.props = []
+	for key in ["x/fence", "x/pole", "x/gib", "x/fence"]:
+		ph.data.props.append({"uid": ph.new_uid(), "model": key, "pos": [float(ph.data.props.size()) * 5.0, 0.0, 0.0], "yaw": 0.0,
+			"pitch": 0.0, "roll": 0.0, "scale": 1.2 if ph.data.props.size() == 3 else 1.0, "physics": true, "tag": ""})
+	var bp := _compile(ph, {"registries": {"models": models, "materials": {}, "skies": {}, "music": {}}})
+	var got := []
+	for e in bp.data.props:
+		got.append(bool(e.get("physics", false)))
+	var want := [PropCatalog.make_facts("x/fence", models["x/fence"]).physics_ok, PropCatalog.make_facts("x/pole", models["x/pole"]).physics_ok,
+		PropCatalog.make_facts("x/gib", models["x/gib"]).physics_ok, false]
+	t.check(got == [true, false, false, false] and got == want and int(bp.report.first("prop_static").get("count", 0)) == 3,
+		"PHYSICS as the catalog offers it: a 2.8 m fence knocks over, a 3.2 m pole, a gib and the fence at 1.2x stand still (%s, catalog %s)" % [str(got), str(want)])
 	# screens without the Combine arch
 	var s := _doc()
 	_oval(s)

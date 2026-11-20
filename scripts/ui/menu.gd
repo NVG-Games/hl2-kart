@@ -385,15 +385,8 @@ func _cover(text: String) -> Array:
 	fade.color = Color(0, 0, 0, 0)
 	fade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.add_child(fade)
-	var loading := UiKit.label(text, 28, Color(1, 1, 1, 0.9), true)
-	loading.anchor_left = 1.0
-	loading.anchor_right = 1.0
-	loading.anchor_top = 1.0
-	loading.anchor_bottom = 1.0
-	loading.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	loading.offset_left = -60
-	loading.offset_right = -60
-	loading.offset_top = -80
+	# (where the race's loading card has its word: it does not jump at the scene change)
+	var loading := UiKit.loading_word(text)
 	loading.modulate.a = 0.0
 	root.add_child(loading)
 	return [fade, loading]

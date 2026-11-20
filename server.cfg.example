@@ -28,7 +28,9 @@ sv_tracks ""        // an extra folder of .hl2kt files (searched first)
 sv_downloads 1      // 1 = players without the track download it in the lobby, 0 = they are turned away
 sv_download_rate 192   // KB/s for all downloads while a race runs (the lobby goes as fast as it can)
 mp_tracklist ""     // tracks to rotate through, comma-separated: "canal_run, xen, Old Docks, c_1a2b3c4d5e6f7a8b"
+                    // (without an mp_track line the server starts on the list's first track)
 mp_rotate 1         // with a track list: 1 = the next track after every race, 0 = stay on mp_track
 
 // Console commands while it runs: status, say <text>, kick <nick>, start (skips READY,
-// never the track), lobby, tracks, track <name>, next, set <cvar> <value>, rules, help, quit
+// never the track), lobby, tracks, rescan (reads the track folders again: files added or
+// replaced while it runs), track <name>, next, set <cvar> <value>, rules, help, quit

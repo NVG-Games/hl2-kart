@@ -22,14 +22,19 @@ const ISSUES := "#issues"
 const RESCUES := "#rescues"
 ## The biggest a marker grows with its projected world size.
 const MAX_PX := 48.0
+const LABEL_FONT := 12
 const HOVER_COLOR := Color8(255, 155, 0)        # UiKit.ORANGE
 const SELECTED_COLOR := Color8(255, 155, 0)
 const ERROR_COLOR := Color(0.92, 0.2, 0.16)
 const WARNING_COLOR := Color(0.98, 0.78, 0.15)
+const INFO_COLOR := Color(0.45, 0.7, 1.0)
 const RESCUE_COLOR := Color(0.85, 0.1, 0.1)
 
 ## The camera markers are drawn with (pick and pick_rect take theirs).
 var camera: Camera3D
+## VIEW > LABELS: label_of(uid) -> the item's name, drawn beside each live marker (invalid = none).
+var label_of := Callable()
+var _names := {}            # uid -> label_of's answer (forget_names clears it)
 
 var _lists := {}            # list name -> Array of entries {kind, uid, pos, shape, color, size, sub}
 var _order: Array = []      # list names in the order they were first used (drawn in that order)
@@ -100,7 +105,8 @@ func set_issues(report: LevelReport) -> void:
 	var list := []
 	if report != null:
 		for it in report.items:
-			if not (it is Dictionary) or str(it.get("level", "")) == "info":
+			# info lines have no pin, but WATCH A BOT LAP's: where the bot got stuck
+			if not (it is Dictionary) or (str(it.get("level", "")) == "info" and str(it.get("code", "")) != "bot_lap"):
 				continue
 			var p = it.get("pos", Vector3.ZERO)
 			if p is Array and (p as Array).size() >= 3:
@@ -112,8 +118,9 @@ func set_issues(report: LevelReport) -> void:
 				continue
 			_issues.append(it)
 			var err := str(it.get("level", "")) == "error"
+			var col := ERROR_COLOR if err else (INFO_COLOR if str(it.get("level", "")) == "info" else WARNING_COLOR)
 			list.append({"kind": "issue", "uid": _issues.size(), "pos": p, "shape": Shape.PIN,
-				"color": ERROR_COLOR if err else WARNING_COLOR, "size": 0.0, "sub": 0 if err else 1})
+				"color": col, "size": 0.0, "sub": 0 if err else 1})
 	_lists[ISSUES] = list
 	queue_redraw()
 
@@ -249,12 +256,31 @@ func _draw() -> void:
 				col.a *= DIM
 			var px := pixel_size(e, cam)
 			_shape(int(e.shape), p, px, col)
+			if live and label_of.is_valid() and int(e.sub) == 0 and int(e.uid) > 0 and e.kind != "issue":
+				_label(int(e.uid), p + Vector2(px * 0.5 + 6.0, 4.0))
 			var hov: bool = _hover[0] == e.kind and _hover[1] == e.uid and _hover[2] == e.sub
 			if hov or sel:
 				draw_arc(p, px * 0.5 + 3.0, 0.0, TAU, 24, HOVER_COLOR if hov else Color(1, 1, 1, col.a), 2.0, true)
 
 
+## The names of VIEW > LABELS are asked again (after a document change).
+func forget_names() -> void:
+	_names.clear()
+	queue_redraw()
+
+
 # ---------------------------------------------------------------- internals
+
+func _label(uid: int, at: Vector2) -> void:
+	if not _names.has(uid):
+		_names[uid] = str(label_of.call(uid))
+	var t: String = _names[uid]
+	if t == "":
+		return
+	var f := get_theme_default_font()
+	draw_string_outline(f, at, t, HORIZONTAL_ALIGNMENT_LEFT, -1, LABEL_FONT, 4, Color(0, 0, 0, 0.8))
+	draw_string(f, at, t, HORIZONTAL_ALIGNMENT_LEFT, -1, LABEL_FONT, Color(1, 1, 1, 0.9))
+
 
 func _is_live(kind: String) -> bool:
 	return _all_live or _live.has(kind)

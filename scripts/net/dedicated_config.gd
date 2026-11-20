@@ -2,8 +2,10 @@ class_name DedicatedConfig
 ## Dedicated server options from a server.cfg (Source-style "cvar value" lines)
 ## and the command line (--port 27015 --name "..." --max 8 --bots on ...).
 ## The track and the track list are kept as written until every line and flag is read and the
-## track folders are scanned; finish(o) resolves them then (a custom track's file name, display
-## name, c_ id or sha prefix only means something after the scan, 6.8).
+## track folders are scanned; finish(o) resolves the track then (a custom track's file name, display
+## name, c_ id or sha prefix only means something after the scan, 6.8). The list stays as written:
+## TrackShare resolves each entry when it rotates, so a file replaced while the server runs is
+## followed to its new id.
 
 ## server.cfg cvar -> option key
 const CVARS := {
@@ -63,12 +65,20 @@ static func load_options(args: PackedStringArray) -> Dictionary:
 
 
 ## After every line and flag: the track folders (sv_tracks / --tracks first) are scanned through
-## the gate, then the track and the track list are resolved (built-in ids / names, custom file
-## names / display names / c_ ids / sha prefixes). A track that names nothing here keeps the
-## default; list entries that name nothing are dropped, each with a line in the log.
+## the gate, then the track is resolved (built-in ids / names, custom file names / display names /
+## c_ ids / sha prefixes) and the list checked. No mp_track / --track given and a list: the list's
+## first usable entry. A track that names nothing here keeps the default; list entries that name
+## nothing now are logged (they join the rotation once their file is there).
 static func finish(o: Dictionary) -> void:
 	scan(str(o.get("tracks_dir", "")))
+	var entries := list_entries(o.get("tracklist", ""))
+	o["tracklist"] = entries
 	var raw := str(o.get("track", ""))
+	if not bool(o.get("track_set", false)) and raw == str(defaults()["track"]):
+		# (the README's --tracklist without --track starts on the list, not on Highway 17)
+		var ids := resolve_list(entries)
+		if not ids.is_empty():
+			raw = ids[0]
 	var id := resolve_track(raw)
 	if id == "":
 		var fallback := str(defaults()["track"])
@@ -81,14 +91,25 @@ static func finish(o: Dictionary) -> void:
 			printerr("mp_track %s: %s: racing %s" % [raw.left(64), _why_not(raw), fallback])
 		id = fallback
 	o["track"] = id
+
+
+## A track list as written -> its entries, each one that names nothing now logged once.
+static func list_entries(v: Variant) -> PackedStringArray:
+	var out := _entries(v)
+	for e in out:
+		if resolve_track(e) == "":
+			printerr("mp_tracklist %s: %s: skipped until it is there" % [e.left(64), _why_not(e)])
+	return out
+
+
+## The entries' ids now, each once: the ones that name nothing raceable here left out.
+static func resolve_list(entries: PackedStringArray) -> PackedStringArray:
 	var ids := PackedStringArray()
-	for e in _entries(o.get("tracklist", "")):
+	for e in entries:
 		var tid := resolve_track(e)
-		if tid == "":
-			printerr("mp_tracklist %s: %s: left out" % [e.left(64), _why_not(e)])
-		elif not tid in ids:
+		if tid != "" and not tid in ids:
 			ids.append(tid)
-	o["tracklist"] = ids
+	return ids
 
 
 ## The track folders (6.8): `dir` first when given, then <exe dir>/tracks, res://tracks and
@@ -191,6 +212,8 @@ static func _read_cfg(path: String, o: Dictionary) -> void:
 static func _store(o: Dictionary, key: String, value: String) -> void:
 	if key in LATE:
 		o[key] = value.strip_edges()
+		if key == "track":
+			o["track_set"] = true
 		return
 	if not set_option(o, key, value):
 		printerr("%s %s: bad value, kept %s" % [key, value.left(64), str(o.get(key, ""))])
@@ -241,14 +264,8 @@ static func set_option(o: Dictionary, key: String, value: String) -> bool:
 				return false
 			o[key] = found
 		"tracklist":
-			var ids := PackedStringArray()
-			for e in _entries(value):
-				var tid := resolve_track(e)
-				if tid == "":
-					printerr("mp_tracklist %s: %s: left out" % [e.left(64), _why_not(e)])
-				elif not tid in ids:
-					ids.append(tid)
-			o[key] = ids
+			# kept as written (TrackShare resolves each entry when it rotates)
+			o[key] = list_entries(value)
 		"tracks_dir":
 			o[key] = value.strip_edges()
 		_:

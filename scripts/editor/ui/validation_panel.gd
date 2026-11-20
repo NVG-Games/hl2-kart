@@ -127,7 +127,8 @@ func _row(it: Dictionary) -> Control:
 		h.add_child(w)
 	var fix := str(it.get("fix", ""))
 	if fix != "":
-		var label := fix_label(fix)
+		# the issue's own label (a hazard_setup is ADD THE SEE-SAW or DELETE); fix_label for the rest
+		var label := LevelFixes.label(it) if LevelFixes.LABELS.has(fix) else fix_label(fix)
 		var b := EditorKit.button(label, func() -> void: press_fix(it), "FIX: " + label)
 		b.focus_mode = Control.FOCUS_NONE
 		b.size_flags_vertical = Control.SIZE_SHRINK_BEGIN

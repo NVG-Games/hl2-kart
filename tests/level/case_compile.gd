@@ -381,6 +381,42 @@ func _tunnel_case(t: Node) -> void:
 		"tunnel lights first, then the doc's")
 	t.check("tunnel" in b.data.path.theme, "the path has tunnel samples")
 	t.check(b.report.errors() == 0, "the tunnel road compiles clean (%s)" % str(_codes(b)))
+	_tunnel_roof(t, b, "the tunnel oval")
+	# the same tunnel on a branch-free hill road and at the lap's start (the run wraps round)
+	var doc2 := LevelDoc.blank("Tunnel start", 1024.0, 0)
+	var p2 := oval(doc2, 200.0, 140.0, 20, 0.0, "asphalt", 14.0, 6.0)
+	for k in [18, 19, 0, 1, 2]:
+		p2[k]["style"] = "tunnel"
+	doc2.data.road.start = {"p": p2[4].uid, "t": 0.0}
+	_tunnel_roof(t, LevelCompiler.compile(doc2, {"registries": REG}), "a hilly tunnel over the lap's seam")
+
+
+## L2: every ceiling vertex and every tunnel-wall vertex (walls, jambs, lintels) up off the road
+## sits at least roof - 0.1 m over the road: the exit keeps the tunnel's roof (it once dropped to
+## 2 m on the open sample a run carries, and buggies jammed there).
+func _tunnel_roof(t: Node, b: LevelBuild, what: String) -> void:
+	var m: LevelRoad = b.roads[0].mesh_road()
+	var roof := 0.0
+	for i in m.n:
+		roof = maxf(roof, m.height[i])
+	var wall := str(LevelStyles.KIND_KEYS.tunnel.wall)
+	var ceil_low := INF
+	var walls_low := INF
+	var n_ceil := 0
+	for e in b.meshes.meshes():
+		var vv: PackedVector3Array = e.arrays[Mesh.ARRAY_VERTEX]
+		if e.kind == "ceil":
+			for p in vv:
+				n_ceil += 1
+				ceil_low = minf(ceil_low, p.y - m.pos[m.closest(p)].y)
+		elif e.kind == "walls" and str(e.material) == wall:
+			for p in vv:
+				var i := m.closest(p)
+				var up := p.y - m.pos[i].y
+				if up > 0.6:
+					walls_low = minf(walls_low, up)
+	t.check(roof > 7.0 and n_ceil > 0 and ceil_low >= roof - 0.1, "%s: the lowest of %d ceiling vertices %.2f m over the road (roof %.2f)" % [what, n_ceil, ceil_low, roof])
+	t.check(walls_low >= roof - 0.1, "%s: tunnel walls, jambs and lintels stay at the roof or above (lowest top %.2f m)" % [what, walls_low])
 
 
 # ---------------------------------------------------------------- determinism

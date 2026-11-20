@@ -103,6 +103,14 @@ func run(tt: Node) -> void:
 	t.check(bt.step() == 2, "a new fork")
 	CaseSelect.key(ed, KEY_ESCAPE)
 	t.check(bt.draft.is_empty(), "Esc cancels it")
+	# an open main road: the fork is refused because the loop is open, not "wait for the bake"
+	ed.doc.apply([LevelDoc.op_set(["road", "closed"], false)])
+	t.check(bt.main_open() and bt.snap("fork", green.s).is_empty() and bt.refusal == BranchTool.TEXT_OPEN,
+		"an open road refuses a fork: close the loop first (%s)" % bt.refusal)
+	t.check(bt.status_step() == BranchTool.TEXT_OPEN and str(bt.hints(green)).contains("CLOSE THE LOOP"), "step 1 says to close the loop")
+	ed.doc.apply([LevelDoc.op_set(["road", "closed"], true)])
+	bt.refusal = ""
+	t.check(not bt.main_open(), "closed again: forks may start")
 	await CaseSelect.close_editor(t, ed)
 
 

@@ -81,18 +81,20 @@ func options(box: VBoxContainer) -> void:
 	so.add_theme_constant_override("icon_max_width", 48)
 	so.get_popup().add_theme_constant_override("icon_max_width", 96)
 	box.add_child(EditorKit.row("SKY", so))
-	var pr := HBoxContainer.new()
-	pr.add_theme_constant_override("separation", 2)
+	# the presets wrap to more lines rather than cut their names
+	var pr := HFlowContainer.new()
+	pr.add_theme_constant_override("h_separation", 2)
+	pr.add_theme_constant_override("v_separation", 2)
 	for i in PRESETS.size():
 		var p: String = PRESETS[i]
 		var b := EditorKit.button(PRESET_NAMES[i], func() -> void: apply_preset(p), "Lighting preset: %s." % PRESET_NAMES[i])
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.clip_text = true
+		b.clip_text = false
 		pr.add_child(b)
 	box.add_child(EditorKit.row("PRESETS", pr))
 	var sun = env.get("sun", "sky")
 	var custom := sun is Dictionary
-	box.add_child(EditorKit.row("SUN", EditorKit.modes(["FROM THE SKY", "CUSTOM"], 1 if custom else 0, func(i: int) -> void:
+	box.add_child(EditorKit.row("SUN", EditorKit.modes(["SKY", "CUSTOM"], 1 if custom else 0, func(i: int) -> void:
 		if i == 0:
 			set_env_key("sun", "sky", "SUN")
 		else:
@@ -105,7 +107,7 @@ func options(box: VBoxContainer) -> void:
 	box.add_child(_opt_row("SUN STRENGTH", "sun_energy", EditorKit.number(float(env.get("sun_energy", SKY_SUN_ENERGY)), 0.0, 3.0, 0.05,
 		func(v: float) -> void: set_env_key("sun_energy", v), "%.2f"), "0 hides the sun."))
 	var amb := env.get("ambient") is Array
-	box.add_child(EditorKit.row("AMBIENT", EditorKit.modes(["FROM THE SKY", "COLOUR"], 1 if amb else 0, func(i: int) -> void:
+	box.add_child(EditorKit.row("AMBIENT", EditorKit.modes(["SKY", "COLOUR"], 1 if amb else 0, func(i: int) -> void:
 		if i == 0:
 			erase_env_key("ambient", "AMBIENT")
 		else:
@@ -113,7 +115,7 @@ func options(box: VBoxContainer) -> void:
 		_refresh_options())))
 	if amb:
 		box.add_child(EditorKit.row("AMBIENT COLOUR", EditorKit.color(_col(env.get("ambient"), Color(0.45, 0.45, 0.5)), func(c: Color, final: bool) -> void: _set_col("ambient", c, final))))
-	box.add_child(EditorKit.row("AMBIENT STRENGTH", EditorKit.number(float(env.get("ambient_energy", 1.0)), 0.0, 4.0, 0.05,
+	box.add_child(EditorKit.row("AMBIENT LEVEL", EditorKit.number(float(env.get("ambient_energy", 1.0)), 0.0, 4.0, 0.05,
 		func(v: float) -> void: set_env_key("ambient_energy", v), "%.2f"), "Applies to the sky's ambient light too."))
 	box.add_child(_opt_row("FOG COLOUR", "fog_color", EditorKit.color(_col(env.get("fog_color"), sky_horizon()), func(c: Color, final: bool) -> void: _set_col("fog_color", c, final)),
 		"Without one: the sky's horizon."))

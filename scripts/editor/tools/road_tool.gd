@@ -1,8 +1,10 @@
 class_name RoadTool
 extends EditorTool
-## 1.6 ROAD: an open road extends from the end nearest the cursor (a rubber band shows the new
-## segment; the other end glows within 12 px: CLICK CLOSE LOOP); on a closed loop a ground click
-## only deselects, the "+" dots and Ctrl + click insert points; DRAW (D held, or no road yet)
+## 1.6 ROAD: an open road grows from the end it last grew from, so a loop clicked round in order
+## closes on the first point (Shift + click, a new session or after OPEN LOOP: the end nearest the
+## cursor); a rubber band shows the new segment; either end glows within 12 px: CLICK CLOSE LOOP.
+## On a closed loop a ground click only deselects, the "+" dots and Ctrl + click insert points; DRAW
+## (D held, or no road yet)
 ## sketches a road (Douglas-Peucker 3 m, points about 40 m apart, one undo step); point drags in the
 ## plane with FOLLOW GROUND, Shift + drag the height, readouts beside the point, the centre line on
 ## top, a preview while dragging and `settle` at the release; handle squares (double click: AUTO);
@@ -37,7 +39,7 @@ const T_STEP := 1.0 / 65536.0
 ## Shift + drag: metres per pixel when there is no camera (tests).
 const HEIGHT_PER_PX := 0.1
 ## The segment inspector's BARRIER choices and their LevelStyles.barrier kinds.
-const BARRIER_NAMES := ["STYLE", "NONE", "RAIL", "FENCE", "WALL", "JERSEY"]
+const BARRIER_NAMES := ["STYLE'S", "NONE", "RAIL", "FENCE", "WALL", "JERSEY"]
 const BARRIER_KINDS := ["style", "none", "rail", "fence", "wall", "jersey"]
 const GRIPS := ["STYLE'S", "ROAD", "OFF-ROAD"]
 
@@ -68,6 +70,10 @@ var draw_pts := PackedVector3Array()
 ## Forces DRAW for the next drag (tests; D held does the same).
 var force_draw := false
 
+## The open road's growing end: the uid of the point a click or DRAW added last, 0 none (a new
+## session, after OPEN LOOP): then a click grows the end nearest the cursor.
+var _grow_uid := 0
+var _grow_side := 1      # that point's end: 0 the first, 1 the last (an undo or delete keeps the side)
 var _drag := {}          # {mode: point | handle | start | draw, key, uid, ...}
 var _label: RichTextLabel
 var _gizmo := false
@@ -120,8 +126,35 @@ func on_doc_changed(sections: PackedStringArray, _uids: PackedInt32Array) -> voi
 		return
 	if segment != 0 and index_of(-1, segment) < 0:
 		segment = 0
+	_follow_grow()
 	if _opt_closed != int(is_closed(-1)) and editor.tool == self and editor.ui != null:
 		editor.ui.refresh_tool()
+
+
+## After an edit the growing end follows its point (REVERSE moves it to the other side); when the
+## point is gone or no longer an end (an undo, a delete, a redo), the point now on that side grows,
+## so undoing a wrong click and clicking again keeps going round.
+func _follow_grow() -> void:
+	if _grow_uid == 0:
+		return
+	var pts := points(-1)
+	if pts.is_empty():
+		_grow_uid = 0
+	elif int(pts[-1].get("uid", 0)) == _grow_uid:
+		_grow_side = 1
+	elif int(pts[0].get("uid", 0)) == _grow_uid:
+		_grow_side = 0
+	else:
+		_grow_uid = int(pts[-1 if _grow_side == 1 else 0].get("uid", 0))
+
+
+## Marks the point a click or DRAW just added as the growing end.
+func _grew(uid: int) -> void:
+	var pts := points(-1)
+	if index_of(-1, uid) < 0:
+		return
+	_grow_uid = uid
+	_grow_side = 0 if pts.size() > 1 and int(pts[0].get("uid", 0)) == uid else 1
 
 
 func _on_selection() -> void:
@@ -300,7 +333,8 @@ func overlay(d: EditorDraw) -> void:
 		return
 	# the rubber band of an open road and the CLOSE LOOP glow
 	var pts := points(-1)
-	if not is_closed(-1) and not pts.is_empty() and h.hit and _is_ground(h):
+	# (over the end point's marker too: the hit is not ground there)
+	if not is_closed(-1) and not pts.is_empty() and h.hit and (_is_ground(h) or close_target(h) != 0):
 		var close := close_target(h)
 		if close != 0:
 			var cp := _v3(point(-1, close).get("pos"))
@@ -309,7 +343,7 @@ func overlay(d: EditorDraw) -> void:
 			var other := int(pts[0].uid) if int(pts[-1].uid) == close else int(pts[-1].uid)
 			d.line(_v3(point(-1, other).get("pos")), cp, GLOW_COLOR)
 		else:
-			var e := extend_end(h.pos)
+			var e := extend_end(h.pos, Input.is_key_pressed(KEY_SHIFT))
 			d.line(_v3(pts[e].get("pos")), _ground_pos(h), BAND_COLOR)
 
 
@@ -359,10 +393,13 @@ func hints(hit: EditorHit) -> Array:
 	if pts.is_empty():
 		return [["CLICK ADD THE FIRST POINT"], ["DRAG DRAW A ROAD"]]
 	if closed:
-		return [["CLICK DESELECT"], ["DRAG {ed_draw} DRAW"], ["DRAG A + DOT: ADD A POINT"]]
+		# (DRAW is refused on a closed loop)
+		return [["CLICK DESELECT"], ["DRAG A + DOT: ADD A POINT"], ["{ed_mod_ctrl} CLICK THE ROAD: ADD A POINT"]]
 	if close_target(hit) != 0:
 		return [["CLICK CLOSE LOOP"], ["{ed_close_loop} CLOSE LOOP"]]
 	var out2 := [["CLICK EXTEND THE ROAD"], ["{ed_draw} + DRAG DRAW"]]
+	if pts.size() >= 2:
+		out2.insert(1, ["{ed_mod_shift} CLICK EXTEND THE NEARER END"])
 	if pts.size() >= 3:
 		out2.append(["{ed_close_loop} CLOSE LOOP"])
 	return out2
@@ -423,7 +460,7 @@ func click(hit: EditorHit, mods: int) -> bool:
 		if close_target(hit) != 0:
 			close_loop()
 			return true
-		extend(_ground_pos(hit), _on_terrain(hit))
+		extend(_ground_pos(hit), _on_terrain(hit), has_mod(mods, MOD_SHIFT))
 		return true
 	return false
 
@@ -462,11 +499,17 @@ func close_target(hit: EditorHit) -> int:
 	return 0
 
 
-## The index of the open road's end nearest to a world spot (0 or n - 1).
-func extend_end(at: Vector3) -> int:
+## The index of the open road's end a click grows (0 or n - 1): the end it grew last, else (or
+## `nearest`: Shift held, DRAW) the end nearest to a world spot.
+func extend_end(at: Vector3, nearest := false) -> int:
 	var pts := points(-1)
 	if pts.size() <= 1:
 		return 0
+	if not nearest and _grow_uid != 0:
+		if int(pts[-1].get("uid", 0)) == _grow_uid:
+			return pts.size() - 1
+		if int(pts[0].get("uid", 0)) == _grow_uid:
+			return 0
 	var a := _v3(pts[0].get("pos"))
 	var b := _v3(pts[-1].get("pos"))
 	var da := Vector2(at.x - a.x, at.z - a.z).length()
@@ -474,9 +517,10 @@ func extend_end(at: Vector3) -> int:
 	return 0 if da < db else pts.size() - 1
 
 
-## Adds a point to the open main road at the end nearest to `at` (one undo step). The new point
-## takes its neighbour's width and style; on terrain FOLLOW GROUND is on.
-func extend(at: Vector3, on_terrain: bool) -> int:
+## Adds a point to the open main road at its growing end (`nearest`: the end nearest to `at`; one
+## undo step) and makes it the growing end. The new point takes its neighbour's width and style; on
+## terrain FOLLOW GROUND is on.
+func extend(at: Vector3, on_terrain: bool, nearest := false) -> int:
 	if is_closed(-1):
 		return 0
 	var pts := points(-1)
@@ -486,7 +530,7 @@ func extend(at: Vector3, on_terrain: bool) -> int:
 	var nb: Dictionary = {}
 	var at_i := -1
 	if not pts.is_empty():
-		var e := extend_end(at)
+		var e := extend_end(at, nearest)
 		nb = pts[e]
 		at_i = 0 if e == 0 and pts.size() > 1 else -1
 	var uid := editor.doc.new_uid()
@@ -497,6 +541,7 @@ func extend(at: Vector3, on_terrain: bool) -> int:
 	if pts.is_empty() or not (st is Dictionary) or int(st.get("p", 0)) <= 0:
 		ops.append(LevelDoc.op_set(["road", "start"], {"p": uid if pts.is_empty() else int(pts[0].uid), "t": 0.0}))
 	editor.commit("ADD POINT", ops)
+	_grew(uid)
 	editor.select(PackedInt32Array([uid]))
 	succeeded()
 	return uid
@@ -523,14 +568,15 @@ func open_loop_at(uid: int) -> void:
 		out.append((pts[(k + 1 + q) % pts.size()] as Dictionary).duplicate(true))
 	editor.commit("OPEN LOOP", [LevelDoc.op_set(["road", "points"], out), LevelDoc.op_set(["road", "closed"], false)])
 	segment = 0
+	_grow_uid = 0
 
 
-## C: closes an open loop, or asks to open a closed one at the selected segment.
-func toggle_loop() -> void:
+## C: closes an open loop, or asks to open a closed one at owner's segment (0: the selected one).
+func toggle_loop(at := 0) -> void:
 	if not is_closed(-1):
 		close_loop()
 		return
-	var owner := selected_owner()
+	var owner := at if at != 0 else selected_owner()
 	if owner == 0:
 		editor.status("Select a segment (click the road) to open the loop there.")
 		return
@@ -552,6 +598,14 @@ func selected_owner() -> int:
 		if road_of_point(u) == -1:
 			return u
 	return 0
+
+
+## The main road's segment under the mouse (its owner point's uid), 0 when the mouse is elsewhere.
+func hover_owner() -> int:
+	var h := editor.hover if editor != null else null
+	if h == null or not h.hit or h.what != "road" or h.road != -1:
+		return 0
+	return segment_owner(h)
 
 
 func select_segment(uid: int) -> void:
@@ -1009,9 +1063,23 @@ func _place_label() -> void:
 		var parent: Node = editor.markers.get_parent() if editor.markers != null and editor.markers.get_parent() != null else editor
 		parent.add_child(_label)
 	_label.text = str(readout.get("text", ""))
-	_label.position = editor.camera.unproject_position(p) + Vector2(18, -26)
-	_label.size = Vector2(520, 24)
+	_label.size = Vector2(maxf(float(_label.get_content_width()), 40.0) + 4.0, 24)
+	_label.position = readout_pos(editor.camera.unproject_position(p), _label.size, editor.free_rect())
 	_label.visible = true
+
+
+## Where the readout goes beside the point at `at`: right of it and above, flipped to its left near
+## the right panel and below it near the top, kept inside the free area.
+static func readout_pos(at: Vector2, sz: Vector2, free: Rect2) -> Vector2:
+	var pos := at + Vector2(18, -26)
+	if free.has_area():
+		if pos.x + sz.x > free.end.x:
+			pos.x = at.x - 18.0 - sz.x
+		if pos.y < free.position.y:
+			pos.y = at.y + 12.0
+		pos.x = clampf(pos.x, free.position.x, maxf(free.end.x - sz.x, free.position.x))
+		pos.y = clampf(pos.y, free.position.y, maxf(free.end.y - sz.y, free.position.y))
+	return pos
 
 
 func _hide_label() -> void:
@@ -1028,9 +1096,16 @@ func _cancel_drag(undo: bool) -> void:
 	draw_pts = PackedVector3Array()
 	_hide_label()
 	if was != "draw":
-		editor.history.end_gesture()
-		if undo and editor.history.can_undo():
-			editor.history.undo()
+		# only the drag's own step goes back (a drag that has not moved yet made none)
+		if undo:
+			editor.history.cancel_gesture()
+		else:
+			editor.history.end_gesture()
+
+
+## Esc while the button holds a ROAD drag: the drag's step taken back, a DRAW dropped.
+func cancel_drag() -> void:
+	_cancel_drag(true)
 
 
 # ---------------------------------------------------------------- DRAW
@@ -1101,7 +1176,7 @@ func finish_draw() -> void:
 			ops.append(LevelDoc.op_set(["road", "closed"], true))
 	else:
 		# extends the open road from the end its first sample is nearer to
-		var e := extend_end(stroke[0])
+		var e := extend_end(stroke[0], true)
 		if e == 0 and existing.size() > 1:
 			recs.reverse()
 			for q in recs.size():
@@ -1114,6 +1189,8 @@ func finish_draw() -> void:
 		if existing.size() + recs.size() >= 3 and Vector2(tip.x - other.x, tip.z - other.z).length() <= DRAW_CLOSE:
 			ops.append(LevelDoc.op_set(["road", "closed"], true))
 	editor.commit("DRAW ROAD", ops)
+	# the stroke's last point grows next
+	_grew(uids[uids.size() - 1])
 	editor.select(uids)
 	succeeded()
 
@@ -1241,6 +1318,9 @@ func nudge_bank(key: int, uid: int, notches: int) -> void:
 func key(ev: InputEvent) -> bool:
 	if editor == null:
 		return false
+	if ev is InputEventKey and (ev as InputEventKey).keycode == KEY_SHIFT:
+		editor.redraw()   # the rubber band follows Shift (the nearer end)
+		return false
 	if _act(ev, "ed_cancel"):
 		if not _drag.is_empty():
 			_cancel_drag(true)
@@ -1253,11 +1333,13 @@ func key(ev: InputEvent) -> bool:
 			segment = 0
 			editor.redraw()
 		return false
+	# J and C act on the segment under the mouse (their hints say HERE), else the selected one
 	if _act(ev, "ed_close_loop"):
-		toggle_loop()
+		toggle_loop(hover_owner())
 		return true
 	if _act(ev, "ed_jump"):
-		toggle_jump(selected_owner())
+		var o := hover_owner()
+		toggle_jump(o if o != 0 else selected_owner())
 		return true
 	if _act(ev, "ed_delete"):
 		return refuse_delete(editor.selection.uids)
@@ -1418,13 +1500,13 @@ func options(box: VBoxContainer) -> void:
 	box.add_child(EditorKit.row("NEW POINT WIDTH", EditorKit.number(new_width, WIDTH_MIN, WIDTH_MAX, WIDTH_STEP,
 		func(v: float) -> void: new_width = v, "%.1f", " m")))
 	var ids := LevelStyles.ids(editor.doc.data)
-	box.add_child(EditorKit.row("NEW SEGMENT STYLE", EditorKit.choice(style_names(ids), maxi(Array(ids).find(new_style), 0),
-		func(i: int) -> void: new_style = ids[i])))
+	box.add_child(EditorKit.row("SEGMENT STYLE", EditorKit.choice(style_names(ids), maxi(Array(ids).find(new_style), 0),
+		func(i: int) -> void: new_style = ids[i]), "NEW SEGMENT STYLE: the style of new points and of DRAW."))
 	box.add_child(EditorKit.button("OPEN LOOP" if is_closed(-1) else "CLOSE LOOP", toggle_loop, "{ed_close_loop}"))
 	box.add_child(EditorKit.button("REVERSE DIRECTION", reverse))
 	box.add_child(EditorKit.button("SET START LINE", func() -> void:
 		picking_start = true
-		editor.status("Click the road where the start line goes")))
+		editor.status("Click the road where the start line goes", true)))
 	box.add_child(EditorKit.button("DRAPE ON TERRAIN", drape))
 	box.add_child(EditorKit.button("SMOOTH HEIGHTS", smooth))
 	box.add_child(EditorKit.button("RAILS ON TIGHT BENDS", rails))
@@ -1518,7 +1600,7 @@ func point_inspector(key: int, uids: PackedInt32Array, box: VBoxContainer) -> vo
 	box.add_child(EditorKit.row("BANK", EditorKit.toggle("AUTO", bank == null, func(on: bool) -> void:
 		editor.commit("BANK", _each(key, uids, "bank", null if on else 0.0)))))
 	if bank != null:
-		box.add_child(EditorKit.row("", EditorKit.number(float(bank), -BANK_MAX, BANK_MAX, 1.0,
+		box.add_child(EditorKit.row("BANK ANGLE", EditorKit.number(float(bank), -BANK_MAX, BANK_MAX, 1.0,
 			func(v: float) -> void: editor.commit("BANK", _each(key, uids, "bank", v), "insp_bank_%d" % uid), "%d", "°")))
 	var h = pt.get("handle")
 	box.add_child(EditorKit.row("HANDLE", EditorKit.toggle("AUTO", not (h is Dictionary), func(on: bool) -> void:

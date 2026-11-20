@@ -16,6 +16,8 @@ const BASELINE := 30.0  # from the box top: 30 U digits come out centred in the 
 const LABEL_GAP := 7.0  # between the longest label and the digit column
 const OF_GAP := 1.5  # between the digits and the small "/N"
 const WRONG_RED := Color8(255, 48, 32)
+## The test drive's errors under PAUSED: a lighter red that reads on the pause dim.
+const PAUSE_RED := Color(1.0, 0.35, 0.3)
 
 var race
 var root: Control
@@ -73,7 +75,11 @@ var _pad_note: Label  # beside PAUSED: the pad the player was using went away / 
 var _pad_sub: Label  # ...and under it what to do
 ## A test drive: "TEST DRIVE" above the AUX POWER box, with the track's validation errors when it
 ## has some ("TEST DRIVE · 2 ERRORS: fix them before you host"); watching a bot, how to fast forward.
+## Paused, the line shows under PAUSED instead (pause_test_line): the pause menu covers this one.
 var test_line: Label
+## The test drive's line in the pause menu, under PAUSED ("TEST DRIVE · 1 ERROR: fix it before you
+## host"); null outside a test drive.
+var pause_test_line: Label
 
 
 func setup(r) -> void:
@@ -379,11 +385,19 @@ func _set_test_line() -> void:
 	if race.test_from() == "watch":
 		t = "FAST FORWARD" if race.fast_forward() else "WATCH A BOT LAP · HOLD TAB / RT TO FAST FORWARD"
 	var n: int = race.test_errors()
-	if n > 0:
-		t += " · %d ERROR%s: fix them before you host" % [n, "" if n == 1 else "S"]
-	if test_line.text != t:
-		test_line.text = t
+	var errs := ""
+	if n == 1:
+		errs = " · 1 ERROR: fix it before you host"
+	elif n > 1:
+		errs = " · %d ERRORS: fix them before you host" % n
+	if test_line.text != t + errs:
+		test_line.text = t + errs
 		test_line.label_settings.font_color = WRONG_RED if n > 0 else Hl2Style.BRIGHT
+	var paused := pause_panel != null and pause_panel.visible
+	test_line.visible = not paused
+	if pause_test_line and pause_test_line.text != "TEST DRIVE" + errs:
+		pause_test_line.text = "TEST DRIVE" + errs
+		pause_test_line.add_theme_color_override("font_color", PAUSE_RED if n > 0 else Hl2Style.BRIGHT)
 
 
 ## A box under the item box for one line of warning or advice (WRONG WAY, a shortcut ahead).
@@ -578,6 +592,11 @@ func _build_pause() -> void:
 	_pad_sub = UiKit.label("", 14, UiKit.TEXT_DIM)
 	_pad_sub.visible = false
 	note.add_child(_pad_sub)
+	if race.is_test_drive():
+		# the HUD's TEST DRIVE line, here where it is read (the dim and the prompts cover the HUD's)
+		pause_test_line = UiKit.label("TEST DRIVE", 18, Hl2Style.BRIGHT, true)
+		pause_test_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		v.add_child(pause_test_line)
 	var gap := Control.new()
 	gap.custom_minimum_size.y = 10
 	v.add_child(gap)
@@ -665,6 +684,7 @@ func _toggle_pause() -> void:
 	var p := not get_tree().paused
 	get_tree().paused = p
 	pause_panel.visible = p
+	_set_test_line()
 	if p:
 		InputPrompts.stop_rumble()
 		(pause_panel.get_meta("first") as Button).grab_focus()

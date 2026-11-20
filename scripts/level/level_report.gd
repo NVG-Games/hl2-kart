@@ -4,7 +4,8 @@ extends RefCounted
 ## its FIX id and where it is), the content this install lacks and what sanitize dropped. Errors make
 ## a track not raceable; only the "cannot build" ones (BLOCKING) stop a TEST DRIVE (1.8).
 
-## Error codes that stop a test drive: no road, an open main loop, a compile failure.
+## Error codes that stop a test drive: no road, an open main loop, a compile failure (and any
+## error whose item has blocks = true: a lap too long to build).
 const BLOCKING := ["no_road", "open_loop", "compile"]
 const LEVELS := ["error", "warning", "info"]
 
@@ -51,10 +52,10 @@ func fatal() -> String:
 	return ""
 
 
-## "" or the text of the first "cannot build" issue (no_road, open_loop, compile).
+## "" or the text of the first "cannot build" issue (no_road, open_loop, compile, a blocking lap_long).
 func blocks_drive() -> String:
 	for it in items:
-		if it.level == "error" and it.code in BLOCKING:
+		if it.level == "error" and (it.code in BLOCKING or bool(it.get("blocks", false))):
 			return it.text if it.text != "" else it.code
 	return ""
 

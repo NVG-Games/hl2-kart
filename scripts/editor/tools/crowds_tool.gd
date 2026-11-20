@@ -37,6 +37,7 @@ var _drag := {}
 var _slide := {}
 var _last_egg := 0              # the last path egg placed: Ctrl + click adds its points
 var _people_label: Label
+var _insp_people: PromptLabel   # the inspector's PEOPLE line (kept current after each bake too)
 
 
 func _init(ed: TrackEditor) -> void:
@@ -272,13 +273,15 @@ func overlay(d: EditorDraw) -> void:
 		var hi := maxf(float(sp.lat_in), float(sp.lat_out))
 		var s0 := float(sp.s) - float(sp.l) * 0.5
 		var s1 := float(sp.s) + float(sp.l) * 0.5
+		# on the ground where it is higher than the road's plane (hills beside the road)
+		var gt := editor.terrain()
 		if r.closed and (s0 < 0.0 or s1 > r.length):
 			var a := ItemsTool.wrap_s(r, s0)
 			var b := ItemsTool.wrap_s(r, s1)
-			d.strip_on_road(r, a, r.length, lo, hi, col)
-			d.strip_on_road(r, 0.0, b, lo, hi, col)
+			d.strip_on_road(r, a, r.length, lo, hi, col, gt)
+			d.strip_on_road(r, 0.0, b, lo, hi, col, gt)
 		else:
-			d.strip_on_road(r, maxf(s0, 0.0), minf(s1, r.length), lo, hi, col)
+			d.strip_on_road(r, maxf(s0, 0.0), minf(s1, r.length), lo, hi, col, gt)
 	for e in _h.list_of("eggs"):
 		if not (e is Dictionary):
 			continue
@@ -352,6 +355,14 @@ func _drag_step(hit: EditorHit, phase: int) -> void:
 func _end_drag() -> void:
 	if not _drag.is_empty() and editor != null and editor.history != null:
 		editor.history.end_gesture()
+	_drag = {}
+	_slide = {}
+
+
+## Esc while the button holds a move: taken back.
+func cancel_drag() -> void:
+	if not _drag.is_empty() and editor != null and editor.history != null:
+		editor.history.cancel_gesture()
 	_drag = {}
 	_slide = {}
 
@@ -471,6 +482,8 @@ func people_text() -> String:
 
 
 func _update_people() -> void:
+	if _insp_people != null and is_instance_valid(_insp_people):
+		_insp_people.prompt = people_text()
 	if _people_label == null or not is_instance_valid(_people_label):
 		return
 	_people_label.text = people_text()
@@ -530,7 +543,12 @@ func _group_inspector(uids: PackedInt32Array, box: VBoxContainer) -> void:
 					nt.erase(tag)
 				ops.append(ItemsTool.op_field("crowds", u, "tags", nt))
 			editor.commit("CROWD TAGS", ops))))
-	box.add_child(EditorKit.hint(people_text()))
+	_insp_people = EditorKit.hint(people_text())
+	_insp_people.name = "People"
+	box.add_child(_insp_people)
+	# built before the bake that places the people (and in SELECT): the next bakes update it
+	if not editor.baked.is_connected(_on_baked):
+		editor.baked.connect(_on_baked)
 
 
 func _egg_inspector(uid: int, box: VBoxContainer) -> void:

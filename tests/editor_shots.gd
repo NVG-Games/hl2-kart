@@ -525,7 +525,8 @@ class Walker:
 		var it := ed.tools["items"] as ItemsTool
 		var r := _main(ed)
 		var row := it.place_row(it.road_spot(_road_hit(150.0)))
-		var pad := it.place_pad(it.road_spot(_road_hit(4.0, 2.0)), true)
+		# 4 m behind the line: within 12 m of the first grid slot (pad_grid, a red marker)
+		var pad := it.place_pad(it.road_spot(_road_hit(-4.0, 2.0)), true)
 		var zone := it.place_zone(it.road_spot(_road_hit(260.0)))
 		ed.select(PackedInt32Array([pad]))
 		ed.bake_soon(0.0)
@@ -766,6 +767,9 @@ class Walker:
 		sh._local["state"] = "fail"
 		sh._local["code"] = "stalled"
 		sh._local["why"] = TrackShare.TEXT_STALLED
+		Net.players[1]["track"] = "fail"
+		Net.players[1]["why"] = "stalled"
+		lobby._rebuild_players()
 		lobby._show_local()
 		await shot("lobby_retry", "the friend's download stalled: the reason and RETRY")
 		lobby.queue_free()

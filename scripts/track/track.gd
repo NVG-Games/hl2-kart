@@ -40,7 +40,7 @@ func build(track_name: String) -> void:
 		# memory; compiles synchronously only headless / in tests (CustomTracks.build_for)
 		var b := CustomTracks.build_for(track_name)
 		if b == null:
-			build_failed = "The track %s is not ready on this computer." % _track_name(track_name)
+			build_failed = "%s is not ready on this computer." % _track_ref(track_name)
 			push_error(build_failed)
 			return
 		build_level(b)
@@ -70,7 +70,7 @@ func build_level(b: LevelBuild) -> void:
 	name = "Track"
 	id = b.id
 	if not b.data.get("path") is Dictionary:
-		build_failed = "The track %s has no road to race on." % _track_name(b.id)
+		build_failed = "%s has no road to race on." % _track_ref(b.id)
 		push_error(build_failed)
 		return
 	data = b.data
@@ -83,10 +83,14 @@ func build_level(b: LevelBuild) -> void:
 	_finish_build()
 
 
-## A track's name for messages: Game.track's entry for it, else the id.
-static func _track_name(track_id: String) -> String:
+## A track for messages: "The track <name>" from Game.track's entry for it, "This track" when
+## Game.track does not know the id (its fallback entry is named "Unknown track").
+static func _track_ref(track_id: String) -> String:
 	var e: Dictionary = Game.track(track_id)
-	return str(e.get("name", track_id)) if str(e.get("id", "")) == track_id else track_id
+	var nm := str(e.get("name", "")).strip_edges()
+	if str(e.get("id", "")) != track_id or bool(e.get("unknown", false)) or nm == "":
+		return "This track"
+	return "The track %s" % nm
 
 
 ## Everything after the geometry of a glTF circuit or a custom track: environment, water, lakes,
@@ -461,15 +465,20 @@ static func _static_shape(shapes: Dictionary, key: String, model: Node3D, aabb: 
 	if shapes.has(key):
 		return shapes[key]
 	var sh: Shape3D
-	if key.begins_with("props_buildings/") or key.begins_with("props_trainstation/train") or key.contains("boxcar") 			or key.contains("tanker") or key.contains("flatcar") or key.begins_with("props_combine/combine_bunker") 			or key.contains("combinetower") or key.contains("buttress"):
+	if key.begins_with("props_buildings/") or key.begins_with("props_trainstation/train") or key.contains("boxcar") \
+			or key.contains("tanker") or key.contains("flatcar") or key.begins_with("props_combine/combine_bunker") \
+			or key.contains("combinetower") or key.contains("buttress"):
 		# big irregular shapes collide with their real surface, never with an invisible box
 		sh = _mesh_shape(model)
-	elif key.begins_with("props_foliage/tree") or key.contains("lamppost") or key.contains("utilitypole") 			or key.contains("powertower") or key.contains("signpole") or key.contains("traffic_light") 			or key.begins_with("hl1/tree") or key.begins_with("hl1/light"):
+	elif key.begins_with("props_foliage/tree") or key.contains("lamppost") or key.contains("utilitypole") \
+			or key.contains("powertower") or key.contains("signpole") or key.contains("traffic_light") \
+			or key.begins_with("hl1/tree") or key.begins_with("hl1/light"):
 		var c := CylinderShape3D.new()
 		c.radius = clampf(minf(aabb.size.x, aabb.size.z) * 0.08, 0.15, 0.6)
 		c.height = aabb.size.y
 		sh = c
-	elif key.contains("grass") or key.contains("fern") or key.contains("shrub") or key.contains("bush") 			or key.begins_with("hl1/hair") or key.begins_with("hl1/uplant") or key.begins_with("hl1/fungus_small"):
+	elif key.contains("grass") or key.contains("fern") or key.contains("shrub") or key.contains("bush") \
+			or key.begins_with("hl1/hair") or key.begins_with("hl1/uplant") or key.begins_with("hl1/fungus_small"):
 		sh = null
 	elif key.begins_with("hl1/crystal") or key.begins_with("hl1/fungus"):
 		# a cluster of shards, a cap on legs: their hulls slope like a ramp a kart climbs and sticks
@@ -568,7 +577,8 @@ static func prop_node(p: Dictionary, sea_y: float, shapes: Dictionary) -> Node3D
 		body.position.y = sea_y - aabb.size.y * 0.25
 	# distant set dressing (floating rocks, the Nihilanth) is never reached, and decoration a
 	# circuit tags "deco" (crystals where knocked karts slide by) is seen, never hit
-	var sh: Shape3D = null if p.get("tag", "") in ["far", "deco"] 		else _static_shape(shapes, key + ("@%.2f" % sc if sc != 1.0 else ""), model, aabb)
+	var sh: Shape3D = null if p.get("tag", "") in ["far", "deco"] \
+		else _static_shape(shapes, key + ("@%.2f" % sc if sc != 1.0 else ""), model, aabb)
 	if sh:
 		var cs := CollisionShape3D.new()
 		cs.shape = sh

@@ -1,7 +1,9 @@
 extends RefCounted
 ## editor/case_road (P13, CI): the ROAD tool (1.6) in the editor scene with fabricated hits. An
-## open road extends from the end nearest the cursor (both ends; width and style from the
-## neighbour), closes by a click near its other end and by C; a ground click on a closed loop adds
+## open road grows from the end it grew last, Shift + click from the end nearest the cursor (both
+## ends; width and style from the neighbour); 8 clicks round an ellipse keep the click order and a
+## click on the first point closes the loop; a click near its other end and C close it too; an undo
+## keeps the growing end, OPEN LOOP and DRAW set it; a ground click on a closed loop adds
 ## nothing; a "+" dot dragged inserts one point (one undo step), Ctrl + click on the road inserts
 ## one; DRAW of a circle of samples makes a closed loop of about 40 m spacing (one undo step);
 ## FOLLOW GROUND keeps a point's offset over a hill, Shift + drag changes only the height; the
@@ -18,6 +20,7 @@ var t: Node
 func run(tt: Node) -> void:
 	t = tt
 	await _extend_and_close()
+	await _click_round()
 	await _closed_loop()
 	await _draw()
 	await _follow_ground()
@@ -90,15 +93,19 @@ func _extend_and_close() -> void:
 	var rt := _rt(ed)
 	var hs := rt.hints(CaseSelect.hit_at(ed, Vector3(180, 0, 50), "terrain"))
 	t.check(str(hs).contains("EXTEND"), "hint on the ground of an open road: extend (%s)" % str(hs))
-	# the end nearest the cursor: B for x = 180, A for x = -80
+	# a road this session did not grow yet: the end nearest the cursor (B for x = 180)
 	rt.click(CaseSelect.hit_at(ed, Vector3(180, 0, 60), "terrain"), 0)
 	var pts := _pts(ed)
 	t.check(pts.size() == 3 and _pos(pts[2]).distance_to(Vector3(180, 0, 60)) < 0.01, "a click extends from the nearer end (after B)")
 	t.check(float(pts[2].width) == 20.0 and str(pts[2].style) == "dirt", "the new point takes its neighbour's width and style")
-	rt.click(CaseSelect.hit_at(ed, Vector3(-80, 0, 70), "terrain"), 0)
+	# then the end it grew last, even for a spot nearer A; Shift: the nearer end
+	t.check(rt.extend_end(Vector3(-80, 0, 70)) == 2, "the next click grows the end it grew last (%d)" % rt.extend_end(Vector3(-80, 0, 70)))
+	t.check(rt.extend_end(Vector3(-80, 0, 70), true) == 0, "with Shift the end nearest the cursor (A)")
+	t.check(str(rt.hints(CaseSelect.hit_at(ed, Vector3(-80, 0, 70), "terrain"))).contains("NEARER END"), "the hint names Shift + click")
+	rt.click(CaseSelect.hit_at(ed, Vector3(-80, 0, 70), "terrain"), EditorTool.MOD_SHIFT)
 	pts = _pts(ed)
 	t.check(pts.size() == 4 and _pos(pts[0]).distance_to(Vector3(-80, 0, 70)) < 0.01 and int(pts[1].uid) == int(a.uid),
-		"a click near A extends before it")
+		"Shift + click near A extends before it")
 	t.check(float(pts[0].width) == 14.0, "the prepended point takes A's width")
 	t.check(ed.history.undo_name() == "ADD POINT", "each point is an undo step (%s)" % ed.history.undo_name())
 	ed.history.undo()
@@ -121,6 +128,67 @@ func _extend_and_close() -> void:
 	CaseSelect.key(ed, KEY_C)
 	t.check(bool(ed.doc.data.road.closed), "C closes the loop")
 	ed.history.undo()
+	await CaseSelect.close_editor(t, ed)
+
+
+## The critic's loop: 8 clicks round an ellipse (220 x 160 m), the 8th nearer the first point than
+## the 7th, keep the click order; a click on the first point closes the loop (TrackEditor.click as
+## the mouse does); after an undo the next click still grows the last end; OPEN LOOP lets the
+## nearest end grow.
+func _click_round() -> void:
+	var ed := await _open(LevelDoc.blank("Road", 1024.0, 0), 700.0)
+	var rt := _rt(ed)
+	var ring: Array[Vector3] = []
+	for k in 8:
+		var an := TAU * k / 8.0
+		ring.append(Vector3(220.0 * cos(an), 0.0, 160.0 * sin(an)))
+	for p in ring:
+		ed.click(CaseSelect.hit_at(ed, p, "terrain"), 0)
+	var pts := _pts(ed)
+	var order := []
+	for q in pts:
+		var best := 0
+		for k in ring.size():
+			if _pos(q).distance_to(ring[k]) < _pos(q).distance_to(ring[best]):
+				best = k
+		order.append(best)
+	t.check(order == [0, 1, 2, 3, 4, 5, 6, 7], "8 clicks round an ellipse: the doc keeps the click order (%s)" % str(order))
+	t.check(not bool(ed.doc.data.road.closed) and ed.selection.uids == PackedInt32Array([int(pts[7].uid)]),
+		"the road is open, the last click selected")
+	# the rubber band runs from the last click, also over the first point's side
+	var spot := Vector3(200, 0, -30)
+	t.check(rt.extend_end(spot) == 7, "the rubber band starts at the last click (%d)" % rt.extend_end(spot))
+	ed.draw.clear()
+	ed.hover = CaseSelect.hit_at(ed, spot, "terrain")
+	rt.overlay(ed.draw)
+	t.check(_drawn(ed.draw) > 0, "the rubber band is drawn")
+	var first := _marker(ed, "road_point", int(pts[0].uid), ring[0])
+	t.check(rt.close_target(first) == int(pts[0].uid), "the first point glows: CLOSE LOOP")
+	t.check(str(rt.hints(first)).contains("CLICK CLOSE LOOP"), "its hint reads CLICK CLOSE LOOP (%s)" % str(rt.hints(first)))
+	ed.click(first, 0)
+	pts = _pts(ed)
+	t.check(bool(ed.doc.data.road.closed) and pts.size() == 8, "a click on the first point closes the loop (%d points)" % pts.size())
+	t.check(ed.history.undo_name() == "CLOSE LOOP", "one step: CLOSE LOOP (%s)" % ed.history.undo_name())
+	ed.history.undo()
+	# open again: a ground click nearer the first point still grows the last click's end
+	ed.click(CaseSelect.hit_at(ed, spot, "terrain"), 0)
+	pts = _pts(ed)
+	t.check(pts.size() == 9 and _pos(pts[8]).distance_to(spot) < 0.01, "after the undo the click still grows the last end")
+	ed.history.undo()
+	t.check(rt.extend_end(spot) == 7, "an undone click: its end keeps growing (%d)" % rt.extend_end(spot))
+	ed.history.redo()
+	t.check(rt.extend_end(spot) == 8, "a redone click: the redone point grows (%d)" % rt.extend_end(spot))
+	ed.history.undo()
+	ed.click(_marker(ed, "road_point", int(_pts(ed)[0].uid), ring[0]), 0)
+	t.check(bool(ed.doc.data.road.closed), "the first point closes it again")
+	# OPEN LOOP: the next point first; no end grown, so the nearest end grows
+	var o := int(_pts(ed)[3].uid)
+	rt.open_loop_at(o)
+	pts = _pts(ed)
+	t.check(not bool(ed.doc.data.road.closed) and int(pts[-1].uid) == o, "OPEN LOOP at a segment")
+	t.check(rt.extend_end(_pos(pts[0]) + Vector3(5, 0, 5)) == 0 and rt.extend_end(_pos(pts[-1]) + Vector3(5, 0, 5)) == 7,
+		"after OPEN LOOP the end nearest the cursor grows")
+	t.check(str(LevelValidate.TEXTS.open_loop).contains("two ends"), "the open_loop problem says either end closes it")
 	await CaseSelect.close_editor(t, ed)
 
 
@@ -292,6 +360,9 @@ func _draw() -> void:
 	rt.drag_end(line[59], 0)
 	t.check(not bool(ed.doc.data.road.closed) and _pts(ed).size() >= 6 and _pts(ed).size() <= 10,
 		"an open stroke: an open road (%d points)" % _pts(ed).size())
+	var n := _pts(ed).size()
+	t.check(rt.extend_end(Vector3(-160, 0, 0)) == n - 1 and rt.extend_end(Vector3(-160, 0, 0), true) == 0,
+		"the stroke's last point grows next (Shift: the nearer end)")
 	t.check(RoadTool.douglas_peucker(PackedVector3Array([Vector3.ZERO, Vector3(10, 0, 1), Vector3(20, 0, 0)]), 3.0).size() == 2,
 		"Douglas-Peucker drops a point 1 m off the line")
 	await CaseSelect.close_editor(t, ed)

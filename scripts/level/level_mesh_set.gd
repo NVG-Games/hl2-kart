@@ -42,42 +42,105 @@ static func meta_road(road: int) -> int:
 
 
 func tri(kind: String, material: String, a: Vector3, b: Vector3, c: Vector3, n: Vector3, uv := [Vector2.ZERO, Vector2.ZERO, Vector2.ZERO], road := -1, group := "g0") -> void:
-	var bk := _bucket(kind, material, road, group)
 	var nn := n.normalized() if n.length_squared() > 1e-12 else Vector3.UP
 	var t := _uv_tangent(a, b, c, uv[0], uv[1], uv[2], nn)
-	var base: int = (bk.v as PackedVector3Array).size()
-	for k in 3:
-		var p: Vector3 = [a, b, c][k]
-		_push(bk, p, nn, t, uv[k])
-	_face(bk, base, base + 1, base + 2, nn)
+	_flat_faces(_bucket(kind, material, road, group), [a, b, c], uv, nn, t)
 
 
 ## A quad strip between polylines a and b (same length): u across (ua at a, ub at b), v along,
-## normals na / nb (each triangle faces its vertices' mean normal).
+## normals na / nb (each triangle faces its vertices' mean normal). Built in local arrays and
+## appended to the bucket once (the drag preview's hot path, 3.11).
 func strip(kind: String, material: String, a: PackedVector3Array, b: PackedVector3Array, ua: PackedFloat32Array, ub: PackedFloat32Array, v: PackedFloat32Array, na: PackedVector3Array, nb: PackedVector3Array, road := -1, group := "g0") -> void:
 	var m := a.size()
 	if m < 2 or b.size() != m:
 		return
 	var bk := _bucket(kind, material, road, group)
-	var base: int = (bk.v as PackedVector3Array).size()
+	var bv: PackedVector3Array = bk.v
+	var base := bv.size()
+	var lv := PackedVector3Array()
+	lv.resize(m * 2)
+	var ln := PackedVector3Array()
+	ln.resize(m * 2)
+	var lt := PackedFloat32Array()
+	lt.resize(m * 8)
+	var luv := PackedVector2Array()
+	luv.resize(m * 2)
 	for i in m:
 		var j := i + 1 if i < m - 1 else i - 1
-		var along := a[j] - a[i]
+		var ai := a[i]
+		var bi := b[i]
+		var along := a[j] - ai
 		if j < i:
 			along = -along
 		var dv := v[mini(i + 1, m - 1)] - v[maxi(i - 1, 0)]
-		var ga := _strip_tangent(b[i] - a[i], ub[i] - ua[i], along, dv, na[i])
-		var gb := _strip_tangent(b[i] - a[i], ub[i] - ua[i], along, dv, nb[i])
-		_push(bk, a[i], na[i], ga, Vector2(ua[i], v[i]))
-		_push(bk, b[i], nb[i], gb, Vector2(ub[i], v[i]))
+		var across := bi - ai
+		var du := ub[i] - ua[i]
+		var ga := _strip_tangent(across, du, along, dv, na[i])
+		var gb := _strip_tangent(across, du, along, dv, nb[i])
+		var q := i * 2
+		lv[q] = ai
+		lv[q + 1] = bi
+		ln[q] = na[i]
+		ln[q + 1] = nb[i]
+		var o := i * 8
+		lt[o] = ga.normal.x
+		lt[o + 1] = ga.normal.y
+		lt[o + 2] = ga.normal.z
+		lt[o + 3] = ga.d
+		lt[o + 4] = gb.normal.x
+		lt[o + 5] = gb.normal.y
+		lt[o + 6] = gb.normal.z
+		lt[o + 7] = gb.d
+		var vi := v[i]
+		luv[q] = Vector2(ua[i], vi)
+		luv[q + 1] = Vector2(ub[i], vi)
+	var li := PackedInt32Array()
+	li.resize((m - 1) * 6)
+	var w := 0
 	for i in m - 1:
-		var a0 := base + i * 2
-		var b0 := a0 + 1
-		var a1 := a0 + 2
-		var b1 := a0 + 3
+		var a0 := i * 2
 		var f := (na[i] + na[i + 1] + nb[i] + nb[i + 1])
-		_face(bk, a0, b0, a1, f)
-		_face(bk, a1, b0, b1, f)
+		var pa := lv[a0]
+		var pb := lv[a0 + 1]
+		var pc := lv[a0 + 2]
+		var pd := lv[a0 + 3]
+		# (a0, b0, a1) then (a1, b0, b1), each wound to face f, degenerate ones left out
+		var cr := (pb - pa).cross(pc - pa)
+		if cr.length_squared() >= 1e-14:
+			li[w] = base + a0
+			if cr.dot(f) < 0.0:
+				li[w + 1] = base + a0 + 1
+				li[w + 2] = base + a0 + 2
+			else:
+				li[w + 1] = base + a0 + 2
+				li[w + 2] = base + a0 + 1
+			w += 3
+		cr = (pb - pc).cross(pd - pc)
+		if cr.length_squared() >= 1e-14:
+			li[w] = base + a0 + 2
+			if cr.dot(f) < 0.0:
+				li[w + 1] = base + a0 + 1
+				li[w + 2] = base + a0 + 3
+			else:
+				li[w + 1] = base + a0 + 3
+				li[w + 2] = base + a0 + 1
+			w += 3
+	li.resize(w)
+	bv.append_array(lv)
+	bk.v = bv
+	var bn: PackedVector3Array = bk.n
+	bn.append_array(ln)
+	bk.n = bn
+	var bt: PackedFloat32Array = bk.t
+	bt.append_array(lt)
+	bk.t = bt
+	var bu: PackedVector2Array = bk.uv
+	bu.append_array(luv)
+	bk.uv = bu
+	var bi2: PackedInt32Array = bk.i
+	bi2.append_array(li)
+	bk.i = bi2
+	_tris += w / 3
 
 
 ## A box with all six faces facing out, its texture `rep` metres a repeat.
@@ -103,14 +166,9 @@ func box(kind: String, material: String, xf: Transform3D, size: Vector3, rep := 
 func quad(kind: String, material: String, p: Array, n: Vector3, uv: Array, road := -1, group := "g0") -> void:
 	if p.size() < 4 or uv.size() < 4:
 		return
-	var bk := _bucket(kind, material, road, group)
 	var nn := n.normalized() if n.length_squared() > 1e-12 else Vector3.UP
 	var t := _uv_tangent(p[0], p[1], p[2], uv[0], uv[1], uv[2], nn)
-	var base: int = (bk.v as PackedVector3Array).size()
-	for k in 4:
-		_push(bk, p[k], nn, t, uv[k])
-	_face(bk, base, base + 1, base + 2, nn)
-	_face(bk, base, base + 2, base + 3, nn)
+	_flat_faces(_bucket(kind, material, road, group), [p[0], p[1], p[2], p[3]], uv, nn, t)
 
 
 ## A convex (or star-shaped about its centroid, center = true) polygon facing n.
@@ -127,14 +185,9 @@ func fan(kind: String, material: String, p: Array, n: Vector3, uv: Array, road :
 			cu += uv[k]
 		pts = [cp / p.size()] + p + [p[0]]
 		uvs = [cu / p.size()] + uv + [uv[0]]
-	var bk := _bucket(kind, material, road, group)
 	var nn := n.normalized() if n.length_squared() > 1e-12 else Vector3.UP
 	var t := _uv_tangent(pts[0], pts[1], pts[2], uvs[0], uvs[1], uvs[2], nn)
-	var base: int = (bk.v as PackedVector3Array).size()
-	for k in pts.size():
-		_push(bk, pts[k], nn, t, uvs[k])
-	for k in range(1, pts.size() - 1):
-		_face(bk, base, base + k, base + k + 1, nn)
+	_flat_faces(_bucket(kind, material, road, group), pts, uvs, nn, t)
 
 
 ## [{name, kind, material, road: int, group: String, hash: int, arrays: Array (Mesh.ARRAY_MAX)}]
@@ -226,43 +279,57 @@ func _bucket(kind: String, material: String, road: int, group: String) -> Dictio
 	return bk
 
 
-func _push(bk: Dictionary, p: Vector3, nrm: Vector3, t: Plane, uv: Vector2) -> void:
-	# (packed arrays inside a dictionary: append to a local and store it back)
-	var vv: PackedVector3Array = bk.v
-	vv.append(p)
-	bk.v = vv
-	var nn: PackedVector3Array = bk.n
-	nn.append(nrm)
-	bk.n = nn
-	var ta: PackedFloat32Array = bk.t
-	ta.append(t.normal.x)
-	ta.append(t.normal.y)
-	ta.append(t.normal.z)
-	ta.append(t.d)
-	bk.t = ta
-	var uu: PackedVector2Array = bk.uv
-	uu.append(uv)
-	bk.uv = uu
-
-
-## One triangle of vertices ia, ib, ic wound to face f (Godot's order: cross . f < 0).
-func _face(bk: Dictionary, ia: int, ib: int, ic: int, f: Vector3) -> void:
-	var vv: PackedVector3Array = bk.v
-	var a := vv[ia]
-	var cr := (vv[ib] - a).cross(vv[ic] - a)
-	if cr.length_squared() < 1e-14:
-		return
-	var idx: PackedInt32Array = bk.i
-	if cr.dot(f) < 0.0:
-		idx.append(ia)
-		idx.append(ib)
-		idx.append(ic)
-	else:
-		idx.append(ia)
-		idx.append(ic)
-		idx.append(ib)
-	bk.i = idx
-	_tris += 1
+## One flat polygon's vertices (one normal and tangent) appended to bk at once, then its
+## triangles: a fan from vertex 0 (0-1-2, 0-2-3, ...), each wound to face nn (Godot's order:
+## cross . nn < 0), degenerate ones left out. tri / quad have 3 / 4 vertices, the same fan.
+func _flat_faces(bk: Dictionary, pts: Array, uvs: Array, nn: Vector3, t: Plane) -> void:
+	var cnt := pts.size()
+	var bv: PackedVector3Array = bk.v
+	var base := bv.size()
+	var lv := PackedVector3Array()
+	lv.resize(cnt)
+	var ln := PackedVector3Array()
+	ln.resize(cnt)
+	var lt := PackedFloat32Array()
+	lt.resize(cnt * 4)
+	var luv := PackedVector2Array()
+	luv.resize(cnt)
+	for k in cnt:
+		lv[k] = pts[k]
+		ln[k] = nn
+		lt[k * 4] = t.normal.x
+		lt[k * 4 + 1] = t.normal.y
+		lt[k * 4 + 2] = t.normal.z
+		lt[k * 4 + 3] = t.d
+		luv[k] = uvs[k]
+	var li := PackedInt32Array()
+	var a := lv[0]
+	for k in range(1, cnt - 1):
+		var cr := (lv[k] - a).cross(lv[k + 1] - a)
+		if cr.length_squared() < 1e-14:
+			continue
+		li.append(base)
+		if cr.dot(nn) < 0.0:
+			li.append(base + k)
+			li.append(base + k + 1)
+		else:
+			li.append(base + k + 1)
+			li.append(base + k)
+	bv.append_array(lv)
+	bk.v = bv
+	var bn: PackedVector3Array = bk.n
+	bn.append_array(ln)
+	bk.n = bn
+	var bt: PackedFloat32Array = bk.t
+	bt.append_array(lt)
+	bk.t = bt
+	var bu: PackedVector2Array = bk.uv
+	bu.append_array(luv)
+	bk.uv = bu
+	var bi: PackedInt32Array = bk.i
+	bi.append_array(li)
+	bk.i = bi
+	_tris += li.size() / 3
 
 
 ## The tangent (normal = T, d = w) of a strip vertex: T = the across direction toward +u

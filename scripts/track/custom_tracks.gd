@@ -414,13 +414,21 @@ static func memory_ids() -> PackedStringArray:
 
 # ---------------------------------------------------------------- the cache
 
-## "" unless LevelIO.is_sha.
+## Where a download of sha is written ("" unless LevelIO.is_sha). The other parts are pruned first
+## (prune_parts), so a server that keeps announcing new tracks never leaves more than MAX_PARTS.
 static func cache_part(sha: String) -> String:
 	if not LevelIO.is_sha(sha):
 		push_error("CustomTracks.cache_part: not a sha: %s" % sha.left(80).c_escape())
 		return ""
 	_make_dir(cache_dir())
+	prune_parts(sha)
 	return cache_dir().path_join(sha + ".part")
+
+
+## The .part files within bounds (6.6): parts older than part_max_age go, then all but keep_sha's
+## own part and the MAX_PARTS - 1 newest others. keep_sha's part always stays (a resume).
+static func prune_parts(keep_sha := "") -> void:
+	_prune_parts(keep_sha)
 
 
 ## A finished download: the part's bytes must hash to sha; it becomes cache/<sha>.hl2kt with the
@@ -532,9 +540,16 @@ static func find(name_or_id: String) -> String:
 	for e in order:
 		if str(e.path).get_file().get_basename().to_lower() == ql:
 			return str(e.id)
+	var named: Array = []
 	for e in order:
 		if str(e.name).to_lower() == ql or str(e.short).to_lower() == ql:
-			return str(e.id)
+			named.append(e)
+	if not named.is_empty():
+		if named.size() > 1:
+			# say which one won, so a server operator is not surprised (the console shows it)
+			print("CustomTracks: %d tracks are named \"%s\": using %s (give its file name to pick another)."
+				% [named.size(), q, str(named[0].path).get_file()])
+		return str(named[0].id)
 	if ql.length() >= 6 and _hex(ql):
 		var hit := ""
 		for e in order:
@@ -909,11 +924,13 @@ static func _scan_cache() -> bool:
 	return changed
 
 
-## Deletes .part files older than part_max_age and all but the MAX_PARTS newest; returns the rest
-## as [mtime, path, size].
-static func _prune_parts() -> Array:
+## Deletes .part files older than part_max_age and all but the MAX_PARTS newest (with keep_sha:
+## its own part, whatever its age, and the MAX_PARTS - 1 newest others); returns the rest as
+## [mtime, path, size].
+static func _prune_parts(keep_sha := "") -> Array:
 	var cd := cache_dir()
 	var parts := []
+	var kept := []
 	var d := DirAccess.open(cd)
 	if d == null:
 		return parts
@@ -923,15 +940,18 @@ static func _prune_parts() -> Array:
 			continue
 		var p := cd.path_join(f)
 		var mt := FileAccess.get_modified_time(p)
+		if keep_sha != "" and f == keep_sha + ".part":
+			kept.append([mt, p, _fsize(p)])
+			continue
 		if now - mt > part_max_age:
 			DirAccess.remove_absolute(p)
 			continue
 		parts.append([mt, p, _fsize(p)])
 	parts.sort_custom(func(a: Array, b: Array) -> bool:
 		return a[0] > b[0] or (a[0] == b[0] and str(a[1]) > str(b[1])))
-	while parts.size() > MAX_PARTS:
+	while parts.size() > MAX_PARTS - (1 if keep_sha != "" else 0):
 		DirAccess.remove_absolute(str(parts.pop_back()[1]))
-	return parts
+	return kept + parts
 
 
 ## The cache's copy of sha leaves (file and index); forget_build also drops its build and thumb

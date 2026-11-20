@@ -94,6 +94,8 @@ func activate() -> void:
 func deactivate() -> void:
 	if not _stroke.is_empty():
 		stroke_end()
+	if not _lake.is_empty() and _lake.get("kind") != "new":
+		editor.history.end_gesture()
 	_lake.clear()
 	picking = false
 	if _natural_shown:
@@ -126,13 +128,13 @@ func options(box: VBoxContainer) -> void:
 		box.add_child(EditorKit.row("TARGET", UiKit.label(txt, 14, UiKit.TEXT)))
 		box.add_child(EditorKit.button("PICK HEIGHT", func() -> void:
 			picking = true
-			editor.status("Click the ground to pick the height."), "Or {ed_mod_alt} + click without moving."))
+			editor.status("Click the ground to pick the height.", true), "Or {ed_mod_alt} + click without moving."))
 	var ft := EditorKit.toggle("ROADS FOLLOW THE GROUND", follow, func(v: bool) -> void:
 		follow = v
 		_save())
 	ft.tooltip_text = "Road points with FOLLOW GROUND keep their height above the ground you sculpt."
 	box.add_child(ft)
-	box.add_child(EditorKit.hint("{ed_place} paints, {ed_mod_ctrl} inverts, {ed_mod_shift} smooths."))
+	box.add_child(EditorKit.hint("{ed_place} sculpts, {ed_mod_ctrl} swaps RAISE and LOWER, {ed_mod_shift} smooths."))
 	box.add_child(EditorKit.section("WATER"))
 	box.add_child(EditorKit.toggle("ADD LAKE", lake_mode, func(on: bool) -> void:
 		lake_mode = on
@@ -142,8 +144,19 @@ func options(box: VBoxContainer) -> void:
 	box.add_child(EditorKit.row("SHOW CARVE", EditorKit.check(show_carve, func(v: bool) -> void: set_show_carve(v)),
 		"Off: the natural ground, without the roads cut into it."))
 	var doc := editor.doc
-	var info := "NO TERRAIN" if not doc.has_terrain() else "%d m · %d x %d · %s m CELLS" % [int(doc.world_size()), doc.res(), doc.res(), str(snappedf(doc.cell(), 0.01))]
-	box.add_child(EditorKit.row("WORLD", UiKit.label(info, 14, UiKit.TEXT), "SIZE / RESOLUTION"))
+	# short enough for the column; the tooltip says it in full
+	var info := "NO TERRAIN"
+	var full := "No terrain: floating roads over a void."
+	if doc.has_terrain():
+		var cell := str(snappedf(doc.cell(), 0.01))
+		info = "%d m · %d² · %s m" % [int(doc.world_size()), doc.res(), cell]
+		full = "%d m across, %d x %d heights, %s m cells." % [int(doc.world_size()), doc.res(), doc.res(), cell]
+	var il := UiKit.label(info, EditorKit.FONT_SMALL, UiKit.TEXT)
+	il.clip_text = true
+	il.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	il.tooltip_text = full
+	il.mouse_filter = Control.MOUSE_FILTER_PASS
+	box.add_child(EditorKit.row("WORLD SIZE", il, full))
 	box.add_child(EditorKit.button("RESIZE WORLD...", func() -> void: editor.open_dialog(ResizeDialog.new(self)),
 		"Resample the ground to another world size or resolution."))
 	box.add_child(EditorKit.row("NO TERRAIN", EditorKit.check(not doc.has_terrain(), func(v: bool) -> void: set_terrain(not v)),
@@ -507,6 +520,14 @@ func stroke_end() -> void:
 	succeeded()
 
 
+## Esc while the button holds a stroke or a lake drag (TrackEditor.end_press): taken back.
+func cancel_drag() -> void:
+	var was := picking
+	picking = false
+	cancel()
+	picking = was
+
+
 ## Esc: a lake drag or a stroke stops and is taken back; false when nothing was going on.
 func cancel() -> bool:
 	if picking:
@@ -514,15 +535,14 @@ func cancel() -> bool:
 		return true
 	if not _lake.is_empty():
 		if _lake.get("kind") != "new":
-			editor.history.end_gesture()
-			if bool(_lake.get("moved", false)):
-				editor.history.undo()
+			editor.history.cancel_gesture()
 		_lake.clear()
 		editor.redraw()
 		return true
 	if not _stroke.is_empty():
 		var st := _stroke
 		_stroke = {}
+		_pending = Vector2(NAN, NAN)
 		var rect: Rect2i = st.rect
 		if rect.has_area():
 			editor.doc.apply([LevelDoc.op_heights(rect, LevelBrush.region(st.before, editor.doc.res(), rect))])

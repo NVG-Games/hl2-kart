@@ -55,11 +55,25 @@ const CARD_DRIVE := "PREPARING TEST DRIVE..."
 const SLOW := Color(0.2, 0.45, 1.0)
 const FAST := Color(1.0, 0.2, 0.1)
 const HOVER_COLOR := Color8(255, 155, 0)
+## The road hover tint: light, so the road and its items show through.
+const HOVER_ALPHA := 0.12
+## Tools that place at a point tint only +-SPOT_HALF m around the cursor.
+const SPOT_TOOLS := ["items", "hazards", "crowds"]
+const SPOT_HALF := 10.0
+## The race direction's arrows and the grid slots.
+const ARROW_EVERY := 50.0
+const ARROW_COLOR := Color(1, 1, 1, 0.55)
+## VIEW > GRID's square, in snap steps.
+const GRID_STEPS := 64
+## Seconds a status message shows before the tool's step line comes back.
+const STATUS_S := 4.0
 ## The kind of an item by its document section (7.6); road and branch points are worked out apart.
 const SECTION_KINDS := {"props": "prop", "lights": "light", "fires": "fire", "screens": "screen", "items": "item_row",
 	"crates": "crate", "pads": "pad", "barrels": "barrels", "zones": "zone", "hazards": "hazard", "crowds": "crowd",
 	"eggs": "egg", "lakes": "lake"}
 ## Shortcut -> tool (7.4).
+## The keys that still reach the tool while the button holds a press (TrackEditor._press_key).
+const PRESS_KEYS := ["ed_brush_smaller", "ed_brush_bigger", "ed_strength_down", "ed_strength_up"]
 const TOOL_KEYS := {"ed_tool_select": "select", "ed_tool_road": "road", "ed_tool_branch": "branch",
 	"ed_tool_terrain": "terrain", "ed_tool_paint": "paint", "ed_tool_objects": "objects", "ed_tool_items": "items",
 	"ed_tool_hazards": "hazards", "ed_tool_crowds": "crowds", "ed_tool_world": "world"}
@@ -99,6 +113,10 @@ var _pending: LevelBuild        # a bake held back while a drag runs
 var _preview_segs := {}         # segment index -> true: the stretch the live preview replaces
 var _overlay_dirty := true
 var _markers_dirty := true
+var _box := AABB()                # the track's box at the last bake (the view's fog reach)
+var _status_t := -1.0             # seconds left of status_text (-1: until replaced)
+var _save_pending := false        # a save between its press and the write's end
+var _grid_cache := {}             # VIEW > GRID's lines: {key, lines}
 var _ready_done := false
 
 
@@ -187,11 +205,18 @@ func _ready() -> void:
 		show_card(CARD_TRACK)
 		_start_bake()
 	_show_last_drive()
+	if not headless:
+		resume_music()
 	_ready_done = true
 
 
 func _exit_tree() -> void:
-	if session != null and session.is_open() and camera != null and _ready_done:
+	if not _ready_done:
+		return
+	end_press(false)
+	if history != null:
+		history.end_gesture()
+	if session != null and session.is_open() and camera != null:
 		_store_view()
 
 
@@ -199,7 +224,11 @@ func set_tool(tool_id: String) -> void:
 	if not tools.has(tool_id):
 		return
 	if tool != null and tool != tools[tool_id]:
+		end_press(false)
 		tool.deactivate()
+	if tool != tools[tool_id]:
+		status_text = ""   # the new tool's step line shows at once
+		_status_t = -1.0
 	tool = tools[tool_id]
 	if session != null:
 		session.tool = tool_id
@@ -442,8 +471,11 @@ func toast(text: String) -> void:
 		ui.toast(text)
 
 
-func status(text: String) -> void:
+## The status bar's message; it gives way to the tool's step line after STATUS_S seconds (sticky: a
+## prompt that waits for a click stays until it is replaced or the tool changes).
+func status(text: String, sticky := false) -> void:
 	status_text = text
+	_status_t = -1.0 if text == "" or sticky else STATUS_S
 	if ui != null:
 		ui.refresh_status()
 
@@ -470,6 +502,7 @@ func frame_issue(issue: Dictionary) -> void:
 func open_dialog(d: Dialog) -> void:
 	if d == null:
 		return
+	end_press(false)
 	var layer := get_node_or_null("UI")
 	(layer if layer != null else self).add_child(d)
 	d.focus_default()
@@ -479,11 +512,14 @@ func open_dialog(d: Dialog) -> void:
 func test_drive(from: String, screen := Vector2(NAN, NAN)) -> void:
 	if session == null or doc == null:
 		return
+	end_press(false)
 	var why := session.drive_blocker()
 	if why != "":
 		_refuse(why)
 		return
 	var opts := {"from": from if from in ["start", "here", "watch"] else "start"}
+	if opts.from == "watch":
+		session.bot_lap = {}   # the new watch's result replaces it
 	if opts.from == "here":
 		var sp := screen if not (is_nan(screen.x) or is_nan(screen.y)) else _mouse
 		var h := road_hit(sp)
@@ -519,20 +555,21 @@ func auto_dress(opts: Dictionary) -> void:
 func apply_fix(issue: Dictionary) -> void:
 	if doc == null or issue.is_empty():
 		return
-	var fix := str(issue.get("fix", ""))
 	var ops := LevelFixes.ops(issue, doc, build)
 	if ops.is_empty():
 		toast("This one cannot be fixed automatically.")
 		return
-	commit("FIX: " + str(LevelFixes.LABELS.get(fix, fix.to_upper().replace("_", " "))), ops)
+	commit("FIX: " + LevelFixes.label(issue), ops)
 
 
 ## SAVE (Ctrl+S) / SAVE AS (as_new: a new file from the track's name). Reuses the current bake or
 ## awaits the worker's with SAVING... in the status bar while input stays live; renders a thumbnail
 ## when there is no custom one and a window exists (1.9).
 func save(as_new := false) -> void:
-	if session == null or doc == null or session.saving:
+	# one save at a time: a second Ctrl+S while the bake or the thumbnail runs is dropped
+	if session == null or doc == null or session.saving or _save_pending:
 		return
+	_save_pending = true
 	var target := ""
 	if as_new:
 		target = LevelIO.free_path(CustomTracks.mine_dir(), str(doc.data.get("name", "track")))
@@ -564,6 +601,7 @@ func host_online() -> void:
 func exit_to(where: String) -> void:
 	if session == null:
 		return
+	end_press(false)
 	_store_view()
 	match where:
 		"home":
@@ -615,7 +653,8 @@ func baking() -> bool:
 ## rebuilds its chunks (and tiles): a brush stroke's undo, a terrain op.
 func refresh_terrain(rect: Rect2i, collision: bool) -> void:
 	var t := terrain()
-	if t == null or doc == null or doc.heights.size() != t.natural.size() or t.res != doc.res():
+	# a resized world (same resolution, another cell) waits for its bake
+	if t == null or doc == null or doc.heights.size() != t.natural.size() or t.res != doc.res() or not is_equal_approx(t.cell, doc.cell()):
 		return
 	var r := rect.intersection(Rect2i(0, 0, t.res, t.res))
 	if not r.has_area():
@@ -635,6 +674,14 @@ func refresh_terrain(rect: Rect2i, collision: bool) -> void:
 		t.carve(build.roads, flat, blend, r)
 	if view != null:
 		view.update_terrain(r, collision)
+
+
+## Metres from the camera to the far side of the track (the editor view's fog starts past it).
+func view_reach() -> float:
+	if camera == null or not camera.is_inside_tree():
+		return 0.0
+	var b := _box if _box.has_volume() or _box.size != Vector3.ZERO else track_aabb()
+	return camera.global_position.distance_to(b.get_center()) + b.size.length() * 0.5
 
 
 ## The track's box: its road and branch points, else the middle of the world.
@@ -706,6 +753,13 @@ func _process(delta: float) -> void:
 	if doc == null or not _ready_done:
 		return
 	session.autosave_tick(delta)
+	if _status_t > 0.0:
+		_status_t -= delta
+		if _status_t <= 0.0:
+			_status_t = -1.0
+			status_text = ""
+			if ui != null:
+				ui.refresh_status()
 	if _bake_t >= 0.0:
 		_bake_t -= delta
 		if _bake_t < 0.0:
@@ -715,6 +769,9 @@ func _process(delta: float) -> void:
 				_start_bake()
 	if _hover_dirty:
 		_update_hover()
+	if camera != null and view != null:
+		# the WORLD tool shows the fog as the race has it (its FOG rows are being set)
+		camera.sync_env(view.env, view_reach(), tool != null and tool.id == "world")
 	if tool != null:
 		tool.process(delta)
 	if _markers_dirty:
@@ -728,6 +785,19 @@ func _process(delta: float) -> void:
 func _unhandled_input(ev: InputEvent) -> void:
 	if doc == null or not _ready_done or tool == null:
 		return
+	if ev is InputEventMouseButton:
+		var b := ev as InputEventMouseButton
+		# the release of a press on the view ends it even with a field or a dialog up since
+		if not b.pressed and b.button_index == MOUSE_BUTTON_LEFT and not _press.is_empty():
+			_mouse = b.position
+			_lmb_up(b)
+			get_viewport().set_input_as_handled()
+			return
+		# a click on the view (not on a panel) lets go of a text field; the field commits on focus_exited
+		if b.pressed and b.button_index != MOUSE_BUTTON_WHEEL_UP and b.button_index != MOUSE_BUTTON_WHEEL_DOWN:
+			var fo := get_viewport().gui_get_focus_owner()
+			if fo is LineEdit or fo is TextEdit:
+				get_viewport().gui_release_focus()
 	if _blocked():
 		return
 	if ev is InputEventMouseMotion:
@@ -763,6 +833,9 @@ func _unhandled_input(ev: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 		return
 	if ev is InputEventKey or ev is InputEventJoypadButton:
+		if pressing():
+			_press_key(ev)
+			return
 		if tool.key(ev):
 			get_viewport().set_input_as_handled()
 			return
@@ -770,7 +843,83 @@ func _unhandled_input(ev: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 
 
+## A key while the button holds a press: Esc cancels it (1.6), the brush keys still work; the rest
+## (undo, tool keys, F5, save, delete, copy / paste) would cut into the drag and waits.
+func _press_key(ev: InputEvent) -> void:
+	if _act(ev, "ed_cancel"):
+		end_press(true)
+		get_viewport().set_input_as_handled()
+		return
+	for a in PRESS_KEYS:
+		if _act(ev, a, true):
+			tool.key(ev)
+			break
+	if ev.is_pressed():
+		get_viewport().set_input_as_handled()
+
+
+## A live press: the LMB is down on the view (a click or a drag), the gizmo's own Alt drag runs,
+## or a SELECT drag still holds its gesture open.
+func pressing() -> bool:
+	return not _press.is_empty() or (gizmo != null and gizmo.busy()) or _select_dragging()
+
+
+func _select_dragging() -> bool:
+	var st = tools.get("select")
+	return st is SelectTool and (st as SelectTool).dragging()
+
+
+## Ends the live press now (Esc, a tool switch, a dialog, a test drive, leaving): the drag ends
+## where the mouse is (the tool's drag_end), or with cancel stops and is taken back (cancel_drag);
+## the button's later release is ignored. Bakes held back by the drag run again.
+func end_press(cancel: bool) -> void:
+	var p := _press
+	var how := _dragging
+	var gz := gizmo != null and gizmo.busy()
+	var sd := _select_dragging()
+	if p.is_empty() and not gz and how == "" and not sd:
+		return
+	_press = {}
+	_dragging = ""
+	if gz:
+		gizmo.end_drag(_mouse, camera, snap, cancel)
+		if cancel:
+			var st = tools.get("select")
+			if st is SelectTool:
+				(st as SelectTool).cancel_gizmo()
+	elif how == "tool" and tool != null:
+		if cancel:
+			tool.cancel_drag()
+		else:
+			tool.drag_end(_drag_hit(_mouse), int(p.get("mods", 0)))
+	# a SELECT drag left without its press (the gizmo's signals, a lost release)
+	var st = tools.get("select")
+	if st is SelectTool and (st as SelectTool).dragging():
+		if cancel:
+			(st as SelectTool).cancel_gizmo()
+			(st as SelectTool).cancel_drag()
+		else:
+			(st as SelectTool).end_drags()
+	if history != null and (gz or sd or how != ""):
+		history.end_gesture()
+	_after_drag()
+
+
+## A drag ended: the bake held back while it ran goes in.
+func _after_drag() -> void:
+	if _pending != null:
+		var b := _pending
+		_pending = null
+		if b.revision >= _bake_started:
+			_apply_bake(b)
+	_overlay_dirty = true
+	_hover_dirty = true
+
+
 func _lmb_down(mb: InputEventMouseButton) -> void:
+	if pressing():
+		end_press(false)   # a release that never came
+	_dragging = ""
 	var mods := mods_of(mb)
 	var hit := pick(mb.position)
 	_press = {"pos": mb.position, "mods": mods, "hit": hit, "drag": false, "double": mb.double_click}
@@ -812,13 +961,9 @@ func _lmb_up(mb: InputEventMouseButton) -> void:
 			gizmo.drag((p.hit as EditorHit).sub, mb.position, camera, 2, snap)
 		elif how == "tool":
 			tool.drag_end(_drag_hit(mb.position), mods_of(mb))
-		if _pending != null:
-			var b := _pending
-			_pending = null
-			if b.revision >= _bake_started:
-				_apply_bake(b)
-		_overlay_dirty = true
+		_after_drag()
 		return
+	_dragging = ""
 	if p.get("used", false):
 		return
 	click(p.hit, int(p.mods))
@@ -849,12 +994,16 @@ func _shortcut(ev: InputEvent) -> bool:
 			set_tool(TOOL_KEYS[a])
 			return true
 	if _act(ev, "ed_undo"):
+		if pressing():
+			return true   # (the menu's UNDO too) never inside a drag
 		if history != null and history.can_undo():
 			var nm := history.undo_name()
 			history.undo()
 			status("UNDO " + nm)
 		return true
 	if _act(ev, "ed_redo"):
+		if pressing():
+			return true
 		if history != null and history.can_redo():
 			var nm := history.redo_name()
 			history.redo()
@@ -885,10 +1034,14 @@ func _shortcut(ev: InputEvent) -> bool:
 		escape()
 		return true
 	if _act(ev, "ed_save_as"):
-		save(true)
+		if ui != null:
+			ui.save_as()   # asks for the name, as the FILE menu does
 		return true
 	if _act(ev, "ed_save"):
-		save()
+		if ui != null:
+			ui.save_named()   # the first save of a MY TRACK asks for its name
+		else:
+			save()
 		return true
 	if _act(ev, "ed_help"):
 		ui.open_help()
@@ -937,11 +1090,16 @@ func _shortcut(ev: InputEvent) -> bool:
 		return true
 	if _act(ev, "ed_hide"):
 		var hid := session.hidden.duplicate()
+		var n := 0
 		for u in selection.uids:
 			if not (u in hid):
 				hid.append(u)
+				n += 1
+		if n == 0:
+			return true
 		_set_hidden(hid)
 		selection.clear()
+		toast("Hidden %d · {ed_unhide} shows them" % n)
 		return true
 	if _act(ev, "ed_raise", true):
 		SelectTool.nudge_height(self, 1)
@@ -950,8 +1108,13 @@ func _shortcut(ev: InputEvent) -> bool:
 		SelectTool.nudge_height(self, -1)
 		return true
 	if _act(ev, "ed_grid"):
-		snap["on"] = not bool(snap.get("on", true))
-		status("GRID " + ("ON" if snap.on else "OFF"))
+		# as the GRID button: kept in the settings for the next session
+		var on := not bool(snap.get("on", true))
+		if ui != null:
+			ui.set_snap("on", on)
+		else:
+			snap["on"] = on
+		status("GRID " + ("ON" if on else "OFF"))
 		return true
 	# gizmo modes, only while not flying (W E R fly with the right button held)
 	if not Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
@@ -970,16 +1133,40 @@ func _shortcut(ev: InputEvent) -> bool:
 	return false
 
 
-## Esc: the tool's step first (tool.key), then the last drive's trail, then deselect, then the
-## EDITOR MENU.
+## Esc, one step per press (1.6): a held press is cancelled, then the tool's step (tool.key), then
+## the last drive's trail goes, then deselect, then the EDITOR MENU.
 func escape() -> void:
+	if pressing():
+		end_press(true)
+		return
 	if not trail.is_empty() or not rescues.is_empty():
 		clear_trail()
+		return
 	if not selection.uids.is_empty():
 		selection.clear()
 		return
 	if ui != null:
 		ui.open_menu()
+
+
+## The menu music goes on in the editor (7.7), also after a test drive stopped it; VIEW > MUSIC
+## off keeps it quiet. true when it started a song.
+func resume_music() -> bool:
+	if Game.now_playing != "" or (ui != null and not bool(ui.view_flags.get("music", true))):
+		return false
+	Game.play_music_mode("menu")
+	return Game.now_playing != ""
+
+
+## VIEW > LABELS: the live markers' names beside them (the OUTLINER's names).
+func set_labels(on: bool) -> void:
+	if markers == null:
+		return
+	if on:
+		markers.label_of = func(u: int) -> String: return Outliner.item_name(self, u) if doc != null else ""
+	else:
+		markers.label_of = Callable()
+	markers.forget_names()
 
 
 ## Ctrl+A: every item of the active tool's kinds (SELECT: everything).
@@ -1382,6 +1569,11 @@ func _apply_bake(b: LevelBuild) -> void:
 		_preview_segs = {}
 	if view != null:
 		view.show_build(b)
+	var hz = tools.get("hazards")
+	if hz is HazardsTool:
+		(hz as HazardsTool).sync_models()
+	_box = track_aabb()
+	_note_bot_lap(b)
 	if markers != null:
 		markers.set_issues(b.report)
 	if ui != null:
@@ -1399,6 +1591,21 @@ func _apply_bake(b: LevelBuild) -> void:
 		ui.refresh_status()
 	baked.emit(b)
 	_serve_waiters(b)
+
+
+## WATCH A BOT LAP's result as the checklist's info bot_lap (1.8), a pin where the bot got stuck;
+## true when it was added to b's report.
+func _note_bot_lap(b: LevelBuild) -> bool:
+	if b == null or b.report == null or session == null or session.bot_lap.is_empty() or b.report.has("bot_lap"):
+		return false
+	var bl: Dictionary = session.bot_lap
+	var where := {}
+	if bl.has("s"):
+		where["s"] = float(bl.s)
+	if bl.get("pos") is Vector3:
+		where["pos"] = bl.pos
+	b.report.info("bot_lap", str(bl.get("line", "")), where)
+	return true
 
 
 func _serve_waiters(b: LevelBuild) -> void:
@@ -1420,6 +1627,11 @@ func _serve_waiters(b: LevelBuild) -> void:
 # ---------------------------------------------------------------- the document changed
 
 func _on_doc_changed(sections: PackedStringArray, uids: PackedInt32Array, rect: Rect2i) -> void:
+	# a save's own meta (modified, app, content, bake): no edit, the trail stays and the bake is current
+	if session != null and session.saving_meta:
+		if ui != null:
+			ui.refresh_status()
+		return
 	if not trail.is_empty() or not rescues.is_empty():
 		clear_trail()
 	if view != null:
@@ -1450,6 +1662,7 @@ func _on_selection_changed() -> void:
 		markers.set_selected(selection.uids)
 	if ui != null:
 		ui.refresh_inspector()
+		ui.refresh_status()   # "1 selected" goes at once (Esc, the pad, a click on nothing)
 	_overlay_dirty = true
 
 
@@ -1460,6 +1673,11 @@ func _set_hidden(uids: PackedInt32Array) -> void:
 		view.set_hidden(uids)
 	if markers != null:
 		markers.set_hidden(uids)
+	var hz = tools.get("hazards")
+	if hz is HazardsTool:
+		(hz as HazardsTool).sync_models()
+	if ui != null:
+		ui.refresh_status()
 	_overlay_dirty = true
 
 
@@ -1467,6 +1685,7 @@ func _refresh_markers() -> void:
 	_markers_dirty = false
 	if markers == null:
 		return
+	markers.forget_names()
 	for id in TOOL_IDS:
 		markers.begin(id)
 		(tools[id] as EditorTool).markers(markers)
@@ -1504,12 +1723,95 @@ func _redraw_overlay() -> void:
 		elif hover.what == "road" and hover.sample >= 0:
 			var r := road(hover.road)
 			if r != null and hover.sample < r.n and hover.sample < r.seg.size():
-				var span := _seg_span(r, r.seg[hover.sample])
-				if span.x >= 0:
-					var w := r.width[hover.sample] * 0.5
-					draw.strip_on_road(r, r.s[span.x], r.s[span.y], -w, w, Color(HOVER_COLOR, 0.25))
+				var w := r.width[hover.sample] * 0.5
+				var col := Color(HOVER_COLOR, HOVER_ALPHA)
+				if tool != null and tool.id in SPOT_TOOLS:
+					# a tool that places at a point: only the stretch under the cursor
+					var s := r.s[hover.sample]
+					draw.strip_on_road(r, maxf(s - SPOT_HALF, 0.0), minf(s + SPOT_HALF, r.length), -w, w, col)
+				else:
+					var span := _seg_span(r, r.seg[hover.sample])
+					if span.x >= 0:
+						draw.strip_on_road(r, r.s[span.x], r.s[span.y], -w, w, col)
 	if tool != null:
 		tool.overlay(draw)
+	# VIEW > ZONES: the low-gravity and hazard zones in every tool (their own tools draw them anyway)
+	if ui != null and bool(ui.view_flags.get("zones", false)):
+		var it = tools.get("items")
+		if it is ItemsTool and tool != it:
+			(it as ItemsTool).draw_zones(draw)
+		var hz = tools.get("hazards")
+		if hz is HazardsTool and tool != hz:
+			(hz as HazardsTool).draw_zones(draw)
+	if ui != null and bool(ui.view_flags.get("grid", false)):
+		_draw_grid()
+	_draw_race_marks()
+
+
+## VIEW > GRID: lines on the ground every snap step (every 8th brighter) in a square of GRID_STEPS
+## steps around the cursor (else the ground in the middle of the view).
+func _draw_grid() -> void:
+	var g := float(snap.get("grid", 1.0))
+	if g <= 0.0 or camera == null or not camera.is_inside_tree():
+		return
+	var c := hover.pos if hover != null and hover.hit else _ground_point(camera.global_position, -camera.global_basis.z)
+	if is_nan(c.x):
+		return
+	var t := terrain()
+	var half := GRID_STEPS / 2
+	var ox := floorf(c.x / g) * g
+	var oz := floorf(c.z / g) * g
+	var y0 := c.y
+	# the lines are made again only when the square moves a step, the step or the ground changes
+	var key := [ox, oz, g, doc.revision, roundf(y0) if t == null else 0.0]
+	if _grid_cache.get("key") != key:
+		var lines := []
+		for k in range(-half, half + 1):
+			var col := Color(1, 1, 1, 0.3) if posmod(int(roundf((ox + k * g) / g)), 8) == 0 else Color(1, 1, 1, 0.12)
+			var col2 := Color(1, 1, 1, 0.3) if posmod(int(roundf((oz + k * g) / g)), 8) == 0 else Color(1, 1, 1, 0.12)
+			var a := PackedVector3Array()
+			var b := PackedVector3Array()
+			for j in range(-half, half + 1, 2):
+				a.append(_grid_point(t, ox + k * g, oz + j * g, y0))
+				b.append(_grid_point(t, ox + j * g, oz + k * g, y0))
+			lines.append([a, col])
+			lines.append([b, col2])
+		_grid_cache = {"key": key, "lines": lines}
+	for ln in _grid_cache.lines:
+		draw.polyline(ln[0], ln[1], false, false)
+
+
+func _grid_point(t: LevelTerrain, x: float, z: float, y0: float) -> Vector3:
+	var h := t.height_at(x, z) if t != null else NAN
+	return Vector3(x, (h if not is_nan(h) else y0) + 0.15, z)
+
+
+## Which way a lap runs: an arrow every ARROW_EVERY m on the main road and the branches (the last
+## bake's), and the grid's slots behind the start line (1.3).
+func _draw_race_marks() -> void:
+	if build == null:
+		return
+	for r in build.roads:
+		if r == null or r.n < 2 or r.partial:
+			continue
+		var s := ARROW_EVERY * 0.5
+		while s < r.length:
+			var i := r.idx(s)
+			draw.arrow(r.surface(i, 0.0, 0.3), r.fwd[i], 4.0, ARROW_COLOR, false)
+			s += ARROW_EVERY
+	var grid = build.data.get("grid", [])
+	if grid is Array:
+		for slot in grid:
+			if not (slot is Dictionary):
+				continue
+			var p := LevelView._v3(slot.get("pos")) - Vector3.UP * 0.5
+			var f = slot.get("fwd")
+			var fw := Vector3(float(f[0]), 0.0, float(f[2])).normalized() if f is Array and (f as Array).size() >= 3 else Vector3.FORWARD
+			if fw.length_squared() < 1e-6:
+				fw = Vector3.FORWARD
+			var rt := fw.cross(Vector3.UP).normalized()
+			var q := PackedVector3Array([p + fw * 1.5 + rt * 0.9, p + fw * 1.5 - rt * 0.9, p - fw * 1.5 - rt * 0.9, p - fw * 1.5 + rt * 0.9])
+			draw.polyline(q, ARROW_COLOR, true, false)
 
 
 ## The F4 / trail colour of a speed: 12 m/s blue .. 40 m/s red.
@@ -1572,7 +1874,8 @@ func _restore_view() -> void:
 func _store_view() -> void:
 	if session == null or camera == null or not camera.is_inside_tree():
 		return
-	session.camera = camera.global_transform
+	# the perspective view (TOP VIEW is a flag): T comes back to it, a save's header shows it
+	session.camera = camera.persp_transform()
 	session.has_view = true
 	session.top_view = camera.top
 	if tool != null:
@@ -1587,6 +1890,10 @@ func _show_last_drive() -> void:
 	if ld.is_empty():
 		return
 	session.last_drive = {}
+	var why := str(ld.get("failed", ""))
+	if why != "":
+		_refuse(why)
+		return
 	var res := int(ld.get("rescues", 0))
 	var best := float(ld.get("best_lap", 0.0))
 	var lap := _lap_text(best) if best > 0.0 else ""
@@ -1594,8 +1901,21 @@ func _show_last_drive() -> void:
 	if str(ld.get("from", "")) == "watch":
 		if bool(ld.get("finished", true)) or float(ld.get("stuck_at_s", -1.0)) < 0.0:
 			t = "BOT LAP %s, %d RESCUE%s" % [lap if lap != "" else "-", res, "" if res == 1 else "S"]
+			session.bot_lap = {"line": t}
 		else:
-			t = "STUCK AT s %d" % int(float(ld.get("stuck_at_s", 0.0)))
+			var ss := float(ld.get("stuck_at_s", 0.0))
+			t = "STUCK AT s %d" % int(ss)
+			var bl := {"line": "WATCH A BOT LAP: the bot got stuck %d m after the start." % int(ss), "s": ss}
+			var r := road(-1)
+			if r != null and r.n > 0:
+				bl["pos"] = r.pos[r.idx(ss)]
+			session.bot_lap = bl
+		# the checklist's bot_lap line (and its pin) on the bake shown now; the next bakes add it too
+		if build != null and _note_bot_lap(build):
+			if markers != null:
+				markers.set_issues(build.report)
+			if ui != null:
+				ui.set_report(build.report)
 	else:
 		t = "Back from the test drive: %s%d rescue%s" % ["best lap %s, " % lap if lap != "" else "", res, "" if res == 1 else "s"]
 	toast(t)
@@ -1615,10 +1935,13 @@ static func _lap_text(sec: float) -> String:
 	return "%d:%04.1f" % [m, sec - m * 60.0]
 
 
+## A test drive refused or failed: the toast, the status line and the validation drawer (1.7).
 func _refuse(why: String) -> void:
 	var text := EditorKit.prompt(why)
 	toast(text)
 	status(text)
+	if ui != null and ui.drawer != null and not ui.drawer.visible:
+		ui.toggle_validation()
 
 
 func _drive(opts: Dictionary) -> void:
@@ -1630,10 +1953,15 @@ func _drive(opts: Dictionary) -> void:
 
 
 func _save_with(b: LevelBuild, target: String, after := Callable()) -> void:
+	_save_pending = true
 	if b != null and not doc.thumb_custom:
 		await _render_thumb(b)
+	if session == null or not session.is_open():
+		_save_pending = false
+		return
 	_store_view()
 	session.save(target, {}, func(err: int) -> void:
+		_save_pending = false
 		bake_state = "" if err == OK else "SAVE FAILED"
 		if err == OK:
 			toast("Saved")

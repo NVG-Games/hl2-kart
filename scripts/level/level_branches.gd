@@ -47,6 +47,10 @@ const LEGAL_SPAN := 80.0
 ## Forks and merges lie inside this share of the lap.
 const LAP_MIN := 0.04
 const LAP_MAX := 0.96
+## A branch longer than this (LevelRoad.length_bounds) is left out unsampled (6.9), and so is one
+## that takes the branches sampled before it (doc order) past MAX_TOTAL in all.
+const MAX_LEN := 8000.0
+const MAX_TOTAL := 20000.0
 ## Plan radius a junction's main road needs, and the bank it may carry (rad, |right.y|).
 const MIN_RADIUS := 120.0
 const MAX_BANK := 0.01
@@ -74,6 +78,8 @@ const TEXTS := {
 	"branch_edge": "The branch {name} runs inside the main road: move its points out.",
 	"branch_tight": "The branch {name} has a bend too tight for its width: drag the point outward.",
 	"branch_items": "Crates or a pad on the branch {name} sit where it still shares the main road.",
+	"branch_long": "The branch {name} is {km} km long: 8 km is the most.",
+	"branch_long_total": "The branches come to {km} km with {name}: 20 km in all is the most, so it is left out.",
 }
 
 
@@ -82,6 +88,7 @@ const TEXTS := {
 ## road (junction, side_off); failing ones get ok = false and their branch_* errors.
 static func build(ctx: LevelContext) -> void:
 	ctx.branches = []
+	ctx.set_meta("branch_len", 0.0)
 	var m := ctx.main
 	var roads: Array[LevelRoad] = []
 	if m != null:
@@ -527,6 +534,18 @@ static func _make(ctx: LevelContext, spec: Dictionary) -> Dictionary:
 	var mats = ctx.registries.get("materials", {})
 	if mats is Dictionary and not (mats as Dictionary).is_empty():
 		opts["materials"] = mats
+	# a branch far longer than any lap is refused before it is sampled (6.9)
+	var lb := LevelRoad.length_bounds(pts, false, opts)
+	if lb.x > MAX_LEN or lb.y > MAX_LEN * LevelRoad.LONG_BOUND:
+		_error(ctx, b, "branch_long", {"uid": uid, "road": -1, "s": m.s[i0], "pos": m.pos[i0], "branch": uid,
+			"end": "fork", "km": maxi(roundi(lb.x / 1000.0), 9)})
+		return b
+	var used := float(ctx.get_meta("branch_len", 0.0))
+	if used + lb.x > MAX_TOTAL:
+		_error(ctx, b, "branch_long", {"uid": uid, "road": -1, "s": m.s[i0], "pos": m.pos[i0], "branch": uid,
+			"end": "fork", "km": roundi((used + lb.x) / 1000.0)}, 0, "total")
+		return b
+	ctx.set_meta("branch_len", used + lb.x)
 	var t := LevelRoad.build(pts, ctx.styles, false, opts)
 	if t.n < 4:
 		_error(ctx, b, "branch_nose", {"uid": uid, "road": -1, "s": m.s[i0], "pos": m.pos[i0], "branch": uid, "end": "fork"}, 0, "never")
@@ -888,11 +907,15 @@ static func _error(ctx: LevelContext, b: Dictionary, code: String, where: Dictio
 		return
 	var name := str(b.name)
 	var text := ""
+	var args := {"name": name, "m": metres, "args": [name, metres]}
+	for k in where:
+		if not args.has(k):
+			args[k] = where[k]
 	if variant == "":
-		text = LevelValidate.text(code, {"name": name, "m": metres, "args": [name, metres]})
+		text = LevelValidate.text(code, args)
 	if text == "" or text.contains("%s") or text.contains("%d"):
 		var key := code if variant == "" else "%s_%s" % [code, variant]
-		text = str(TEXTS.get(key, TEXTS.get(code, code))).format({"name": name, "m": metres})
+		text = str(TEXTS.get(key, TEXTS.get(code, code))).format(args)
 	var fix := str(LevelValidate.FIXES.get(code, ""))
 	where["name"] = name
 	ctx.report.error(code, text, where, fix)

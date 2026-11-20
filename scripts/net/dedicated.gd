@@ -2,15 +2,18 @@ class_name DedicatedConsole
 extends Node
 ## Dedicated server console (headless). Lives under the Net autoload and reads
 ## commands from stdin like the srcds console: status, say, kick, start,
-## lobby, tracks, track <name>, next, set <rule> <value>, quit.
+## lobby, tracks, rescan, track <name>, next, set <rule> <value>, quit.
+## tracks, rescan, track and next read the track folders again first: a file added or replaced
+## while the server runs is found (a replaced one under its new id).
 ## It also prefetches the next rotation entry: once the current track is ready the server
 ## compiles the next custom track of the list on a worker (6.6), and nothing else.
 
 const HELP := [
-	"status | say <text> | kick <nick> | start | lobby | tracks | track <name> | next | set <rule> <value> | rules | quit",
+	"status | say <text> | kick <nick> | start | lobby | tracks | rescan | track <name> | next | set <rule> <value> | rules | quit",
 	"rules: hostname maxplayers bot_fill bot_grid mp_laps mp_difficulty mp_hazards sv_password",
 	"tracks: mp_track mp_tracklist mp_rotate sv_tracks sv_downloads sv_download_rate",
 	"start skips READY, never the track; track / next during a race apply after it",
+	"rescan reads the track folders again (tracks, track and next do it too)",
 ]
 
 var _thread: Thread
@@ -109,8 +112,13 @@ func _command(line: String) -> void:
 		"lobby":
 			Net.back_to_lobby()
 		"tracks":
+			Net.share.rescan()
 			for l in tracks_lines():
 				print(l)
+		"rescan":
+			Net.share.rescan()
+			_prefetched.clear()
+			print("%d custom tracks in the folders (%s)" % [CustomTracks.list("all").size(), ", ".join(CustomTracks.folders())])
 		"track", "map":
 			if rest == "":
 				print("track <id, name or file name>   (now: %s)" % _label(str(Net.cfg.get("track", ""))))
@@ -118,13 +126,13 @@ func _command(line: String) -> void:
 			_set_track(rest)
 		"next":
 			var was := str(Net.cfg.get("track", ""))
-			# an operator's next works with mp_rotate 0 too
+			# an operator's next works with mp_rotate 0 too (it reads the folders again first)
 			if not Net.share.rotate_after_failure():
 				print("no other usable track in mp_tracklist")
 			elif Net.state != "lobby":
 				print("next track after this race: %s" % _label(Net.share.pending_track))
 			elif str(Net.cfg.get("track", "")) != was:
-				print("track: %s" % _label(str(Net.cfg.get("track", ""))))
+				_print_track()
 		"rules":
 			print(Net.cfg)
 		"set":
@@ -155,17 +163,27 @@ func _command(line: String) -> void:
 			print("unknown command: ", cmd)
 
 
-## `track <name>` / `set mp_track <name>`: resolved at once (after the scan); during a race it is
-## kept and applied when everyone is back in the lobby.
+## `track <name>` / `set mp_track <name>`: resolved at once (after a rescan of the folders); during
+## a race it is kept and applied when everyone is back in the lobby.
 func _set_track(value: String) -> void:
+	Net.share.rescan()
 	var o := {"track": str(Net.cfg.get("track", ""))}
 	if not DedicatedConfig.set_option(o, "track", value):
 		return
 	Net.set_rule("track", o["track"])
 	if Net.state != "lobby":
-		print("track after this race: %s" % _label(str(o["track"])))
+		print("track after this race: %s" % _label(Net.share.pending_track))
 	else:
-		print("track: %s" % _label(str(o["track"])))
+		_print_track()
+
+
+## "track: <name> (<id>)" once the server serves it, else why not (the failure then moves on).
+func _print_track() -> void:
+	var id := str(Net.cfg.get("track", ""))
+	if CustomTracks.is_custom(id) and Net.share.pkg.is_empty():
+		print("track %s cannot be used: its file changed or is missing" % _label(id))
+		return
+	print("track: %s" % _label(id))
 
 
 ## The status block: the server, its track and every player's track state / percent / reason.

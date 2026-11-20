@@ -14,6 +14,8 @@ const FONT := 15
 const FONT_SMALL := 13
 ## The label column of row().
 const LABEL_W := 128
+## A scroll bar's width (VScrollBar) or height (HScrollBar).
+const BAR_W := 8.0
 const OK_COLOR := Color(0.45, 0.85, 0.35)
 const WARN_COLOR := Color(1.0, 0.82, 0.2)
 const ERROR_COLOR := Color(1.0, 0.32, 0.25)
@@ -124,12 +126,13 @@ static func theme() -> Theme:
 	t.set_constant("v_separation", "Tree", 3)
 	t.set_constant("item_margin", "Tree", 12)
 	t.set_font_size("title_button_font_size", "Tree", FONT_SMALL)
-	# scroll bars
-	var sbar := UiKit.box(Color(1, 1, 1, 0.05), Color(0, 0, 0, 0), 0, 3, 0)
-	t.set_stylebox("scroll", "HScrollBar", sbar)
-	t.set_stylebox("grabber", "HScrollBar", UiKit.box(Color(1, 1, 1, 0.25), Color(0, 0, 0, 0), 0, 3, 0))
-	t.set_stylebox("grabber_highlight", "HScrollBar", UiKit.box(o, Color(0, 0, 0, 0), 0, 3, 0))
-	t.set_stylebox("grabber_pressed", "HScrollBar", UiKit.box(o, Color(0, 0, 0, 0), 0, 3, 0))
+	# scroll bars: 8 px (UiKit's have no width), a grey grabber, orange under the mouse
+	for bar in ["HScrollBar", "VScrollBar"]:
+		t.set_stylebox("scroll", bar, _bar(Color(1, 1, 1, 0.06)))
+		t.set_stylebox("scroll_focus", bar, _bar(Color(1, 1, 1, 0.06)))
+		t.set_stylebox("grabber", bar, _bar(Color(1, 1, 1, 0.35)))
+		t.set_stylebox("grabber_highlight", bar, _bar(o))
+		t.set_stylebox("grabber_pressed", bar, _bar(o))
 	# panels: FRAME_BG, thin padding (the editor's columns)
 	t.set_stylebox("panel", "PanelContainer", UiKit.box(UiKit.FRAME_BG, Color(1, 1, 1, 0.1), 1, 0, 6))
 	t.set_type_variation("EdCard", "PanelContainer")
@@ -193,13 +196,21 @@ static func plain(text: String) -> String:
 	return out
 
 
+## A scroll bar part: BAR_W across (4 px margins on every side).
+static func _bar(c: Color) -> StyleBoxFlat:
+	var sb := UiKit.box(c, Color(0, 0, 0, 0), 0, 3, 0)
+	sb.set_content_margin_all(BAR_W * 0.5)
+	return sb
+
+
 static func section(text: String) -> Label:
 	var l := UiKit.label(text, FONT_SMALL, UiKit.ORANGE, true)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l
 
 
-## [label ....... control]; the label is clipped to its column, the tooltip on both.
+## [label ....... control]; the label is clipped to its column (its whole text in its tooltip),
+## the tip in the tooltip of both.
 static func row(label: String, c: Control, tip := "") -> HBoxContainer:
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 8)
@@ -207,7 +218,8 @@ static func row(label: String, c: Control, tip := "") -> HBoxContainer:
 	l.custom_minimum_size = Vector2(LABEL_W, ROW_H - 4)
 	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	l.clip_text = true
-	l.tooltip_text = tip
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	l.tooltip_text = label if tip == "" else ("%s\n%s" % [label, tip] if label != "" else tip)
 	l.mouse_filter = Control.MOUSE_FILTER_PASS
 	h.add_child(l)
 	if c != null:
@@ -432,21 +444,23 @@ static func hint(text: String) -> PromptLabel:
 	return l
 
 
-## One of N as joined toggle buttons; on_select(index).
-static func modes(items: Array, selected: int, on_select: Callable) -> HBoxContainer:
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 2)
+## One of N as joined toggle buttons; on_select(index). Names that do not fit one line wrap to
+## more lines (never cut); each button's tooltip has its name.
+static func modes(items: Array, selected: int, on_select: Callable) -> HFlowContainer:
+	var h := HFlowContainer.new()
+	h.add_theme_constant_override("h_separation", 2)
+	h.add_theme_constant_override("v_separation", 2)
 	var group := ButtonGroup.new()
 	for i in items.size():
 		var b := Button.new()
 		b.text = str(items[i])
+		b.tooltip_text = str(items[i])
 		b.theme_type_variation = "EdToggle"
 		b.toggle_mode = true
 		b.button_group = group
 		b.button_pressed = i == selected
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.custom_minimum_size.y = ROW_H - 2
-		b.clip_text = true
 		var idx := i
 		b.pressed.connect(func() -> void:
 			Game.play_ui("res://assets/sound/ui/buttonclick.wav", -10.0)

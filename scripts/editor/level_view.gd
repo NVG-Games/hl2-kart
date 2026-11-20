@@ -27,6 +27,9 @@ var world_env: WorldEnvironment
 var env: Environment
 var sun: DirectionalLight3D
 var gantry: StartGantry
+## The crowds' members as stand-ins (capsules of the CROWDS tool's colour), one MultiMesh rebuilt
+## when a bake's members change; the race makes the people.
+var crowd_mm: MultiMeshInstance3D
 ## What the last show_build changed (tests, the status line): meshes, removed, chunks, tiles,
 ## props, env, water, items, gantry, skirt; "preview" counts show_roads' nodes.
 var counts := {}
@@ -108,6 +111,10 @@ func show_build(b: LevelBuild) -> void:
 	if _parts.get("items") != its:
 		_parts["items"] = its
 		_queue_items(d)
+	var cs := hash(d.get("crowds", []))
+	if _parts.get("crowd") != cs:
+		_parts["crowd"] = cs
+		_queue(func() -> void: _make_crowd(d))
 	var gs := _gantry_sig(d)
 	if _parts.get("gantry") != gs:
 		_parts["gantry"] = gs
@@ -554,6 +561,39 @@ func _tunnel_lights(d: Dictionary) -> Array:
 	var all: Array = d.get("lights", []) if d.get("lights") is Array else []
 	var own := (doc.data.get("lights", []) as Array).size() if doc != null and doc.data.get("lights") is Array else 0
 	return all.slice(0, maxi(all.size() - own, 0))
+
+
+## The crowd members of a bake (data.crowds) as 0.5 x 1.8 m capsules: unshaded, no collision.
+func _make_crowd(d: Dictionary) -> void:
+	var list: Array = d.get("crowds", []) if d.get("crowds") is Array else []
+	if crowd_mm == null or not is_instance_valid(crowd_mm):
+		crowd_mm = MultiMeshInstance3D.new()
+		crowd_mm.name = "CrowdStandIns"
+		crowd_mm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var cm := CapsuleMesh.new()
+		cm.radius = 0.25
+		cm.height = 1.8
+		cm.radial_segments = 8
+		cm.rings = 2
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.albedo_color = CrowdsTool.GROUP_COLOR
+		m.disable_fog = true
+		cm.material = m
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = cm
+		crowd_mm.multimesh = mm
+		_items_root.get_parent().add_child(crowd_mm)
+	var mm := crowd_mm.multimesh
+	mm.instance_count = list.size()
+	for i in list.size():
+		var e = list[i]
+		var p := _v3(e.get("pos") if e is Dictionary else null)
+		var h := 0.6 if e is Dictionary and str(e.get("pose", "")) == "sit" else 0.9
+		mm.set_instance_transform(i, Transform3D(Basis(), p + Vector3.UP * h))
+	crowd_mm.visible = list.size() > 0
+	counts["crowd"] = list.size()
 
 
 func _queue_items(d: Dictionary) -> void:

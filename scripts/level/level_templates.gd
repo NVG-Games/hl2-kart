@@ -48,7 +48,8 @@ static func make(id: String, track_name: String) -> LevelDoc:
 			_hills(doc)
 		"city":
 			_city(doc)
-	doc.apply([LevelDoc.op_set(["desc"], str(DESCS[tid]))])
+	# DESCS only describe the template's card: the player's track starts with no description (TRACK
+	# PROPERTIES writes one), so NEW RACE and the lobby never show a template's words for it
 	# the canonical form: what every peer gets back from the file
 	last_report = LevelReport.new()
 	var clean := LevelDoc.sanitize(doc.data, last_report)

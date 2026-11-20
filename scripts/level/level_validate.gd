@@ -11,7 +11,7 @@ class_name LevelValidate
 ## code -> text template (1.8)
 const TEXTS := {
 	"no_road": "No road yet: press {ed_tool_road} and click on the ground, or hold the button and draw.",
-	"open_loop": "The road is not a closed loop: click its first point or press {ed_close_loop}.",
+	"open_loop": "The road is not a closed loop: click one of its two ends (the blue points) or press {ed_close_loop}.",
 	"lap_short": "The lap is %d m long: a lap needs at least 200 m.",
 	"lap_long": "The lap is %d km long: 20 km is the most.",
 	"outside": "The road leaves the world %d m after the start: drag the point back inside, or make the world bigger (TERRAIN > RESIZE WORLD).",
@@ -32,6 +32,7 @@ const TEXTS := {
 	"branch_edge": "The branch %s runs inside the main road: move its points out.",
 	"branch_tight": "The branch %s has a bend too tight for its width: drag the point outward.",
 	"branch_items": "Crates or a pad on the branch %s sit where it still shares the main road.",
+	"branch_long": "The branch %s is %d km long: 8 km is the most.",
 	"hazard_setup": "The %s needs %s: move it to a green spot or delete it.",
 	"over_cap": "Too many %s: %d of %d. Delete some.",
 	"compile": "The track could not be built: %s.",
@@ -55,6 +56,13 @@ const TEXTS := {
 	"bake_n": "The road was sampled again (%d samples, the save had %d): save the track to keep it.",
 }
 
+## A count text's singular (its count is 1): used as it is, no placeholders.
+const TEXTS_ONE := {
+	"missing": "1 object, material or song is not on this computer; it is left out here.",
+	"prop_static": "1 object is too heavy or too big to knock over: it stands still here.",
+	"screens": "1 Breencast screen is left out: it needs the Combine start arch.",
+}
+
 ## code -> fix id ("" none): LevelFixes.ops (P13) turns an issue into its FIX ops.
 const FIXES := {
 	"no_road": "", "open_loop": "close_loop", "lap_short": "", "lap_long": "", "outside": "",
@@ -62,7 +70,7 @@ const FIXES := {
 	"steep": "smooth", "under_water": "raise_water", "branch_range": "legal_spot",
 	"branch_order": "", "branch_nose": "", "branch_kind": "legal_spot", "branch_bank": "legal_spot",
 	"branch_radius": "legal_spot", "branch_jump": "legal_spot", "branch_cross": "", "branch_edge": "",
-	"branch_tight": "narrow", "branch_items": "", "hazard_setup": "hazard_setup", "over_cap": "",
+	"branch_tight": "narrow", "branch_items": "", "branch_long": "", "hazard_setup": "hazard_setup", "over_cap": "",
 	"compile": "", "pad_grid": "", "pad_crate": "", "item_jump": "", "jump_boost": "",
 	"no_items": "auto_items", "steep_warn": "smooth", "embankment": "bridge", "hazard_lint": "",
 	"crowd": "", "budget": "", "tunnel_lights": "", "missing": "", "prop_on_road": "delete",
@@ -78,7 +86,7 @@ const LEVELS := {
 	"start_jump": "error", "steep": "error", "under_water": "error", "branch_range": "error",
 	"branch_order": "error", "branch_nose": "error", "branch_kind": "error", "branch_bank": "error",
 	"branch_radius": "error", "branch_jump": "error", "branch_cross": "error", "branch_edge": "error",
-	"branch_tight": "error", "branch_items": "error", "hazard_setup": "error", "over_cap": "error",
+	"branch_tight": "error", "branch_items": "error", "branch_long": "error", "hazard_setup": "error", "over_cap": "error",
 	"compile": "error", "pad_grid": "warning", "pad_crate": "warning", "item_jump": "warning",
 	"jump_boost": "warning", "no_items": "warning", "steep_warn": "warning", "embankment": "warning",
 	"hazard_lint": "warning", "crowd": "warning", "budget": "warning", "tunnel_lights": "warning",
@@ -93,7 +101,7 @@ const ARGS := {
 	"branch_range": ["name"], "branch_order": ["name"], "branch_nose": ["name", "m"],
 	"branch_kind": ["name"], "branch_bank": ["name"], "branch_radius": ["name"],
 	"branch_jump": ["name"], "branch_cross": ["name"], "branch_edge": ["name"],
-	"branch_tight": ["name"], "branch_items": ["name"], "hazard_setup": ["what", "needs"],
+	"branch_tight": ["name"], "branch_items": ["name"], "branch_long": ["name", "km"], "hazard_setup": ["what", "needs"],
 	"over_cap": ["what", "count", "cap"], "compile": ["why"], "jump_boost": ["m", "speed"],
 	"steep_warn": ["pct", "m"], "embankment": ["h"], "hazard_lint": ["line"],
 	"crowd": ["left", "count", "why"], "budget": ["what", "count", "budget"], "missing": ["count"],
@@ -182,6 +190,10 @@ static func text(code: String, args: Dictionary) -> String:
 	var keys: Array = ARGS.get(code, [])
 	if keys.is_empty():
 		return tpl
+	if TEXTS_ONE.has(code):
+		var c = args.get(keys[0])
+		if (c is int or c is float) and roundi(float(c)) == 1:
+			return TEXTS_ONE[code]
 	var vals := []
 	var specs := _specs(tpl)
 	for k in specs.size():
@@ -253,7 +265,8 @@ static func launch_speed(gap: float, lift: float, ramp_len: float, drop: float, 
 
 # ---------------------------------------------------------------- the rules
 
-## no_road / open_loop / compile: true when there is no closed, sampled main loop to check.
+## no_road / open_loop / compile: true when there is no closed, sampled main loop to check (also
+## when the compiler refused a far too long road unsampled: its lap_long blocks).
 static func _road_blocked(ctx: LevelContext) -> bool:
 	var rep := ctx.report
 	if rep.has("no_road") or rep.has("open_loop") or rep.has("compile"):
@@ -265,6 +278,8 @@ static func _road_blocked(ctx: LevelContext) -> bool:
 		return true
 	if not bool(road.get("closed", false)) or pts.size() < 3:
 		issue(rep, "open_loop", {}, {"road": -1, "uid": int(pts[0].get("uid", 0)) if pts[0] is Dictionary else 0})
+		return true
+	if bool(rep.first("lap_long").get("blocks", false)):
 		return true
 	if ctx.main == null or ctx.main.n < 3:
 		issue(rep, "compile", {"why": "the road has no length"}, {"road": -1})

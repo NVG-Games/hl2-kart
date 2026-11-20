@@ -99,6 +99,19 @@ func run(t: Node) -> void:
 	await _press(t, JOY_BUTTON_BACK)
 	await _press(t, JOY_BUTTON_START)
 	t.check(cmds.slice(-2) == ["help", "menu"], "Back asks for help, Start for the EDITOR MENU (%s)" % str(cmds))
+	# Back opened the help overlay and Start the EDITOR MENU: close both (FLY is checked below)
+	if ed.ui.menu != null:
+		ed.ui.menu.close()
+	for c in ed.ui.get_children():
+		if c is HelpOverlay:
+			c.free()
+	await t.frames(2)
+	t.check(cam.flying(), "FLY is back before the test Dialog")
+	# while it flies the status bar tells the pad's buttons, not the mouse's
+	ed.ui._update_status()
+	var hints := ed.ui.hints_bar.get_children().map(func(c: Node) -> String: return (c as PromptLabel).prompt if c is PromptLabel else "")
+	t.check(str(hints).find("DRIVE FROM HERE") >= 0 and str(hints).find("CLICK") < 0,
+		"flying, the status bar shows the pad's buttons (%s)" % str(hints))
 	# a Dialog on top owns the pad
 	var dlg := Dialog.new("TEST", Vector2(400, 200))
 	dlg.add_button("OK", func() -> void: pass)

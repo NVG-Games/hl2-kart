@@ -42,6 +42,7 @@ func _init() -> void:
 	search.text_changed.connect(func(_t: String) -> void:
 		_force = true
 		refresh())
+	search.text_submitted.connect(func(_t: String) -> void: search.release_focus())
 	add_child(search)
 	tree = Tree.new()
 	tree.hide_root = true
@@ -94,7 +95,8 @@ func rebuild() -> void:
 	var root := tree.create_item()
 	var q := search.text.strip_edges().to_lower()
 	var d: Dictionary = editor.doc.data
-	var main: LevelRoad = editor.road(-1)
+	# s from the last bake's road (a drag's live preview has an s origin of its own)
+	var main: LevelRoad = LevelFixes.road_of(editor.build, -1)
 	for g in GROUPS:
 		var title: String = g[0]
 		var group: TreeItem = null
@@ -107,9 +109,11 @@ func rebuild() -> void:
 					k += 1
 					if not (p is Dictionary):
 						continue
-					var label := "POINT %d · %s" % [k, str(p.get("style", ""))]
+					# s before the style: a narrow column trims the style's name, never the number
+					var label := "POINT %d" % k
 					if main != null and main.n > 0:
 						label += " · s %d" % int(main.anchor_s({"p": int(p.get("uid", 0)), "t": 0.0}))
+					label += " · " + style_name(str(p.get("style", "")))
 					group = _group(root, group, title)
 					_add_under(group, int(p.get("uid", 0)), label, q)
 					n += 1
@@ -142,7 +146,7 @@ func rebuild() -> void:
 						(cats[cat] as TreeItem).set_metadata(0, title + "/" + cat)
 						(cats[cat] as TreeItem).collapsed = _collapsed.get(title + "/" + cat, true)
 					if n < MAX_ROWS:
-						_add_under(cats[cat], int(p.get("uid", 0)), m.get_file(), q)
+						_add_under(cats[cat], int(p.get("uid", 0)), model_name(m), q)
 					n += 1
 				for cat in cats:
 					var ci: TreeItem = cats[cat]
@@ -206,6 +210,18 @@ func _row_text(sec: String, it: Dictionary, main: LevelRoad) -> String:
 	return t
 
 
+## A model's name as the editor writes it: "LAMPPOST03A OFF".
+static func model_name(model: String) -> String:
+	return model.get_file().replace("_", " ").to_upper()
+
+
+## A road style's name as the dropdowns write it ("ASPHALT", a preset's own name).
+static func style_name(sid: String) -> String:
+	if sid == "":
+		return ""
+	return str(RoadTool.style_names(PackedStringArray([sid]))[0])
+
+
 func _category(model: String) -> String:
 	if _cats.has(model):
 		return _cats[model]
@@ -230,7 +246,7 @@ static func item_name(ed: TrackEditor, uid: int, found := {}) -> String:
 		"branches":
 			return str(it.get("name", "BRANCH")) if not f.has("branch") else "BRANCH POINT"
 		"props":
-			return str(it.get("model", "")).get_file()
+			return model_name(str(it.get("model", "")))
 		"hazards":
 			return str(it.get("type", "hazard")).to_upper().replace("_", " ")
 	return str(NOUN.get(sec, sec.to_upper()))

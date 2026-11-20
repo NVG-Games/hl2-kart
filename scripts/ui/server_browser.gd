@@ -71,6 +71,7 @@ func _ready() -> void:
 	list.item_activated.connect(_connect_selected)
 	list.item_selected.connect(_update_buttons)
 	list.item_selected.connect(_show_selected)
+	list.item_selected.connect(_recolor)
 	body.add_child(list)
 	status = UiKit.label("", 15, UiKit.TEXT_DIM)
 	body.add_child(status)
@@ -261,15 +262,32 @@ func _on_found(info: Dictionary) -> void:
 	for c in 6:
 		it.set_custom_color(c, UiKit.TEXT if ok else UiKit.TEXT_DIM)
 	it.set_custom_color(0, UiKit.ORANGE)
-	if ok and _num(info.get("cu", 0)) == 1 and not have_track(info):
-		it.set_custom_color(2, UiKit.ORANGE)
 	it.set_tooltip_text(1, "%s:%d\n%s" % [info["address"], int(info.get("port", 0)), ", ".join(PackedStringArray(info.get("list", [])))])
 	it.set_metadata(0, {"address": info["address"], "port": int(info.get("port", Net.DEFAULT_PORT)), "locked": info.get("locked", false),
 		"alive": true, "compatible": ok, "name": info.get("name", ""), "key": key, "list": info.get("list", []),
 		"map": str(info.get("map", "")), "cu": _num(info.get("cu", 0)), "msha": str(info.get("msha", "")),
 		"mkb": _num(info.get("mkb", 0)), "mau": str(info.get("mau", ""))})
+	_recolor()
 	_update_status()
 	_update_buttons()
+
+
+## The TRACK column's colour: orange for a custom track this computer would download, the row's
+## own colour on the selected row (orange on its orange highlight is unreadable).
+static func track_color(m: Dictionary, selected: bool) -> Color:
+	var ok := bool(m.get("compatible", true))
+	if ok and not selected and _num(m.get("cu", 0)) == 1 and not have_track(m):
+		return UiKit.ORANGE
+	return UiKit.TEXT if ok else UiKit.TEXT_DIM
+
+
+func _recolor() -> void:
+	var sel := list.get_selected()
+	for k in _rows:
+		var it: TreeItem = _rows[k]
+		var m: Dictionary = it.get_metadata(0)
+		if bool(m.get("alive", false)):
+			it.set_custom_color(2, track_color(m, it == sel))
 
 
 ## The TRACK column: the server's track name (cut, control characters stripped), "(custom)" after

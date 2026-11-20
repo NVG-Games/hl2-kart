@@ -93,10 +93,16 @@ func run(tt: Node) -> void:
 	await _resume(good)
 	await _bad_chunks(good)
 	await _xid_change(good)
+	_parts_bound(good)
+	_stale_verify(good)
 	_aimd()
 	_race_buckets(good)
 	_stalls(good)
 	_retry_limit(good)
+	_open_limit(good)
+	_retry_client(good)
+	_no_progress(good)
+	_long_reason(good)
 	_deadlines()
 	_arg_checks(good)
 	_downloads_off(good)
@@ -189,6 +195,8 @@ func _deliver() -> void:
 					C.callv("_recv_chunk", [1] + args)
 				&"_s_dl":
 					C.callv("_recv_dl", [1] + args)
+				&"_s_refused":
+					C.callv("_recv_refused", [1] + args)
 
 
 ## Ticks and deliveries until the client is ok / fail (or the limit).
@@ -637,6 +645,61 @@ func _xid_change(good: PackedByteArray) -> void:
 	to_c.clear()
 
 
+## G1 at the transfer: a server that announces six fresh tracks, each sent short of its last
+## chunk, leaves at most MAX_PARTS .part files in the cache: the current one among them, the
+## client still downloading it.
+func _parts_bound(good: PackedByteArray) -> void:
+	_rig(true)
+	var cd := CustomTracks.cache_dir()
+	var shas: Array = []
+	for k in 6:
+		var b := good.duplicate()
+		b.append(k)
+		var sha := LevelIO.sha256(b)
+		shas.append(sha)
+		var last := (b.size() - 1) / CHUNK * CHUNK
+		filter_c = func(method: StringName, args: Array) -> Variant:
+			return null if method == &"_s_chunk" and int(args[1]) == last else args
+		_serve(b, "PARTS %d" % k)
+		C.check()
+		for i in 120:
+			S.tick(0.05)
+			C.tick(0.05)
+			_deliver()
+			if C._rx.has("got") and int(C._rx.got) >= last:
+				break
+	filter_c = Callable()
+	var parts := []
+	for f in DirAccess.get_files_at(cd):
+		if f.ends_with(".part"):
+			parts.append(f)
+	var cur := str(shas[-1]) + ".part"
+	t.check(parts.size() <= CustomTracks.MAX_PARTS and parts.has(cur),
+		"six announced tracks, each short of its last chunk: %d .part files kept (at most %d), the current one among them (%s)"
+		% [parts.size(), CustomTracks.MAX_PARTS, ", ".join(parts)])
+	t.check(FileAccess.file_exists(cd.path_join(cur)) and FileAccess.get_file_as_bytes(cd.path_join(cur)).size() >= (good.size() / CHUNK) * CHUNK,
+		"the current part holds everything but the last chunk")
+	t.check(str(C.local_state().state) == "get", "the client is still downloading the current track (%s)" % str(C.local_state().state))
+	for sha in shas:
+		_forget(LevelIO.id_for(sha), sha)
+
+
+## A verify job whose download has moved on before it starts is skipped: no compile (a host
+## switching tracks does not stack them).
+func _stale_verify(good: PackedByteArray) -> void:
+	var dir := CustomTracks.cache_dir()
+	var p := dir.path_join("stale_probe.part")
+	var f := FileAccess.open(p, FileAccess.WRITE)
+	f.store_buffer(good)
+	f.close()
+	var sha := LevelIO.sha256(good)
+	var c0 := TrackShare.compiles
+	var r := TrackShare._verify(p, sha, LevelCompiler.registries(), func() -> bool: return false)
+	t.check(bool(r.get("stale", false)) and not bool(r.get("ok", true)) and TrackShare.compiles == c0,
+		"a verify whose download moved on is skipped before its compile (%s)" % str(r.keys()))
+	DirAccess.remove_absolute(p)
+
+
 func _aimd() -> void:
 	_rig(false)
 	var st := {"win": 4, "srtt": -1.0, "base_rtt": INF, "acks": 0, "good": 0, "since": TrackShare.BASE_ACKS}
@@ -771,6 +834,148 @@ func _retry_limit(good: PackedByteArray) -> void:
 	S._recv_track(CPEER, sha, "need", 0, "", 0)
 	t.check(A.kicks.size() == 1 and A.kicks[0][1] == TrackShare.TEXT_NO_SEND, "sv_downloads 0: a need is answered with a kick")
 	S.downloads = true
+
+
+## C2 N4: a client alternating need / ok or need / prep (no ack ever), or sending need alone,
+## opens at most OPENS_FREE transfers inside RETRY_GAP and OPENS_MAX in all; the bytes queued stay
+## within opens x size, a need after ok is dropped, the roster is not re-broadcast every frame.
+func _open_limit(good: PackedByteArray) -> void:
+	for back in ["ok", "prep", ""]:
+		_rig(true)
+		var sha := LevelIO.sha256(good)
+		_serve(good)
+		var x0: int = S.stats.xfers
+		var b0: int = S.stats.bytes
+		var r0 := A.rosters
+		for i in 300:
+			S._recv_track(CPEER, sha, "need", 0, "", 0)
+			S.tick(1.0 / 60.0)
+			if back != "":
+				S._recv_track(CPEER, sha, back, 0, "", 0)
+		var opens: int = S.stats.xfers - x0
+		var want := 1 if back == "ok" else TrackShare.OPENS_FREE
+		t.check(opens == want, "need / %s for 300 frames (5 s): %d transfers (want %d inside RETRY_GAP)" % [back, opens, want])
+		t.check(int(S.stats.bytes) - b0 <= opens * good.size(), "need / %s: %d bytes queued, at most opens x size" % [back, int(S.stats.bytes) - b0])
+		t.check(A.rosters - r0 <= 2 * opens + 1, "need / %s: %d roster broadcasts, not two a frame" % [back, A.rosters - r0])
+		if back == "":
+			t.check(A.players[CPEER].track == "fail" and A.players[CPEER].why == "stalled", "need alone: past the restarts the row is fail:stalled")
+		var refused := to_c.filter(func(m: Array) -> bool: return m[0] == &"_s_refused")
+		if back == "prep":
+			t.check(refused.size() >= 1 and refused.size() <= 6 and int(refused[0][1][1]) > 0,
+				"need / prep: refused needs answered with the wait, at most once a second (%d)" % refused.size())
+		# much later: one more transfer per RETRY_GAP, never past OPENS_MAX
+		for k in 3 * TrackShare.RETRY_MAX:
+			S._time += TrackShare.RETRY_GAP + 0.5
+			S._recv_track(CPEER, sha, "need", 0, "", 0)
+			if back != "":
+				S._recv_track(CPEER, sha, back, 0, "", 0)
+		opens = S.stats.xfers - x0
+		t.check(opens == (1 if back == "ok" else TrackShare.OPENS_MAX), "need / %s for minutes: %d transfers in all (cap %d)" % [back, opens, TrackShare.OPENS_MAX])
+		var last: Array = to_c.filter(func(m: Array) -> bool: return m[0] == &"_s_refused")
+		if back != "ok":
+			t.check(not last.is_empty() and int(last[-1][1][1]) == -1, "need / %s: past the cap a need is answered: never again for this track" % back)
+		to_c.clear()
+
+
+## C2 N5: RETRY on the client counts like the server: a second RETRY inside RETRY_GAP sends nothing,
+## stays failed with "Wait N s" and RETRY; a need the server refuses brings the client back to its
+## failure (never a silent need); past RETRY_MAX the reason says to ask the host and RETRY goes.
+func _retry_client(good: PackedByteArray) -> void:
+	_rig(true)
+	var sha := LevelIO.sha256(good)
+	_serve(good)
+	C.check()
+	_deliver()
+	var fail_it := func() -> void:
+		C._close_rx()
+		C._fail_local("stalled", TrackShare.TEXT_STALLED)
+		_deliver()
+		to_c.clear()
+	fail_it.call()
+	t.check(A.players[CPEER].track == "fail", "retry: the client failed (stalled)")
+	to_s.clear()
+	C.retry()
+	t.check(to_s.size() == 1 and to_s[0][1][1] == "need", "retry: the first RETRY asks at once")
+	_deliver()
+	t.check(A.players[CPEER].track == "get", "retry: the server opens it")
+	fail_it.call()
+	to_s.clear()
+	C.retry()
+	var ls: Dictionary = C.local_state()
+	t.check(to_s.is_empty() and ls.state == "fail" and ls.why == TrackShare.TEXT_RETRY_WAIT % int(TrackShare.RETRY_GAP + TrackShare.RETRY_SLACK)
+		and bool(ls.retry), "retry: a second RETRY within 30 s sends nothing, says how long to wait (%s)" % ls.why)
+	C._time += TrackShare.RETRY_GAP + TrackShare.RETRY_SLACK + 0.1
+	t.check(str(C.local_state().why) == TrackShare.TEXT_STALLED, "retry: the wait over, the reason again")
+	# the client's clock went on, the server's did not: it refuses, the client goes back to its failure
+	var r0 := A.rosters
+	C.retry()
+	_deliver()
+	ls = C.local_state()
+	t.check(ls.state == "fail" and str(ls.code) == "stalled" and str(ls.why).begins_with("Wait ") and bool(ls.retry) and C.retry_wait() > 0,
+		"retry: a need the server refuses: back to fail with the wait, never a silent need (%s, %s)" % [ls.state, ls.why])
+	t.check(A.players[CPEER].track == "fail" and A.players[CPEER].why == "stalled" and A.rosters == r0, "retry: the server's row stays as it was")
+	# every RETRY a gap apart: RETRY_MAX accepted, then none
+	var accepted := 1
+	for i in TrackShare.RETRY_MAX + 2:
+		S._time += TrackShare.RETRY_GAP + 2.0
+		C._time += TrackShare.RETRY_GAP + 2.0
+		to_s.clear()
+		C.retry()
+		_deliver()
+		if A.players[CPEER].track == "get":
+			accepted += 1
+			fail_it.call()
+	ls = C.local_state()
+	t.check(accepted == TrackShare.RETRY_MAX, "retry: %d RETRYs accepted (max %d)" % [accepted, TrackShare.RETRY_MAX])
+	t.check(not bool(ls.retry) and ls.why == TrackShare.TEXT_RETRY_MAX % TrackShare.RETRY_MAX and to_s.is_empty(),
+		"retry: past the limit no RETRY and the reason says so (%s)" % ls.why)
+
+
+## C2 N10: a download with no ack for STALL s: the host's line names the player and offers KICK.
+func _no_progress(good: PackedByteArray) -> void:
+	_rig(false)
+	var id := _serve(good)
+	C.check()
+	_deliver()
+	S.tick(0.05)
+	to_c.clear()
+	CustomTracks.put_memory(id, LevelBuild.new(), {})
+	A.players[1].track = "ok"
+	t.check(S.status_line() == "Waiting for 1 player to get the track (Vance 0%).", "no progress: the percent first (%s)" % S.status_line())
+	S._time += TrackShare.STALL + 5.0
+	var line := S.status_line()
+	t.check(line == TrackShare.TEXT_NO_PROGRESS % ["Vance", int(TrackShare.STALL + 5.0)], "no progress for %d s: wait or KICK (%s)" % [int(TrackShare.STALL + 5.0), line])
+	CustomTracks.forget(id)
+
+
+## C2 N1: one _c_track with a megabyte fail reason costs the server nothing; clean_text and
+## clean_cfg cut their input before looking at it.
+func _long_reason(good: PackedByteArray) -> void:
+	_rig(true)
+	var sha := LevelIO.sha256(good)
+	_serve(good)
+	var p: Dictionary = A.players[CPEER]
+	var huge := "fail:" + "x".repeat(1 << 20)
+	# (a first bad report: the drop's one log line is printed now, not inside the timing)
+	S._recv_track(CPEER, sha, "done", 0, "", 0)
+	var t0 := Time.get_ticks_usec()
+	S._recv_track(CPEER, sha, huge, 0, "", 0)
+	var ms := (Time.get_ticks_usec() - t0) / 1000.0
+	t.check(ms < 5.0 and p.track == "?", "a 1 MB fail reason is refused in %.2f ms (under 5)" % ms)
+	S._recv_track(CPEER, sha, "fail:" + "\u0085y [".repeat(TrackShare.REASON_MAX), 0, "", 0)
+	t.check(p.track == "fail" and str(p.why) == "y".repeat(TrackShare.REASON_MAX), "a reason at the limit is taken, cut and stripped (C1, U+2028, brackets)")
+	var text := "\u0001[".repeat(1 << 19) + "tail"
+	t0 = Time.get_ticks_usec()
+	var c := TrackShare.clean_text(text, 48)
+	ms = (Time.get_ticks_usec() - t0) / 1000.0
+	t.check(ms < 5.0 and c == "", "clean_text on 1 MB of control characters: %.2f ms (under 5)" % ms)
+	var id := "c_" + sha.left(16)
+	var big := {"track": id, "custom": {"sha": sha, "size": 1000, "name": "N".repeat(1 << 20), "author": "A".repeat(1 << 20)}}
+	t0 = Time.get_ticks_usec()
+	var cc := TrackShare.clean_cfg(big)
+	ms = (Time.get_ticks_usec() - t0) / 1000.0
+	t.check(ms < 20.0 and str(cc.custom.name).length() == 48 and str(cc.custom.author).length() == 24,
+		"clean_cfg with a 1 MB name and author: %.2f ms" % ms)
 
 
 func _deadlines() -> void:
@@ -920,6 +1125,10 @@ func _rotation() -> void:
 	A.cfg = {"track": "city17_circuit"}
 	S.tracklist = PackedStringArray(["city17_circuit", "xen", "nowhere"])
 	t.check(S.rotation() == PackedStringArray(["city17_circuit", "xen"]), "the track list resolves ids, drops unknown entries")
+	# (the list stays as written, C2 N7: any case, a name and its id once)
+	S.tracklist = PackedStringArray(["City17_Circuit", "XEN", "Xen", "nowhere"])
+	t.check(S.rotation() == PackedStringArray(["city17_circuit", "xen"]), "the list as written: ids in any case and names, each once (%s)" % S.rotation())
+	S.tracklist = PackedStringArray(["city17_circuit", "xen", "nowhere"])
 	S.rotate_on = false
 	t.check(not S.rotate(), "mp_rotate 0: no rotation")
 	S.rotate_on = true

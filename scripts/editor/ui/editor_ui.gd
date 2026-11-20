@@ -34,6 +34,9 @@ const DIFFS := ["EASY", "NORMAL", "HARD"]
 enum { F_NEW, F_OPEN, F_SAVE, F_SAVE_AS, F_DUPLICATE, F_PROPS, F_OLDER, F_THUMB, F_HOST, F_FOLDER, F_EXIT_HOME, F_EXIT_MENU,
 	E_UNDO, E_REDO, E_CUT, E_COPY, E_PASTE, E_PASTE_HERE, E_DUPLICATE, E_DELETE, E_SELECT_ALL, E_DESELECT, E_REVERSE,
 	V_TOP, V_FRAME, V_HOME, V_LINE, V_ZONES, V_PINS, V_GRID, V_LABELS, V_UNHIDE, V_SPEED, V_MUSIC }
+## The status bar's hints while the pad flies (1.10): what its buttons do.
+const PAD_HINTS := [["{ed_pad_test_here} DRIVE FROM HERE"], ["{ed_pad_test} FROM THE START"], ["{ed_pad_watch} WATCH A BOT"],
+	["{ed_pad_prev_tool} {ed_pad_next_tool} TOOL"], ["{ed_pad_menu} MENU"], ["{ed_pad_help} HELP"]]
 const ACTION_OF := {F_SAVE: "ed_save", F_SAVE_AS: "ed_save_as", E_UNDO: "ed_undo", E_REDO: "ed_redo", E_CUT: "ed_cut",
 	E_COPY: "ed_copy", E_PASTE: "ed_paste", E_PASTE_HERE: "ed_paste_here", E_DUPLICATE: "ed_duplicate",
 	E_DELETE: "ed_delete", E_SELECT_ALL: "ed_select_all", V_TOP: "ed_top", V_FRAME: "ed_frame_all", V_HOME: "ed_home",
@@ -73,6 +76,8 @@ var outliner: Outliner
 var options_title: Button
 var options_scroll: ScrollContainer
 var options_box: VBoxContainer
+## The fade with a down arrow at the foot of the options while more of them is below.
+var more_cue: Control
 var options_open := true
 var inspector: Inspector
 var pos_label: Label
@@ -101,6 +106,8 @@ var _built := false
 var _last_tool := ""
 var _status_dirty := true
 var _hint_key := "~"
+var _was_flying := false
+var _msg_key := "~"
 var _after_save := Callable()
 var _test_pop: PopupPanel
 
@@ -123,6 +130,10 @@ func setup(ed: TrackEditor) -> void:
 		get_viewport().gui_focus_changed.connect(_on_focus_changed)
 	if ed.history != null and not ed.history.changed.is_connected(_on_history):
 		ed.history.changed.connect(_on_history)
+	# the hints follow the device (the pad's own while it flies)
+	var ip := get_tree().root.get_node_or_null("InputPrompts") if is_inside_tree() else null
+	if ip != null and ip.has_signal("prompts_changed") and not ip.is_connected("prompts_changed", refresh_status):
+		ip.connect("prompts_changed", refresh_status)
 	_sync_snap()
 	_tool_tips()
 	refresh_tool()
@@ -259,11 +270,30 @@ func open_help() -> void:
 			return
 	if editor == null:
 		return
+	editor.end_press(false)
 	var h := HelpOverlay.new(editor)
 	h.name = "HelpOverlay"
 	add_child(h)
 	if h.size == Vector2.ZERO:
 		h.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+
+## A text field of the panels lets go on Esc (the key is taken) and on a press outside it (the press
+## goes on to what it hits); the field commits on focus_exited (EditorKit.text, EditorNumber).
+func _input(ev: InputEvent) -> void:
+	if not is_inside_tree():
+		return
+	var fo := get_viewport().gui_get_focus_owner()
+	if not (fo is LineEdit or fo is TextEdit) or not is_ancestor_of(fo):
+		return
+	var mb := ev as InputEventMouseButton
+	if mb != null:
+		if mb.pressed and not (fo as Control).get_global_rect().has_point(mb.position):
+			fo.release_focus()
+		return
+	if ev is InputEventKey and ev.is_action_pressed("ui_cancel", false, true):
+		fo.release_focus()
+		get_viewport().set_input_as_handled()
 
 
 func is_typing() -> bool:
@@ -320,6 +350,18 @@ static func complexity_of(s: Dictionary, res: int) -> Dictionary:
 	return {"value": v, "terms": terms, "text": " · ".join(parts)}
 
 
+## The breakdown toast: one term a line, no line break inside "812 / 1500" or "513 x 513".
+static func complexity_lines(c: Dictionary) -> String:
+	var nb := String.chr(0xA0)
+	var lines := PackedStringArray(["COMPLEXITY %d %%" % int(roundf(float(c.get("value", 0.0)) * 100.0))])
+	for term in c.get("terms", []):
+		if str(term[0]) == "TERRAIN":
+			lines.append("TERRAIN %d%sx%s%d" % [int(term[1]), nb, nb, int(term[1])])
+		else:
+			lines.append("%s %d%s/%s%d" % [str(term[0]), int(term[1]), nb, nb, int(term[2])])
+	return "\n".join(lines)
+
+
 ## The meter's colour: yellow past 80 %, red past 100 %.
 static func complexity_color(v: float) -> Color:
 	if v > 1.0:
@@ -356,6 +398,9 @@ func _left(choice: String, go: Callable) -> void:
 		_after_save = go
 		editor.save()
 	elif choice == "discard":
+		# the changes are dropped: no RECOVER card for them later (the autosave goes to .trash)
+		if editor != null and editor.session != null and editor.session.is_open():
+			EditorSession.discard_autosave(editor.session.autosave_path())
 		go.call()
 
 
@@ -412,6 +457,10 @@ func _build() -> void:
 	options_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	options_box.add_theme_constant_override("separation", 4)
 	options_scroll.add_child(options_box)
+	more_cue = MoreCue.new()
+	more_cue.name = "MoreOptions"
+	more_cue.visible = false
+	add_child(more_cue)
 	rv.add_child(HSeparator.new())
 	rv.add_child(EditorKit.section("INSPECTOR"))
 	inspector = Inspector.new()
@@ -517,27 +566,27 @@ func _build_top() -> HBoxContainer:
 	h.add_child(view_menu)
 	h.add_child(VSeparator.new())
 	# snap group
-	grid_toggle = EditorKit.toggle("GRID", true, func(on: bool) -> void: _set_snap("on", on))
+	grid_toggle = EditorKit.toggle("GRID", true, func(on: bool) -> void: set_snap("on", on))
 	grid_toggle.tooltip_text = "Grid snap (G). Hold Ctrl while dragging to invert it."
 	h.add_child(grid_toggle)
 	var gl := []
 	for g in GRID_SIZES:
 		gl.append(("%s m" % str(g)).replace(".0 m", " m"))
-	grid_size = EditorKit.choice(gl, 2, func(i: int) -> void: _set_snap("grid", GRID_SIZES[i]))
+	grid_size = EditorKit.choice(gl, 2, func(i: int) -> void: set_snap("grid", GRID_SIZES[i]))
 	grid_size.custom_minimum_size.x = 78
 	grid_size.tooltip_text = "Grid step"
 	h.add_child(grid_size)
-	angle_toggle = EditorKit.toggle("ANGLE", true, func(on: bool) -> void: _set_snap("angle_on", on))
+	angle_toggle = EditorKit.toggle("ANGLE", true, func(on: bool) -> void: set_snap("angle_on", on))
 	angle_toggle.tooltip_text = "Angle snap for rotations"
 	h.add_child(angle_toggle)
 	var al := []
 	for a in ANGLE_STEPS:
 		al.append("%d°" % int(a))
-	angle_step = EditorKit.choice(al, 1, func(i: int) -> void: _set_snap("angle", ANGLE_STEPS[i]))
+	angle_step = EditorKit.choice(al, 1, func(i: int) -> void: set_snap("angle", ANGLE_STEPS[i]))
 	angle_step.custom_minimum_size.x = 62
 	angle_step.tooltip_text = "Angle step"
 	h.add_child(angle_step)
-	surface_toggle = EditorKit.toggle("SURFACE", true, func(on: bool) -> void: _set_snap("surface", on))
+	surface_toggle = EditorKit.toggle("SURFACE", true, func(on: bool) -> void: set_snap("surface", on))
 	surface_toggle.tooltip_text = "Drop what you move onto what is under it"
 	h.add_child(surface_toggle)
 	for b in [grid_toggle, grid_size, angle_toggle, angle_step, surface_toggle]:
@@ -557,7 +606,7 @@ func _build_top() -> HBoxContainer:
 	complexity_box.add_child(complexity_bar)
 	complexity_box.gui_input.connect(func(ev: InputEvent) -> void:
 		if ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed and (ev as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
-			toast("COMPLEXITY %d %%: %s" % [int(roundf(float(complexity.value) * 100.0)), str(complexity.text)]))
+			toast(complexity_lines(complexity)))
 	h.add_child(complexity_box)
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -678,9 +727,11 @@ func menu_pressed(id: int) -> void:
 				editor.markers.set_issues(report if view_flags.pins and report != null else LevelReport.new())
 			elif k == "music":
 				if view_flags.music:
-					Game.play_music_mode(str(Game.settings.get("menu_music", "random")))
+					Game.play_music_mode("menu")
 				else:
 					Game.stop_music()
+			elif k == "labels":
+				editor.set_labels(bool(view_flags.labels))
 			editor.redraw()
 			editor.refresh_markers()
 		V_SPEED:
@@ -742,7 +793,7 @@ func _build_status() -> HBoxContainer:
 	h.add_theme_constant_override("separation", 14)
 	pos_label = _status_label(190)
 	road_label = _status_label(200)
-	sel_label = _status_label(96)
+	sel_label = _status_label(140)
 	snap_label = _status_label(84)
 	bake_label = _status_label(108)
 	for l in [pos_label, road_label, sel_label, snap_label, bake_label]:
@@ -751,9 +802,10 @@ func _build_status() -> HBoxContainer:
 	message.add_theme_font_override("normal_font", UiKit.font(true))
 	message.fit_content = false
 	message.custom_minimum_size = Vector2(0, 20)
-	message.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	message.size_flags_stretch_ratio = 0.6
+	# the message takes the width it needs first (_fit_message), the hints the rest
+	message.size_flags_horizontal = Control.SIZE_FILL
 	message.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	message.autowrap_mode = TextServer.AUTOWRAP_OFF
 	message.clip_contents = true
 	h.add_child(message)
 	hints_holder = Control.new()
@@ -784,20 +836,73 @@ func _status_label(w: float) -> Label:
 func _process(_delta: float) -> void:
 	if editor == null:
 		return
+	if editor.camera != null and editor.camera.flying() != _was_flying:
+		_status_dirty = true   # FLY started or ended: the pad's hints or the mouse's
 	if _status_dirty:
 		_update_status()
+	_stack_toasts()
 	if _after_save.is_valid() and editor.bake_state != "SAVING..." and (editor.session == null or not editor.session.saving):
 		var go := _after_save
 		_after_save = Callable()
 		if editor.session != null and not editor.session.dirty():
 			go.call()
-	# the tool options take what they need, at most 45 % of the column
+	# the tool options take what they need: at most 45 % of the column while something is selected,
+	# else all the inspector's empty line leaves
 	if options_scroll.visible:
 		var want := options_box.get_combined_minimum_size().y
 		var cap := maxf(right.size.y * 0.45, 80.0)
+		if inspector != null and inspector.filled_by == "empty":
+			cap = maxf(cap, _options_room())
 		var h := minf(want, cap)
 		if absf(options_scroll.custom_minimum_size.y - h) > 0.5:
 			options_scroll.custom_minimum_size.y = h
+	_update_more_cue()
+
+
+## The height the options may take when the inspector shows only its empty line.
+func _options_room() -> float:
+	var rv := options_scroll.get_parent() as Container
+	if rv == null:
+		return 0.0
+	var used := 0.0
+	var n := 0
+	for c in rv.get_children():
+		var ctl := c as Control
+		if ctl == null or not ctl.visible:
+			continue
+		n += 1
+		if ctl == options_scroll:
+			continue
+		used += inspector.box.get_combined_minimum_size().y + 8.0 if ctl == inspector else ctl.get_combined_minimum_size().y
+	used += float(rv.get_theme_constant("separation")) * maxf(n - 1, 0)
+	return rv.size.y - used
+
+
+## The "more below" fade at the foot of the options while they scroll and are not at their end.
+func _update_more_cue() -> void:
+	if more_cue == null:
+		return
+	var vb := options_scroll.get_v_scroll_bar()
+	var show := options_scroll.is_visible_in_tree() and vb.visible and vb.value < vb.max_value - vb.page - 1.0
+	more_cue.visible = show
+	if show:
+		var r := options_scroll.get_global_rect()
+		more_cue.global_position = Vector2(r.position.x, r.end.y - MoreCue.H)
+		more_cue.size = Vector2(r.size.x - vb.size.x, MoreCue.H)
+
+
+## The toasts stay clear of a tool's hint card: below it while it shows.
+func _stack_toasts() -> void:
+	if toasts == null or hint_host == null:
+		return
+	var top := TrackEditor.BAR_TOP + GAP
+	for c in hint_host.get_children():
+		var ctl := c as Control
+		if ctl != null and ctl.is_visible_in_tree() and ctl.size.y > 1.0:
+			top = maxf(top, ctl.get_global_rect().end.y + GAP)
+	if absf(toasts.offset_top - top) > 0.5:
+		toasts.offset_top = top
+		toasts.offset_bottom = top + 300.0
 
 
 ## The status bar, the name, the empty state and the hints now.
@@ -810,16 +915,21 @@ func _update_status() -> void:
 		pos_label.text = ""
 	road_label.text = _road_text(hv)
 	var n := editor.selection.uids.size() if editor.selection != null else 0
-	sel_label.text = "" if n == 0 else "%d selected" % n
+	var nh := editor.session.hidden.size() if editor.session != null else 0
+	var parts := PackedStringArray()
+	if n > 0:
+		parts.append("%d selected" % n)
+	if nh > 0:
+		parts.append("%d HIDDEN" % nh)
+	sel_label.text = " · ".join(parts)
+	sel_label.tooltip_text = "" if nh == 0 else "%d hidden: %s shows them" % [nh, EditorKit.plain("{ed_unhide}")]
 	snap_label.text = ("GRID %s m" % str(editor.snap.get("grid", 1.0))).replace(".0 m", " m") if bool(editor.snap.get("on", true)) else "GRID OFF"
 	bake_label.text = editor.bake_state
 	bake_label.add_theme_color_override("font_color", EditorKit.ERROR_COLOR if editor.bake_state.ends_with("FAILED") else UiKit.TEXT_DIM)
 	var msg := editor.status_text
 	if msg == "" and editor.tool != null:
 		msg = editor.tool.status_step()
-	var pm := EditorKit.prompt(msg)
-	if message.prompt != pm:
-		message.prompt = pm
+	_fit_message(msg)
 	_sync_snap()
 	# the name, "*" when unsaved
 	var nm := _track_name()
@@ -844,13 +954,73 @@ func _road_text(hv: EditorHit) -> String:
 	return ""
 
 
-## What the mouse does on what is under the cursor (tool.hints), cut to the bar's width.
+## The status message gets the width it needs out of the space it shares with the hints; when it
+## is wider still it ends with "..." (its whole text in the tooltip).
+func _fit_message(msg: String) -> void:
+	var row := message.get_parent() as Container
+	var shared := 0.0
+	if row != null:
+		var fixed := 0.0
+		var n := 0
+		for c in row.get_children():
+			var ctl := c as Control
+			if ctl == null or not ctl.visible:
+				continue
+			n += 1
+			if ctl != message and ctl != hints_holder:
+				fixed += ctl.get_combined_minimum_size().x
+		shared = row.size.x - fixed - float(row.get_theme_constant("separation")) * maxf(n - 1, 0)
+	var key := msg + "|" + str(int(shared))
+	if key == _msg_key:
+		return
+	_msg_key = key
+	message.tooltip_text = EditorKit.plain(msg)
+	message.prompt = EditorKit.prompt(msg)
+	if msg == "" or shared <= 0.0:
+		message.custom_minimum_size.x = 0.0
+		return
+	var need := float(message.get_content_width()) + 4.0
+	if need > shared:
+		# words off the end until it fits, then "..."
+		var words := msg.split(" ", false)
+		while words.size() > 1 and need > shared:
+			words.resize(words.size() - 1)
+			message.prompt = EditorKit.prompt(" ".join(words).trim_suffix(",").trim_suffix(";") + "...")
+			need = float(message.get_content_width()) + 4.0
+	message.custom_minimum_size.x = minf(need, shared)
+
+
+## A hint that says what the message already says (its words all in it, case aside).
+static func hint_repeats(hint: String, msg: String) -> bool:
+	if msg.strip_edges() == "":
+		return false
+	var rx := RegEx.create_from_string("[{][^}]*[}]")
+	var words := rx.sub(hint, " ", true).to_lower().replace(":", " ").split(" ", false)
+	if words.is_empty():
+		return false
+	var have := {}
+	for w in rx.sub(msg, " ", true).to_lower().replace(",", " ").replace(".", " ").replace(":", " ").replace(";", " ").split(" ", false):
+		have[w] = true
+	for w in words:
+		if not have.has(w):
+			return false
+	return true
+
+
+## What the mouse does on what is under the cursor (tool.hints), cut to the bar's width; a hint
+## that repeats the status message is left out.
 func _update_hints(hv: EditorHit) -> void:
 	var entries: Array = editor.tool.hints(hv if hv != null else EditorHit.new()) if editor.tool != null else []
+	_was_flying = editor.camera != null and editor.camera.flying()
+	if _was_flying:
+		entries = PAD_HINTS
+	var msg := editor.status_text if editor.status_text != "" else (editor.tool.status_step() if editor.tool != null else "")
 	var list := []
 	for e in entries:
 		var p := str(e[0]) if e is Array and not (e as Array).is_empty() else str(e)
 		var when := str(e[1]) if e is Array and (e as Array).size() > 1 else ""
+		if hint_repeats(p, msg):
+			continue
 		list.append([EditorKit.prompt(p), when])
 	var key := str(list) + str(int(hints_holder.size.x))
 	if key == _hint_key:
@@ -879,7 +1049,8 @@ func _on_history() -> void:
 
 # ---------------------------------------------------------------- the snap group
 
-func _set_snap(k: String, v: Variant) -> void:
+## A snap setting (the bar, G): editor.snap and the saved settings.editor_snap.
+func set_snap(k: String, v: Variant) -> void:
 	if editor == null:
 		return
 	editor.snap[k] = v
@@ -968,15 +1139,37 @@ func _track_name() -> String:
 	return str(editor.doc.data.get("name", "MY TRACK"))
 
 
-## SAVE AS: a new name, then a new file (TrackEditor.save(true)).
+## SAVE (Ctrl+S, the FILE menu, the EDITOR MENU): the first save of a track still called MY TRACK
+## asks for its name first (friends see it in the lobby and the server browser); later saves and a
+## track with its own name save at once.
+func save_named() -> void:
+	if editor == null:
+		return
+	var s := editor.session
+	if s == null or s.path != "" or not EditorSession.is_auto_name(_track_name()):
+		editor.save()
+		return
+	var d := MessageBox.new("SAVE", "Name your track. Friends see this name when you host it:", true, false, "SAVE", "CANCEL")
+	d.field.text = _track_name()
+	d.field.max_length = 48
+	d.answered.connect(func(ok: bool, t: String) -> void:
+		if not ok or editor == null:
+			return
+		_rename(t)
+		editor.save())
+	editor.open_dialog(d)
+
+
+## SAVE AS (the FILE menu, Ctrl+Shift+S): a new name, then a copy in a new file with its own guid;
+## the original file stays as it was and the editor goes on with the copy.
 func save_as() -> void:
 	var d := MessageBox.new("SAVE AS", "Save a copy of the track under a new name:", true, false, "SAVE", "CANCEL")
 	d.field.text = _track_name()
 	d.field.max_length = 48
 	d.answered.connect(func(ok: bool, t: String) -> void:
-		if not ok:
+		if not ok or editor == null or editor.session == null:
 			return
-		_rename(t)
+		editor.session.become_copy(t)
 		editor.save(true))
 	editor.open_dialog(d)
 
@@ -1109,6 +1302,23 @@ class ComplexityBar:
 		draw_rect(Rect2(Vector2.ZERO, Vector2(size.x * clampf(value, 0.0, 1.0), size.y)), color)
 		draw_rect(Rect2(Vector2(size.x * 0.8, 0), Vector2(1, size.y)), Color(1, 1, 1, 0.35))
 		draw_rect(Rect2(Vector2.ZERO, size), Color(1, 1, 1, 0.2), false, 1.0)
+
+
+## TOOL OPTIONS' "more below": a fade into the panel's colour and an orange arrow.
+class MoreCue:
+	extends Control
+	const H := 22.0
+
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _draw() -> void:
+		var bg := UiKit.FRAME_BG
+		var pts := PackedVector2Array([Vector2.ZERO, Vector2(size.x, 0), size, Vector2(0, size.y)])
+		var cols := PackedColorArray([Color(bg, 0.0), Color(bg, 0.0), Color(bg, 1.0), Color(bg, 1.0)])
+		draw_polygon(pts, cols)
+		var c := Vector2(size.x * 0.5, size.y - 7.0)
+		draw_colored_polygon(PackedVector2Array([c + Vector2(-6, -4), c + Vector2(6, -4), c + Vector2(0, 3)]), UiKit.ORANGE)
 
 
 ## "Save changes to <name>?" SAVE / DISCARD / CANCEL; answered("save" | "discard" | "cancel").

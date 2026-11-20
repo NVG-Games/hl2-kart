@@ -753,6 +753,19 @@ func _move_to(hit: EditorHit) -> void:
 		"objects_drag")
 
 
+## Esc while the button holds a drag: a SCATTER / ERASE stroke or a move taken back, ALONG ROAD
+## dropped.
+func cancel_drag() -> void:
+	var live := not _stroke.is_empty() or not _drag.is_empty()
+	_stroke = {}
+	_along = {}
+	_drag = {}
+	if live and editor != null and editor.history != null:
+		editor.history.cancel_gesture()
+	if editor != null:
+		editor.redraw()
+
+
 func _cancel() -> void:
 	if not _stroke.is_empty():
 		stroke_end()
@@ -800,6 +813,10 @@ func key(ev: InputEvent) -> bool:
 	if _act(ev, "ed_scatter"):
 		set_mode("scatter" if mode != "scatter" else "stamp")
 		return true
+	# , and . turn the ghost while stamping, else the selected objects (one merged step)
+	var left := _act(ev, "ed_turn_left", true)
+	if left or _act(ev, "ed_turn_right", true):
+		return turn(1.0 if left else -1.0)
 	if mode == "scatter":
 		if _act(ev, "ed_brush_smaller", true):
 			radius = clampf(snappedf(radius * 0.8, 0.5), BRUSH_MIN, BRUSH_MAX)
@@ -816,6 +833,30 @@ func key(ev: InputEvent) -> bool:
 
 func _act(ev: InputEvent, action: String, echo := false) -> bool:
 	return InputMap.has_action(action) and ev.is_action_pressed(action, echo, true)
+
+
+## , / . (dir 1 left, -1 right): the stamp's ghost turns by the angle step, else the selected props
+## and screens do (ROTATE OBJECT, presses in a row merge). false when there was nothing to turn.
+func turn(dir: float) -> bool:
+	var step := float(editor.snap.get("angle", 15.0)) if bool(editor.snap.get("angle_on", true)) else 15.0
+	if step <= 0.0:
+		step = 15.0
+	if stamping():
+		yaw = wrap_deg(yaw + step * dir)
+		random_yaw = false
+		editor.status("YAW %d°" % roundi(yaw))
+		editor.redraw()
+		return true
+	var ops := []
+	for u in editor.selection.uids:
+		var f := editor.doc.find(u)
+		if f.is_empty() or not (str(f.section) in ["props", "screens"]) or not (f.item is Dictionary):
+			continue
+		ops.append(LevelDoc.op_set(editor.doc.path_of(u) + ["yaw"], wrap_deg(float((f.item as Dictionary).get("yaw", 0.0)) + step * dir)))
+	if ops.is_empty():
+		return false
+	editor.commit("ROTATE OBJECT", ops, "objects_turn")
+	return true
 
 
 ## The ghost follows the hover; a short right click (a tap, not a look) ends stamping.
@@ -1194,7 +1235,7 @@ func _prop_inspector(same: PackedInt32Array, it: Dictionary, box: VBoxContainer)
 	var fl := EditorKit.check(tag == "float", func(on: bool) -> void:
 		editor.commit("FLOATS ON THE SEA", _each("props", same, "tag", "float" if on else "")))
 	fl.disabled = not sea
-	box.add_child(EditorKit.row("FLOATS ON THE SEA", fl, "" if sea else "Turn the sea on (WORLD > WATER) first"))
+	box.add_child(EditorKit.row("FLOATS", fl, "FLOATS ON THE SEA" if sea else "FLOATS ON THE SEA: turn the sea on (WORLD > WATER) first"))
 	var g := int(it.get("group", 0))
 	if g > 0:
 		var n := 0

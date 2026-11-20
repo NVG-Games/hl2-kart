@@ -2,7 +2,8 @@ extends RefCounted
 ## level/case_track (P12, content): every template compiled and put in memory as c_edit
 ## (CustomTracks.put_memory), then raced the way race.gd builds it (Track.build) headless in under
 ## 5 s: rays down the lap hit the road (meta surface road), rays down far from it the terrain
-## (offroad), rays sideways from a road with barriers a barrier (wall); the colonly walls stop a
+## (offroad), rays sideways from a road with barriers a barrier (wall), rays along the road
+## through every tunnel opening nothing but the road; the colonly walls stop a
 ## ray from the road side only; the rescuer and the background's centre come from the track's
 ## data. The empty field has no road: build_failed is set and there is no path (race.gd then
 ## spawns nothing). The circuits' golden facts are case_track_golden's (run it next to this one).
@@ -53,6 +54,7 @@ func run(t: Node) -> void:
 		for r in b.roads:
 			fenced = fenced or not r.barriers.is_empty()
 		_rays(t, id, trk, fenced)
+		_portals(t, id, trk, b)
 		_colonly(t, id, trk)
 		var want := "crane" if id == "oval" else str(b.data.get("rescue", ""))
 		t.check(str(b.data.get("rescue", "")) == want and Rescuer.kind_of(trk) == want,
@@ -122,6 +124,42 @@ func _rays(t: Node, id: String, trk: Track, fenced: bool) -> void:
 	t.check(_surface(hit) == "offroad" and hit.collider is StaticBody3D and str(hit.collider.name).begins_with("col_terrain"),
 		"%s: a ray down %.0f m from the road hits the terrain (%s %s)" % [id, sqrt(best_d), _surface(hit),
 			str(hit.collider.name) if not hit.is_empty() else ""])
+
+
+## L3: rays along the road at 0.5, 1.5 and 2.5 m (on its centre and 3 m to each side) through
+## every tunnel opening, from 10 m outside to 10 m inside, hit nothing but the road: no terrain
+## across the mouth (the city block's hill face walled it off), no lintel at kart height.
+func _portals(t: Node, id: String, trk: Track, b: LevelBuild) -> void:
+	var openings := 0
+	var rays := 0
+	var bad := ""
+	for r: LevelRoad in b.roads:
+		if r.n < 3:
+			continue
+		var back := ceili(10.0 / maxf(r.step, 0.1))
+		for i in r.n:
+			var j := i + 1
+			if j >= r.n:
+				if not r.closed:
+					continue
+				j = 0
+			if (r.kind(i) == "tunnel") == (r.kind(j) == "tunnel"):
+				continue
+			openings += 1
+			var i0 := r.wrap(i - back) if r.closed else maxi(i - back, 0)
+			var i1 := r.wrap(j + back) if r.closed else mini(j + back, r.n - 1)
+			for lat in [-3.0, 0.0, 3.0]:
+				for h in [0.5, 1.5, 2.5]:
+					var a := r.surface(i0, lat, h)
+					var e := r.surface(i1, lat, h)
+					var hit := _cast(trk, a, e)
+					rays += 1
+					if not hit.is_empty() and _surface(hit) != "road" and bad == "":
+						bad = "road %d sample %d lat %.0f h %.1f: %s at %s" % [r.key, i, lat, h, str(hit.collider.name), str(hit.position)]
+	if openings == 0:
+		t.log("%s: no tunnel opening" % id)
+		return
+	t.check(bad == "", "%s: rays along the road through %d tunnel openings hit only the road (%d rays; %s)" % [id, openings, rays, bad])
 
 
 ## The colonly walls (invisible, above a barrier) stop a ray from the road side and let one from

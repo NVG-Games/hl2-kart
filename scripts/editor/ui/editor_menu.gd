@@ -2,16 +2,18 @@ class_name EditorMenu
 extends Dialog
 ## The Esc / Start menu (1.10), pad-navigable like every Dialog: RESUME; TOOL (the ten tools);
 ## TEST DRIVE FROM THE START / FROM HERE / WATCH A BOT LAP; TEST DRIVE OPTIONS (BOTS, LAPS,
-## HAZARDS, DIFFICULTY); VIEW (TOP VIEW, RACING LINE, GO TO START, FRAME TRACK); SAVE; HOST ONLINE
-## WITH THIS TRACK; TRACK PROPERTIES; HELP; EXIT TO TRACK EDITOR; EXIT TO MAIN MENU.
+## HAZARDS, DIFFICULTY); VIEW (TOP VIEW, RACING LINE, GO TO START, FRAME TRACK); UNDO <step>; REDO;
+## SAVE; HOST ONLINE WITH THIS TRACK; TRACK PROPERTIES; SET THUMBNAIL FROM CAMERA; HELP; EXIT TO
+## TRACK EDITOR; EXIT TO MAIN MENU (the pad's only way to undo and to set the picture).
 ## TOOL, TEST DRIVE OPTIONS and VIEW are pages of the menu: B goes back from them. P10.
 
 const ITEM_FONT := 20
 ## The main page's entries: [text, id].
 const MAIN := [["RESUME", "resume"], ["TOOL", "tool"], ["TEST DRIVE FROM THE START", "start"],
 	["TEST DRIVE FROM HERE", "here"], ["WATCH A BOT LAP", "watch"], ["TEST DRIVE OPTIONS", "options"],
-	["VIEW", "view"], ["SAVE", "save"], ["HOST ONLINE WITH THIS TRACK", "host"], ["TRACK PROPERTIES", "props"],
-	["HELP", "help"], ["EXIT TO TRACK EDITOR", "exit_home"], ["EXIT TO MAIN MENU", "exit_menu"]]
+	["VIEW", "view"], ["UNDO", "undo"], ["REDO", "redo"], ["SAVE", "save"], ["HOST ONLINE WITH THIS TRACK", "host"],
+	["TRACK PROPERTIES", "props"], ["SET THUMBNAIL FROM CAMERA", "thumb"], ["HELP", "help"],
+	["EXIT TO TRACK EDITOR", "exit_home"], ["EXIT TO MAIN MENU", "exit_menu"]]
 const VIEW := [["TOP VIEW", "ed_top"], ["RACING LINE", "ed_line"], ["GO TO START", "ed_home"], ["FRAME TRACK", "ed_frame_all"]]
 
 var editor: TrackEditor
@@ -80,9 +82,18 @@ func show_page(p: String) -> void:
 			default_focus = items[0]
 		_:
 			title_label.text = "EDITOR MENU"
+			var h := editor.history if editor != null else null
 			for e in MAIN:
 				var id: String = e[1]
-				var b := _item(e[0], func() -> void: press(id))
+				var text: String = e[0]
+				# UNDO / REDO name their step; with none they are greyed
+				if id == "undo" and h != null and h.can_undo():
+					text = "UNDO " + h.undo_name()
+				elif id == "redo" and h != null and h.can_redo():
+					text = "REDO " + h.redo_name()
+				var b := _item(text, func() -> void: press(id))
+				if id == "undo" or id == "redo":
+					b.disabled = h == null or not (h.can_undo() if id == "undo" else h.can_redo())
 				if id == back_to:
 					default_focus = b
 			if back_to == "main" or default_focus == null or not items.has(default_focus):
@@ -118,8 +129,20 @@ func press(id: String) -> void:
 			e.test_drive("here", e.free_center())
 		"watch":
 			e.test_drive("watch")
+		"undo":
+			if ui != null:
+				ui.run_action("ed_undo")
+		"redo":
+			if ui != null:
+				ui.run_action("ed_redo")
+		"thumb":
+			if ui != null:
+				ui.set_thumbnail()
 		"save":
-			e.save()
+			if ui != null:
+				ui.save_named()
+			else:
+				e.save()
 		"host":
 			if ui != null:
 				ui.host_online()

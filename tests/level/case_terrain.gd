@@ -157,6 +157,51 @@ func _carve_tunnel(t: Node) -> void:
 	t.check(bad == 0, "tunnel: the floor stays clear (no ground between the floor and the roof + 1.5; %d cells)" % bad)
 	t.check(holes > 0, "tunnel: holes at the mouths (%d)" % holes)
 	t.near(tr.height_at(100.0, 0.0), 0.15, 0.05, "tunnel: the open road beyond keeps its bed")
+	_steep_face(t)
+
+
+## L3: a tunnel mouth in a steep hill face (10 m of hill, a 2 m face at |x| 59..61, the tube
+## |x| < 60, its roof 7.5 m): along the road, at its centre and 3 m to each side, the ground is the
+## bed, a hole or the hill above the roof + 1.5 m, never a slope across the opening at kart height;
+## the hill over and beside the tube stays; a local re-carve of the mouth equals the full carve.
+func _steep_face(t: Node) -> void:
+	var face := func(x: float, _z: float) -> float: return 10.0 * clampf((61.0 - absf(x)) / 2.0, 0.0, 1.0)
+	var tr := _world(face)
+	var r := road(-150.0, 150.0, 0.0, [OPEN, TUNNEL], func(x: float) -> int: return 1 if absf(x) < 60.0 else 0)
+	tr.carve([r], FLAT, BLEND)
+	var roof := 7.5
+	var wall := 0
+	var at := ""
+	for z in [-3.0, 0.0, 3.0]:
+		var x := -80.0
+		while x <= 80.0:
+			var h := tr.height_at(x, z)
+			if not is_nan(h) and h > -LevelTerrain.CLEAR + 0.01 and h < roof + 1.5 - 0.01:
+				wall += 1
+				if at == "":
+					at = "(%.2f, %.0f) %.2f m" % [x, z, h]
+			x += 0.25
+	t.check(wall == 0, "steep face: no ground across either mouth between the floor and the roof + 1.5 (%d points; first %s)" % [wall, at])
+	t.check(tr.height_at(0.0, 0.0) == 10.0 and tr.height_at(40.0, 0.0) == 10.0, "steep face: the hill over the tube stays")
+	t.check(tr.height_at(0.0, 15.0) == 10.0 and tr.height_at(56.0, 12.0) == 10.0, "steep face: the hill beside the tube stays (%s)" % tr.height_at(56.0, 12.0))
+	# the local re-carve round the east mouth: the same heights (NAN where the full carve has a hole)
+	var full := tr.heights.duplicate()
+	var rect := tr.influence_rect(r, 100, 112, FLAT, BLEND)
+	tr.carve([r], FLAT, BLEND, rect)
+	var holes := 0
+	var diff := 0
+	var worst := 0.0
+	for ci in full.size():
+		var a := full[ci]
+		var b := tr.heights[ci]
+		if is_nan(a) != is_nan(b):
+			diff += 1
+		elif is_nan(a):
+			holes += 1
+		else:
+			worst = maxf(worst, absf(a - b))
+	t.check(rect.size.x > 0 and holes > 0 and diff == 0 and worst < 0.05,
+		"steep face: a local re-carve of the east mouth equals the full carve (%d holes, %d differ, worst %.4f m)" % [holes, diff, worst])
 
 
 func _carve_aerial(t: Node) -> void:

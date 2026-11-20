@@ -95,6 +95,20 @@ func end_gesture() -> void:
 	_merge_ok = false
 
 
+## Esc mid-drag: ends the gesture and takes its step back when it made one (dropped: no redo).
+## false when the gesture had made no step (nothing earlier is touched).
+func cancel_gesture() -> bool:
+	var made := _in_gesture and _gesture_step and _pos > 0 and _pos == _steps.size()
+	end_gesture()
+	if not made:
+		return false
+	undo()
+	var gone: Dictionary = _steps.pop_back()
+	bytes -= int(gone.bytes)
+	changed.emit()
+	return true
+
+
 func undo() -> bool:
 	if _pos <= 0 or doc == null:
 		return false

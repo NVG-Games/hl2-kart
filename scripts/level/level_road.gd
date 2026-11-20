@@ -15,8 +15,14 @@ const STEP := 2.0
 const SEG_GROUP := 8
 ## Points per segment when measuring arc length (as the generator).
 const FLATTEN := 200
+## A road is refused unsampled when length_bounds' upper bound is over this many times its cap,
+## however short its estimate (only handles folded back on short segments get there).
+const LONG_BOUND := 4.0
 ## Points per segment outside a partial road's window (lengths only).
 const COARSE := 16
+## The race sampling's most samples: 3 x this (a backstop; the compiler refuses a lap over 25 km
+## before it is sampled, 6.9).
+const MAX_THIRDS := 4000
 ## AUTO bank: clip(plan curvature x 120, +-0.15 rad), then 30 passes of (b[i-1] + 2 b[i] + b[i+1]) / 4.
 const BANK_GAIN := 120.0
 const BANK_AUTO := 0.15
@@ -113,6 +119,47 @@ static func build(points: Array, styles: Dictionary, closed: bool, opts := {}) -
 	r._sample_uniform(opts)
 	r._finish(opts)
 	return r
+
+
+## Vector2(about, most) of the curve's arc length, without sampling it: `about` from COARSE chords
+## per segment (a little under the true length), `most` an upper bound, each segment's control
+## polygon |p0 -> p0 + out| + |-> p1 - in| + |-> p1| (handles as build makes them; opts: pre /
+## post as build). Cheap, so a hostile road is refused before it costs anything (6.9).
+static func length_bounds(points: Array, closed: bool, opts := {}) -> Vector2:
+	var r := LevelRoad.new()
+	r.src_closed = closed
+	for p in points:
+		if p is Dictionary:
+			r._pts.append(p)
+			r._P.append(_vec(p.get("pos", [0, 0, 0])))
+	var np := r._P.size()
+	if np < 2:
+		return Vector2.ZERO
+	r._handles(opts)
+	var about := 0.0
+	var most := 0.0
+	for k in (np if closed else np - 1):
+		var k1 := (k + 1) % np
+		var p0 := r._P[k]
+		var p1 := p0 + r._hout[k]
+		var p3 := r._P[k1]
+		var p2 := p3 - r._hin[k1]
+		most += r._hout[k].length() + p1.distance_to(p2) + r._hin[k1].length()
+		var ca := -p0 + p1 * 3.0 - p2 * 3.0 + p3
+		var cb := p0 * 3.0 - p1 * 6.0 + p2 * 3.0
+		var cc := (p1 - p0) * 3.0
+		var last := p0
+		for j in range(1, COARSE + 1):
+			var tt := float(j) / COARSE
+			var q := ((ca * tt + cb) * tt + cc) * tt + p0
+			about += q.distance_to(last)
+			last = q
+	return Vector2(about, most)
+
+
+## The upper bound of length_bounds.
+static func poly_length(points: Array, closed: bool, opts := {}) -> float:
+	return length_bounds(points, closed, opts).y
 
 
 ## The drag preview's road: segments first_seg - 1 .. last_seg + 1, each sampled on its own at
@@ -742,7 +789,7 @@ func _at(k: int, local: float) -> Vector3:
 func _sample_uniform(opts: Dictionary) -> void:
 	uniform = true
 	length = total
-	var base := maxi(roundi(total / 6.0), 1)
+	var base := clampi(roundi(total / 6.0), 1, MAX_THIRDS)
 	n_own = 3 * base if closed else 3 * base + 1
 	n = n_own
 	var hint := int(opts.get("n_hint", 0))

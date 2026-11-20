@@ -15,6 +15,7 @@ signal leave_requested
 var picker: RacerPicker
 var players_box: VBoxContainer
 var rules_box: VBoxContainer
+var rscroll: ScrollContainer
 var chat_scroll: ScrollContainer
 var chat_log: VBoxContainer
 var chat_edit: LineEdit
@@ -35,6 +36,7 @@ var retry_button: Button
 var dl_row: HBoxContainer            # this client's own download: thumb, line, bar / reason + RETRY
 var dl_thumb: TextureRect
 var dl_label: Label
+var dl_pct: Label                    # "42%  ·  6 s LEFT" at the bar's end (never clipped)
 var dl_bar: ProgressBar
 var _track_cells := {}               # peer id -> its TRACK column label (updated in place)
 var _ask_box: MessageBox             # DOWNLOAD IT?
@@ -42,6 +44,17 @@ var _asked := ""                     # the sha DOWNLOAD IT? was shown for
 var _fetching := false               # a download (or its prepare) is on show: the blip at the end
 var _shown_id := ""                  # the track the download row is about
 var _tick := 0.0
+
+## A player row's height (an open slot's too: the PLAYERS box keeps one height whoever is in, so
+## every rule fits under it at a 900 px canvas) and its fixed columns (px): "999 ms", "READY",
+## "NO TRACK", KICK.
+const ROW_H := 34
+## The rules' button rows (track, difficulty, hazards) in the lobby (UiKit's are 42).
+const RULE_H := 36
+const COL_PING := 64
+const COL_READY := 66
+const COL_TRACK := 96
+const COL_KICK := 80
 
 
 func _ready() -> void:
@@ -131,12 +144,12 @@ func _ready() -> void:
 	left.add_child(chat_edit)
 	var right := VBoxContainer.new()
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	right.add_theme_constant_override("separation", 10)
+	right.add_theme_constant_override("separation", 8)
 	main.add_child(right)
 	right.add_child(UiKit.section("PLAYERS"))
 	var pframe := PanelContainer.new()
 	pframe.add_theme_stylebox_override("panel", UiKit.box(Color(0, 0, 0, 0.55), Color(1, 1, 1, 0.08), 1, 4, 10))
-	pframe.custom_minimum_size.y = 8 * 34 + 20
+	pframe.custom_minimum_size.y = 8 * ROW_H + 7 * 4 + 20
 	right.add_child(pframe)
 	players_box = VBoxContainer.new()
 	players_box.add_theme_constant_override("separation", 4)
@@ -146,14 +159,20 @@ func _ready() -> void:
 	rframe.add_theme_stylebox_override("panel", UiKit.box(Color(0, 0, 0, 0.55), Color(1, 1, 1, 0.08), 1, 4, 12))
 	rframe.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	right.add_child(rframe)
-	# the rules scroll if the window is very short, so the buttons below always stay on screen
-	var rscroll := ScrollContainer.new()
+	# the rules scroll if the window is very short, so the buttons below always stay on screen; their
+	# bar has a width here (UiKit's is 0 px wide: every other list scrolls by the pad or the wheel)
+	rscroll = ScrollContainer.new()
 	rscroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	rscroll.follow_focus = true
+	var vbar := rscroll.get_v_scroll_bar()
+	vbar.add_theme_stylebox_override("scroll", UiKit.box(Color(1, 1, 1, 0.05), Color(0, 0, 0, 0), 0, 3, 3))
+	vbar.add_theme_stylebox_override("grabber", UiKit.box(Color(1, 1, 1, 0.25), Color(0, 0, 0, 0), 0, 3, 3))
+	vbar.add_theme_stylebox_override("grabber_highlight", UiKit.box(UiKit.ORANGE, Color(0, 0, 0, 0), 0, 3, 3))
+	vbar.add_theme_stylebox_override("grabber_pressed", UiKit.box(UiKit.ORANGE, Color(0, 0, 0, 0), 0, 3, 3))
 	rframe.add_child(rscroll)
 	rules_box = VBoxContainer.new()
 	rules_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rules_box.add_theme_constant_override("separation", 6)
+	rules_box.add_theme_constant_override("separation", 4)
 	rscroll.add_child(rules_box)
 	# buttons
 	var brow := HBoxContainer.new()
@@ -289,11 +308,22 @@ func _update_status() -> void:
 		# the track first: whoever does not have it yet (the host: with KICK on that row)
 		status_label.text = blocker
 	else:
+		# a listen host's START RACE is its READY (Net.can_start never waits for it)
 		var waiting := 0
+		var host_row := false
 		for p in Net.players.values():
-			if not p["ready"]:
+			if bool(p.get("host", false)):
+				host_row = true
+			elif not p["ready"]:
 				waiting += 1
-		status_label.text = "Waiting for %d player%s to be ready" % [waiting, "" if waiting == 1 else "s"] if waiting > 0 else ""
+		if waiting > 0:
+			status_label.text = "Waiting for %d player%s to be ready" % [waiting, "" if waiting == 1 else "s"]
+		elif Net.is_server and host_row:
+			status_label.text = "Everyone is ready: press START RACE."
+		elif host_row:
+			status_label.text = "Waiting for the host to start the race."
+		else:
+			status_label.text = ""
 	status_label.tooltip_text = status_label.text
 	if start_button.visible:
 		var why := Net.can_start()
@@ -335,7 +365,7 @@ func _rebuild_players() -> void:
 		bots = maxi(0, int(cfg.get("grid", 8)) - ids.size())
 	for i in maxi(0, int(cfg.get("max_players", 8)) - ids.size()):
 		var empty := UiKit.label("      open slot" if i >= bots else "      bot", 16, Color(1, 1, 1, 0.25))
-		empty.custom_minimum_size.y = 34
+		empty.custom_minimum_size.y = ROW_H
 		players_box.add_child(empty)
 	if kick_id >= 0:
 		var again: Control = null
@@ -353,13 +383,13 @@ func _rebuild_players() -> void:
 func _player_row(id: int, p: Dictionary) -> Control:
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 12)
-	h.custom_minimum_size.y = 40
+	h.custom_minimum_size.y = ROW_H
 	var pic := TextureRect.new()
 	var path := "res://assets/ui/portraits/%s.png" % p["character"]
 	pic.texture = load(path) if ResourceLoader.exists(path) else null
 	pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	pic.custom_minimum_size = Vector2(40, 40)
+	pic.custom_minimum_size = Vector2(ROW_H, ROW_H)
 	h.add_child(pic)
 	var me := id == Net.my_id()
 	var nick := UiKit.label(("★ " if p.get("host", false) else "") + str(p["nick"]), 19, Hl2Style.BRIGHT if me else Color.WHITE, true)
@@ -369,21 +399,27 @@ func _player_row(id: int, p: Dictionary) -> Control:
 	h.add_child(nick)
 	var what := UiKit.label("%s · %s" % [Game.character(p["character"]).get("short", p["character"]), Game.vehicle(p["vehicle"])["name"]], 14, UiKit.TEXT_DIM)
 	what.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	what.custom_minimum_size.x = 150
+	what.custom_minimum_size.x = 110
 	what.clip_text = true
 	what.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	h.add_child(what)
+	# ping, READY, TRACK and KICK in fixed columns, so every row's cells line up (the texts are
+	# clipped to them, never pushing the next cell over)
 	var ping := UiKit.label("" if p.get("host", false) else "%d ms" % int(p.get("ping", 0)), 15, UiKit.TEXT_DIM)
-	ping.custom_minimum_size.x = 56
+	ping.custom_minimum_size.x = COL_PING
+	ping.clip_text = true
+	ping.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	ping.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	h.add_child(ping)
 	var rd := UiKit.label("READY" if p["ready"] else "", 15, Color(0.55, 0.95, 0.4), true)
-	rd.custom_minimum_size.x = 60
+	rd.custom_minimum_size.x = COL_READY
+	rd.clip_text = true
 	rd.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	h.add_child(rd)
 	# TRACK: 42% / PREP / OK / NO TRACK (the reason as the tooltip), updated in place
 	var tc := UiKit.label("", 15, UiKit.TEXT_DIM, true)
-	tc.custom_minimum_size.x = 76
+	tc.custom_minimum_size.x = COL_TRACK
+	tc.clip_text = true
 	tc.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	tc.mouse_filter = Control.MOUSE_FILTER_PASS
 	h.add_child(tc)
@@ -393,12 +429,33 @@ func _player_row(id: int, p: Dictionary) -> Control:
 	if missing > 0:
 		h.tooltip_text = "%d objects of this track are not on %s's computer: they are left out there." % [missing, str(p["nick"])]
 	if Net.is_server and id != 1:
-		var kick := UiKit.button("KICK", 70)
-		kick.custom_minimum_size.y = 34
+		var kick := UiKit.button("KICK", COL_KICK)
+		_low(kick, "Button", ROW_H)
 		kick.set_meta("kick_id", id)
 		kick.pressed.connect(func(): Net.kick(id))
 		h.add_child(kick)
+	elif Net.is_server:
+		# the host's own row: an empty KICK column
+		var gap := Control.new()
+		gap.custom_minimum_size.x = COL_KICK
+		gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		h.add_child(gap)
 	return h
+
+
+## A button of the lobby's tight rows: `h` px high, its theme's styles with less padding above and
+## below the text (the text keeps its size).
+static func _low(b: Control, type: String, h: int) -> void:
+	b.custom_minimum_size.y = h
+	var t := UiKit.theme()
+	for st in ["normal", "hover", "pressed", "hover_pressed", "focus", "disabled"]:
+		# (a variation without its own style uses Button's)
+		var from := type if t.has_stylebox(st, type) else "Button"
+		if t.has_stylebox(st, from):
+			var sb := t.get_stylebox(st, from).duplicate() as StyleBox
+			sb.content_margin_top = 4
+			sb.content_margin_bottom = 4
+			b.add_theme_stylebox_override(st, sb)
 
 
 # ---------------------------------------------------------------- rules
@@ -432,6 +489,23 @@ func _build_rules() -> void:
 	var cfg := Net.cfg
 	var host := Net.is_server
 	var w := 210
+	# the track first: the rule that decides whether a race can start (6.5)
+	if host:
+		# the circuits, then MY TRACKS and the kept downloads, selected by id (a custom pick is never
+		# shown as Highway 17); a track this install has not built or that has errors is disabled
+		track_dd = CreateServer.track_dropdown(str(cfg.get("track", "")), func(id: String): Net.set_rule("track", id))
+		_low(track_dd, "OptionButton", RULE_H)
+		rules_box.add_child(UiKit.row("Track", track_dd, w))
+	else:
+		# a friend sees the host's track by name (it may be one this computer does not have yet)
+		track_dd = null
+		var tl := UiKit.label(_track_name(), 18, UiKit.TEXT, true)
+		tl.clip_text = true
+		tl.custom_minimum_size = Vector2(260, RULE_H)
+		tl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		tl.tooltip_text = _track_name()
+		tl.mouse_filter = Control.MOUSE_FILTER_PASS
+		rules_box.add_child(UiKit.row("Track", tl, w))
 	var mp := UiKit.slider(1, Net.MAX_RACERS, 1, int(cfg.get("max_players", 8)), func(v: float): Net.set_rule("max_players", int(v)))
 	rules_box.add_child(UiKit.row("Max players", mp, w))
 	var bots := UiKit.toggle(bool(cfg.get("bots", true)), func(on: bool): Net.set_rule("bots", on))
@@ -445,19 +519,8 @@ func _build_rules() -> void:
 	rules_box.add_child(UiKit.row("Difficulty", diff, w))
 	var hazards := UiKit.segmented(["OFF", "ON"], int(cfg.get("hazards", 1)), func(i: int): Net.set_rule("hazards", i))
 	rules_box.add_child(UiKit.row("Track hazards", hazards, w))
-	if host:
-		# the circuits, then MY TRACKS and the kept downloads, selected by id (a custom pick is never
-		# shown as Highway 17); a track this install has not built or that has errors is disabled
-		track_dd = CreateServer.track_dropdown(str(cfg.get("track", "")), func(id: String): Net.set_rule("track", id))
-		rules_box.add_child(UiKit.row("Track", track_dd, w))
-	else:
-		# a friend sees the host's track by name (it may be one this computer does not have yet)
-		track_dd = null
-		var tl := UiKit.label(_track_name(), 18, UiKit.TEXT, true)
-		tl.clip_text = true
-		tl.custom_minimum_size = Vector2(260, 42)
-		tl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		rules_box.add_child(UiKit.row("Track", tl, w))
+	for b in diff.get_children() + hazards.get_children():
+		_low(b, "SegButton", RULE_H)
 	if not host:
 		# everyone sees the rules; only the host changes them (and the D-pad passes them by)
 		for c in [mp, grid, laps]:
@@ -517,14 +580,26 @@ func _build_download_row(parent: Control) -> void:
 	dl_thumb.custom_minimum_size = Vector2(72, 40)
 	dl_thumb.visible = false
 	dl_row.add_child(dl_thumb)
+	# the line and the bar take the row's width; the name and size clip (the whole line is the
+	# tooltip), the percent and the time left keep their own label at the bar's end
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 5)
 	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	dl_row.add_child(v)
+	var line := HBoxContainer.new()
+	line.add_theme_constant_override("separation", 12)
+	v.add_child(line)
 	dl_label = UiKit.label("", 15, UiKit.ORANGE, true)
 	dl_label.clip_text = true
-	dl_label.custom_minimum_size.x = 420
-	v.add_child(dl_label)
+	dl_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dl_label.custom_minimum_size.x = 160
+	dl_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	line.add_child(dl_label)
+	dl_pct = UiKit.label("", 15, UiKit.ORANGE, true)
+	dl_pct.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	dl_pct.visible = false
+	line.add_child(dl_pct)
 	dl_bar = ProgressBar.new()
 	dl_bar.show_percentage = false
 	dl_bar.min_value = 0.0
@@ -583,6 +658,7 @@ func _show_local() -> void:
 	var show := false
 	var bar := false
 	var retry := false
+	var pct := ""
 	# (what had the focus, before anything hides: RETRY or KEEP TRACK going away puts it on READY)
 	var had_focus := _focus_inside(dl_row) or _focus_inside(keep_button)
 	if id != _shown_id:
@@ -598,8 +674,9 @@ func _show_local() -> void:
 			nm = _track_name()
 		var size := int(ls.get("size", 0))
 		var eta := float(ls.get("eta_s", -1.0))
-		dl_label.text = "DOWNLOADING %s  ·  %s  ·  %d%%%s" % [nm.to_upper(), _size_text(size),
-			int(floorf(clampf(float(ls.get("dl", 0.0)), 0.0, 1.0) * 100.0)), "  ·  %d s LEFT" % ceili(eta) if eta >= 0.0 else ""]
+		dl_label.text = "DOWNLOADING %s  ·  %s" % [nm.to_upper(), _size_text(size)]
+		pct = "%d%%%s" % [int(floorf(clampf(float(ls.get("dl", 0.0)), 0.0, 1.0) * 100.0)),
+			"  ·  %d s LEFT" % ceili(eta) if eta >= 0.0 else ""]
 		bar = true
 		dl_bar.value = clampf(float(ls.get("dl", 0.0)), 0.0, 1.0)
 	elif custom and st == "prep":
@@ -612,7 +689,8 @@ func _show_local() -> void:
 		var code := str(ls.get("code", ""))
 		dl_label.add_theme_color_override("font_color", NO_TRACK)
 		dl_label.text = str(ls.get("why", "")) if str(ls.get("why", "")) != "" else "No track."
-		retry = true
+		# past the RETRY limit (TrackShare.RETRY_MAX) the reason says to ask the host
+		retry = code == "downloads off" or bool(ls.get("retry", true))
 		retry_button.text = "DOWNLOAD" if code == "downloads off" else "RETRY"
 		if code == "downloads off":
 			_ask_download(ls)
@@ -621,7 +699,10 @@ func _show_local() -> void:
 		Game.play_ui(BLIP, -6.0)
 	if not custom:
 		_fetching = false
+	dl_pct.text = pct
+	dl_label.tooltip_text = dl_label.text + ("  ·  " + pct if pct != "" else "")
 	# each visibility set once (hiding a focused RETRY on every refresh would drop the pad's focus)
+	dl_pct.visible = pct != ""
 	dl_bar.visible = bar
 	retry_button.visible = retry
 	dl_row.visible = show

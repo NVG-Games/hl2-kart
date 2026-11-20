@@ -33,6 +33,8 @@ const POINT_COLOR := Color(0.75, 1.0, 0.75)
 const DRAFT_COLOR := Color(1.0, 0.61, 0.0)
 const NOSE_COLOR := Color(1.0, 0.55, 0.0)
 const MID_COLOR := Color(0.75, 1.0, 0.85)
+## Why no branch can start yet while the main road is not a closed loop.
+const TEXT_OPEN := "Close the loop first ({ed_close_loop}): branches fork off a closed lap."
 
 ## The branch being made: {fork: anchor, fork_pos, points: [dict], merge: anchor | null,
 ## merge_pos} ({} when none); its step is step().
@@ -84,6 +86,8 @@ func status_step() -> String:
 		return refusal
 	match step():
 		1:
+			if main_open():
+				return TEXT_OPEN
 			return "Click the road where the branch leaves"
 		2:
 			return "Click the ground to lay it out, then the road where it rejoins"
@@ -109,6 +113,8 @@ func hints(hit: EditorHit) -> Array:
 	var on_main := hit.what == "road" and hit.road == -1
 	match step():
 		1:
+			if main_open():
+				return [["{ed_close_loop} CLOSE THE LOOP FIRST"]]
 			if on_main:
 				return [["CLICK FORK HERE"] if legal_at("fork", hit.s) else ["NO FORK HERE"]]
 			return [["CLICK THE ROAD: WHERE THE BRANCH LEAVES"]]
@@ -130,6 +136,12 @@ func main_road() -> LevelRoad:
 	return LevelFixes.road_of(editor.build, -1)
 
 
+## True while the main road is open (or has under 3 points): no fork flags exist until it closes.
+func main_open() -> bool:
+	var road = editor.doc.data.get("road") if editor != null and editor.doc != null else null
+	return not (road is Dictionary and bool(road.get("closed", false)) and (road.get("points", []) as Array).size() >= 3)
+
+
 ## The exported sample of a spot s metres along the main road.
 func sample_of(s_m: float) -> int:
 	var m := main_road()
@@ -149,6 +161,9 @@ func legal_at(end: String, s_m: float, buid := 0) -> bool:
 ## {anchor, pos, e} or {} (refused: `refusal` says why).
 func snap(end: String, s_m: float, buid := 0) -> Dictionary:
 	refusal = ""
+	if main_open():
+		refusal = TEXT_OPEN
+		return {}
 	var m := main_road()
 	var f := flags_for(end, buid)
 	if m == null or f.is_empty():
@@ -296,9 +311,24 @@ func finish() -> int:
 func cancel() -> void:
 	draft = {}
 	refusal = ""
+	if not _drag.is_empty() and editor != null and editor.history != null:
+		editor.history.end_gesture()
 	_drag = {}
 	if editor != null:
 		editor.redraw()
+
+
+## Esc while the button holds a drag: a branch end's move taken back (its points: ROAD's rule).
+func cancel_drag() -> void:
+	if not _drag.is_empty():
+		_drag = {}
+		if editor != null and editor.history != null:
+			editor.history.cancel_gesture()
+		editor.redraw()
+		return
+	var rt := road_tool()
+	if rt != null:
+		rt._cancel_drag(true)
 
 
 func key(ev: InputEvent) -> bool:

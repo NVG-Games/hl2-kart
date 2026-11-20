@@ -573,6 +573,14 @@ func _end_drag() -> void:
 	_slide = {}
 
 
+## Esc while the button holds a move: taken back.
+func cancel_drag() -> void:
+	if not _drag.is_empty() and editor != null and editor.history != null:
+		editor.history.cancel_gesture()
+	_drag = {}
+	_slide = {}
+
+
 ## An anchored item's marker dragged (here or from SELECT): it follows the road spot nearest the
 ## cursor on its own road; a zone's end bar (sub 3 / 4) moves that end, its middle the whole zone.
 func slide(uid: int, hit: EditorHit, phase: int) -> Array:
@@ -730,7 +738,7 @@ func inspect(uids: PackedInt32Array, box: VBoxContainer) -> bool:
 			box.add_child(EditorKit.row("COUNT", EditorKit.toggle("AUTO", count <= 0, func(on: bool) -> void:
 				editor.commit("CRATE COUNT", _each(sec, same, "count", 0 if on else _auto_count(uid))))))
 			if count > 0:
-				box.add_child(EditorKit.row("", EditorKit.number(count, 1, 5, 1, func(v: float) -> void:
+				box.add_child(EditorKit.row("CRATES", EditorKit.number(count, 1, 5, 1, func(v: float) -> void:
 					editor.commit("CRATE COUNT", _each(sec, same, "count", int(v)), "insp_count_%d" % uid), "%d")))
 			else:
 				box.add_child(EditorKit.hint("AUTO: %d CRATES" % _auto_count(uid)))
@@ -742,7 +750,7 @@ func inspect(uids: PackedInt32Array, box: VBoxContainer) -> bool:
 			box.add_child(EditorKit.row("LANE", EditorKit.toggle("RACING LINE", on_line, func(on: bool) -> void:
 				editor.commit("PAD LANE", _each(sec, same, "lat", null if on else 0.0)))))
 			if not on_line:
-				box.add_child(EditorKit.row("", EditorKit.number(float(lat), -20.0, 20.0, 0.5, func(v: float) -> void:
+				box.add_child(EditorKit.row("LANE OFFSET", EditorKit.number(float(lat), -20.0, 20.0, 0.5, func(v: float) -> void:
 					editor.commit("PAD LANE", _each(sec, same, "lat", snappedf(v, 0.01)), "insp_lat_%d" % uid), "%.1f", " m")))
 			box.add_child(EditorKit.row("TURN", EditorKit.number(float(it.get("turn", 0.0)), -30.0, 30.0, 1.0, func(v: float) -> void:
 				editor.commit("PAD TURN", _each(sec, same, "turn", snappedf(v, 0.1)), "insp_turn_%d" % uid), "%d", "°")))

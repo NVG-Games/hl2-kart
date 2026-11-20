@@ -36,6 +36,14 @@ const DL_HZ := 4.0
 ## A RETRY (a fresh need after a failure) at most once per this many seconds, and this often per sha.
 const RETRY_GAP := 30.0
 const RETRY_MAX := 5
+## A client waits this much longer than RETRY_GAP (the server measures from when the need arrives).
+const RETRY_SLACK := 1.0
+## Transfers a peer may open per sha, whatever it reports between them: the first OPENS_FREE at
+## once (a bad chunk, a hash mismatch after prep), every later one RETRY_GAP after the last.
+const OPENS_FREE := RESTARTS + 1
+const OPENS_MAX := RESTARTS + 1 + RETRY_MAX
+## A refused need is answered at most this often per peer (seconds).
+const REFUSE_GAP := 1.0
 ## A client reason (fail:<reason>) is cut to this many characters.
 const REASON_MAX := 80
 const MISSING_MAX := 100000
@@ -50,7 +58,8 @@ const STATES := ["?", "need", "get", "prep", "ok", "fail"]
 ## Readable words for the reason codes clients send (status line, console).
 const WORDS := {"stalled": "download stalled", "damaged": "download damaged", "disk": "disk full",
 	"invalid": "track not usable", "too big": "track too big", "downloads off": "downloads off",
-	"not built": "not built", "newer": "needs a newer game", "preparation timed out": "preparation timed out"}
+	"not built": "not built", "newer": "needs a newer game", "preparation timed out": "preparation timed out",
+	"too many": "sent too often"}
 
 const TEXT_BROKEN := "The server sent a broken race setup."
 const TEXT_MISMATCH := "Your copy of the track does not match the server's."
@@ -67,6 +76,10 @@ const TEXT_PREP_KICK := "Track preparation timed out."
 const TEXT_IDLE_KICK := "Could not get the track: %s."
 const TEXT_MISSING := "%d objects of this track are not on this computer (other game content): they were left out."
 const TEXT_DIFFERENT := "%s built the track differently: the race may not match."
+const TEXT_TOO_MANY := "The server has sent this track too often: try again later."
+const TEXT_RETRY_WAIT := "Wait %d s before trying again."
+const TEXT_RETRY_MAX := "This track failed %d times: ask the host to change it."
+const TEXT_NO_PROGRESS := "%s: no progress for %d s: wait or KICK."
 
 ## Compiles started by downloads (tests: hostile packages never get this far).
 static var compiles := 0
@@ -100,7 +113,8 @@ var stats := {"xfers": 0, "chunks": 0, "bytes": 0, "restarts": 0, "dl_sent": 0, 
 var pkg := {}
 ## peer -> {xid, sha, size, sent, acked, t_ack, restarts, win, srtt, base_rtt, acks, good, since, t_sent}
 var pump := {}
-var _peer := {}          # peer -> {t_state, t_progress, retries: {sha: n}, t_retry, logged, digest, kicked}
+var _peer := {}          # peer -> {t_state, t_progress, retries: {sha: n}, t_retry, opens: {sha: n}, t_open,
+                         #   t_refused, logged, digest, kicked}
 var _xid := 0
 var _bucket := 0.0
 var _dl_t := 0.0
@@ -112,6 +126,7 @@ var _raw := {}           # tests: {id, sha, bytes} served without the registry (
 var _rx := {}            # {xid, sha, size, got, f, path, head, thumb_done, t}
 var _local := {}         # {key, sha, state, dl, why, name, size, t, id}
 var _bad := {}           # sha -> damaged downloads this session
+var _retries := {}       # sha -> {n, t, code, why}: this client's RETRYs (the server counts the same)
 var _consent := {}       # server address -> true: DOWNLOAD was answered for it
 var _acks: Array = []    # held acks (test): [[due, xid, upto]]
 var _hist: Array = []    # the last 3 s of progress: [[t, bytes]] (ETA)
@@ -212,15 +227,11 @@ static func clean_cfg(cfg: Dictionary) -> Dictionary:
 	return out
 
 
-## Control characters and [ ] { } stripped, edges trimmed, cut to n characters (2.10).
+## Control characters (C0, C1, U+2028/2029, the BOM, lone surrogates) and [ ] { } stripped, edges
+## trimmed, cut to n characters (2.10). LevelDoc's: it cuts the input first, so a received
+## megabyte string costs no more than a short one.
 static func clean_text(s: String, n: int) -> String:
-	var o := ""
-	for i in s.length():
-		var c := s.unicode_at(i)
-		if c < 32 or c == 127 or c == 91 or c == 93 or c == 123 or c == 125:
-			continue
-		o += String.chr(c)
-	return o.strip_edges().left(n)
+	return LevelDoc.clean_text(s, n)
 
 
 # ================================================================ server: the track rule
@@ -250,6 +261,15 @@ func on_track_rule(id: String) -> void:
 		var raw := not _raw.is_empty() and str(_raw.get("id", "")) == id
 		var b: PackedByteArray = _raw["bytes"] if raw else CustomTracks.bytes(id)
 		var sha := LevelIO.sha256(b) if not b.is_empty() else ""
+		if not raw and (b.is_empty() or LevelIO.id_for(sha) != id):
+			# the file was replaced since the last scan: rescan and follow it to its new id (the
+			# cfg the caller broadcasts next carries that one)
+			var moved := _follow_file(id)
+			if moved != "":
+				id = moved
+				cfg["track"] = id
+				b = CustomTracks.bytes(id)
+				sha = LevelIO.sha256(b) if not b.is_empty() else ""
 		var m := CustomTracks.meta(id)
 		if b.is_empty() or sha == "" or LevelIO.id_for(sha) != id:
 			push_warning("TrackShare: the file of %s cannot be served" % id)
@@ -269,6 +289,30 @@ func on_track_rule(id: String) -> void:
 	if net.players.has(1) and not net.dedicated:
 		_set_peer(1, host_state, "not built" if host_state == "fail" else "", 1.0 if host_state == "ok" else 0.0, false)
 	net.broadcast_roster()
+
+
+## The track folders read again (files added, replaced or removed while the server runs): on a
+## dedicated server through DedicatedConfig.scan (own files through the gate, nothing compiled).
+func rescan() -> void:
+	if net != null and bool(net.get("dedicated")):
+		DedicatedConfig.scan()
+	else:
+		CustomTracks.refresh()
+
+
+## A custom id whose file changed: after a rescan, the id of the file at the same path ("" when it
+## is gone or unusable).
+func _follow_file(id: String) -> String:
+	var p := CustomTracks.path(id)
+	if p == "":
+		return ""
+	rescan()
+	for m in CustomTracks.list("all"):
+		var nid := str(m.get("id", ""))
+		if str(m.get("path", "")) == p and nid != id and CustomTracks.unusable(nid) == "":
+			print("TrackShare: %s changed on disk: now %s" % [p.get_file(), nid])
+			return nid
+	return ""
 
 
 ## Tests (9.3 --serve-hostile, the unit cases): serve these bytes as a custom track without the
@@ -360,6 +404,10 @@ func _recv_track(pid: int, sha: String, state: String, have: int, digest: String
 		return
 	var code := state
 	var reason := ""
+	if state.length() > 5 + REASON_MAX * 4:
+		# no state is this long: refused before any copy of it
+		_drop(pid, "a bad state")
+		return
 	if state.begins_with("fail:"):
 		code = "fail"
 		reason = clean_text(state.substr(5), REASON_MAX)
@@ -397,15 +445,23 @@ func _recv_track(pid: int, sha: String, state: String, have: int, digest: String
 			if not downloads:
 				_kick(pid, TEXT_NO_SEND)
 				return
+			var was := str(net.players[pid].get("track", "?"))
+			if was == "ok":
+				# it has this track (a new track rule sets the row back to ?)
+				_drop(pid, "a need after ok")
+				return
 			var restarts := 0
-			if str(net.players[pid].get("track", "?")) == "fail":
+			var n_retry := -1
+			if was == "fail":
 				# RETRY: once per 30 s, 5 times per sha
 				var n := int((info["retries"] as Dictionary).get(cur, 0))
-				if _time - float(info["t_retry"]) < RETRY_GAP or n >= RETRY_MAX:
-					_drop(pid, "a retry too soon")
+				if n >= RETRY_MAX:
+					_refuse(pid, cur, -1)
 					return
-				info["t_retry"] = _time
-				info["retries"][cur] = n + 1
+				if _time - float(info["t_retry"]) < RETRY_GAP:
+					_refuse(pid, cur, ceili(RETRY_GAP - (_time - float(info["t_retry"]))))
+					return
+				n_retry = n
 			elif pump.has(pid):
 				# a fresh need during a transfer (a bad chunk): counts as a restart
 				restarts = int(pump[pid]["restarts"]) + 1
@@ -413,7 +469,35 @@ func _recv_track(pid: int, sha: String, state: String, have: int, digest: String
 					pump.erase(pid)
 					_set_peer(pid, "fail", "stalled", float(net.players[pid].get("dl", 0.0)), true)
 					return
+			# every transfer of this sha counts, whatever the peer reported between them (ok, prep)
+			var opens: Dictionary = info["opens"]
+			var n_open := int(opens.get(cur, 0))
+			if n_open >= OPENS_MAX:
+				_refuse(pid, cur, -1)
+				return
+			if n_open >= OPENS_FREE and _time - float(info["t_open"]) < RETRY_GAP:
+				_refuse(pid, cur, ceili(RETRY_GAP - (_time - float(info["t_open"]))))
+				return
+			if n_retry >= 0:
+				info["t_retry"] = _time
+				info["retries"][cur] = n_retry + 1
+			opens[cur] = n_open + 1
+			info["t_open"] = _time
 			_start_xfer(pid, have, restarts)
+
+
+## A need the server does not open (too soon, over the limit): the roster row stays as it was and
+## only that peer hears why (wait: seconds until a need is taken again, -1: never for this sha),
+## so it never sits in need with no transfer. Answered at most once a second per peer.
+func _refuse(pid: int, sha: String, wait: int) -> void:
+	_drop(pid, "a need too soon" if wait >= 0 else "a need over the limit")
+	# (a need during a transfer means the client closed it: nothing more goes on that xid)
+	pump.erase(pid)
+	var info := _info_of(pid)
+	if _time - float(info["t_refused"]) < REFUSE_GAP:
+		return
+	info["t_refused"] = _time
+	_send(pid, &"_s_refused", [sha, maxi(wait, 1) if wait >= 0 else -1])
 
 
 func _start_xfer(pid: int, from: int, restarts: int) -> void:
@@ -652,12 +736,68 @@ func _check(force: bool) -> void:
 	_need(sha, size)
 
 
-## Client: a fresh need after a failure (RETRY).
+## Client: a fresh need after a failure (RETRY), counted as the server counts it: at most once per
+## RETRY_GAP (+ RETRY_SLACK) and RETRY_MAX times per track. Too soon, nothing is sent and the
+## reason says how long to wait (RETRY stays); past the limit RETRY goes (local_state().retry).
 func retry() -> void:
 	if not _is_client() or str(_local["state"]) != "fail":
 		return
-	_bad.erase(str(_local["sha"]))
+	var sha := str(_local["sha"])
+	if sha == "":
+		_check(true)
+		return
+	var r := _retry_of(sha)
+	if int(r["n"]) >= RETRY_MAX or retry_wait() > 0:
+		_local["wait_shown"] = true
+		local_changed.emit("fail", float(_local["dl"]), str(_local["why"]))
+		return
+	r["n"] = int(r["n"]) + 1
+	r["t"] = _time
+	r["code"] = str(_local["code"])
+	r["why"] = str(_local["why"])
+	_bad.erase(sha)
 	_check(true)
+	_local["from_retry"] = true
+
+
+## Seconds before this client's next RETRY of the current track is taken (0: now).
+func retry_wait() -> int:
+	var r = _retries.get(str(_local["sha"]))
+	if not (r is Dictionary):
+		return 0
+	return maxi(0, ceili(float(r["t"]) + RETRY_GAP + RETRY_SLACK - _time))
+
+
+func _retry_of(sha: String) -> Dictionary:
+	if not _retries.has(sha):
+		_retries[sha] = {"n": 0, "t": -INF, "code": "", "why": ""}
+	return _retries[sha]
+
+
+## The server did not open the need (too soon: `wait` s; -1: never again for this track): back to
+## the failure it was retrying (or damaged), RETRY with the wait or no RETRY. The reason goes back
+## to the server unchanged, so its row does not flip.
+func _recv_refused(sender: int, sha: String, wait: int) -> void:
+	if sender != 1 or not _is_client() or sha != str(_local["sha"]) or str(_local["state"]) != "need":
+		return
+	var r := _retry_of(sha)
+	if wait < 0:
+		r["n"] = RETRY_MAX
+	else:
+		if bool(_local.get("from_retry", false)):
+			r["n"] = maxi(0, int(r["n"]) - 1)   # the server did not count it
+		r["t"] = _time - RETRY_GAP - RETRY_SLACK + clampi(wait, 1, int(RETRY_GAP))
+	var code := "too many"
+	var why := TEXT_TOO_MANY
+	if bool(_local.get("from_retry", false)) and str(r["code"]) != "":
+		code = str(r["code"])
+		why = str(r["why"])
+	elif int(_bad.get(sha, 0)) > 0:
+		code = "damaged"
+		why = TEXT_DAMAGED
+	_fail_local(code, why)
+	_local["wait_shown"] = true
+	local_changed.emit("fail", float(_local["dl"]), why)
 
 
 ## Client: DOWNLOAD for this server, this session.
@@ -730,6 +870,11 @@ func _s_chunk(xid: int, off: int, data: PackedByteArray) -> void:
 @rpc("authority", "call_remote", "unreliable", 0)
 func _s_dl(progress: Dictionary) -> void:
 	_recv_dl(multiplayer.get_remote_sender_id(), progress)
+
+
+@rpc("authority", "call_remote", "reliable", 0)
+func _s_refused(sha: String, wait: int) -> void:
+	_recv_refused(multiplayer.get_remote_sender_id(), sha, wait)
 
 
 ## A transfer opens (or restarts): only for the sha and size of the current cfg, while we asked.
@@ -855,14 +1000,19 @@ func _rx_done() -> void:
 	var w := _work
 	var regs := LevelCompiler.registries()
 	var holder := [-1]
+	# a job queued behind others is skipped once the download has moved on (a host switching tracks)
+	var live := func() -> bool: return w == _work
 	var job := func() -> void:
-		var r := TrackShare._verify(part, sha, regs)
+		var r := TrackShare._verify(part, sha, regs, live)
 		_verified.call_deferred(w, sha, size, part, r, holder)
 	holder[0] = WorkerThreadPool.add_task(job, false, "TrackShare.verify")
 
 
-## Worker side: the part's hash, the gate (LevelIO.unpack), then the compile.
-static func _verify(part: String, sha: String, regs: Dictionary) -> Dictionary:
+## Worker side: the part's hash, the gate (LevelIO.unpack), then the compile. `live` false: the
+## job is stale and stops before the compile ({stale: true}).
+static func _verify(part: String, sha: String, regs: Dictionary, live := Callable()) -> Dictionary:
+	if live.is_valid() and not bool(live.call()):
+		return {"ok": false, "stale": true}
 	var b := FileAccess.get_file_as_bytes(part)
 	if b.is_empty() or b.size() > LevelIO.MAX_FILE or LevelIO.sha256(b) != sha:
 		return {"ok": false, "bad": true}
@@ -870,6 +1020,8 @@ static func _verify(part: String, sha: String, regs: Dictionary) -> Dictionary:
 	var doc := LevelIO.unpack(b, rep)
 	if doc == null:
 		return {"ok": false, "newer": rep.has("newer_format") or rep.has("bad_container"), "why": rep.fatal()}
+	if live.is_valid() and not bool(live.call()):
+		return {"ok": false, "stale": true}
 	compiles += 1
 	var build := LevelCompiler.compile(doc, {"id": LevelIO.id_for(sha), "registries": regs})
 	if build == null:
@@ -1014,6 +1166,7 @@ func reset() -> void:
 	_acks.clear()
 	_hist.clear()
 	_bad.clear()
+	_retries.clear()
 	_work += 1
 	_thumb = null
 	_local = _blank_local()
@@ -1060,12 +1213,13 @@ func next_track() -> String:
 	return ""
 
 
-## The track list resolved to ids (built-in ids / names, custom file names / names / c_ ids).
+## The track list resolved to ids now (built-in ids / names, custom file names / names / c_ ids;
+## the list keeps the entries as written, so a replaced file is followed to its new id), each once.
 func rotation() -> PackedStringArray:
 	var out := PackedStringArray()
 	for e in tracklist:
 		var id := resolve(e)
-		if id != "":
+		if id != "" and not id in out:
 			out.append(id)
 	return out
 
@@ -1075,13 +1229,18 @@ static func resolve(entry: String) -> String:
 	var q := entry.strip_edges()
 	if q == "":
 		return ""
+	var ql := q.to_lower()
 	for tr in Game.TRACKS:
-		if tr["id"] == q or str(tr["name"]).to_lower() == q.to_lower() or str(tr.get("short", "")).to_lower() == q.to_lower():
+		if tr["id"] == ql or str(tr["name"]).to_lower() == ql or str(tr.get("short", "")).to_lower() == ql:
 			return tr["id"]
 	return CustomTracks.find(q)
 
 
 func _rotate_next(min_entries: int) -> bool:
+	if tracklist.is_empty():
+		return false
+	# files may have come, gone or changed since the last race
+	rescan()
 	if rotation().size() < min_entries:
 		return false
 	var cand := next_track()
@@ -1151,6 +1310,11 @@ func status_line() -> String:
 			return "%s has no track (%s): wait, change the track or KICK." % [e["nick"], words(str(e["why"]))]
 	if w.is_empty():
 		return ""
+	# a download without an ack for STALL s (a crashed friend shows a frozen percent otherwise)
+	for e in w:
+		var info = _peer.get(int(e["id"]))
+		if e["state"] == "get" and info is Dictionary and _time - float(info["t_progress"]) > STALL:
+			return TEXT_NO_PROGRESS % [e["nick"], int(_time - float(info["t_progress"]))]
 	var first: Dictionary = w[0]
 	var what := "starting"
 	if first["state"] == "get":
@@ -1177,8 +1341,19 @@ func local_state() -> Dictionary:
 		var db := float(b[1]) - float(a[1])
 		if dt > 0.0 and db > 0.0:
 			eta = (float(_local["size"]) - float(b[1])) / (db / dt)
-	return {"state": str(_local["state"]), "dl": float(_local["dl"]), "why": str(_local["why"]), "eta_s": eta,
-		"name": str(_local["name"]), "size": int(_local["size"]), "code": str(_local.get("code", "")), "thumb": _thumb}
+	# a RETRY pressed too soon says how long to wait; past the limit there is no RETRY
+	var why := str(_local["why"])
+	var can_retry := true
+	if str(_local["state"]) == "fail" and str(_local["sha"]) != "":
+		var r = _retries.get(str(_local["sha"]))
+		if r is Dictionary and int(r["n"]) >= RETRY_MAX:
+			why = TEXT_RETRY_MAX % RETRY_MAX
+			can_retry = false
+		elif bool(_local.get("wait_shown", false)) and retry_wait() > 0:
+			why = TEXT_RETRY_WAIT % retry_wait()
+	return {"state": str(_local["state"]), "dl": float(_local["dl"]), "why": why, "eta_s": eta,
+		"name": str(_local["name"]), "size": int(_local["size"]), "code": str(_local.get("code", "")), "thumb": _thumb,
+		"retry": can_retry}
 
 
 # ================================================================ helpers
@@ -1239,8 +1414,8 @@ func _set_peer(pid: int, state: String, why: String, dl: float, broadcast: bool)
 
 func _info_of(pid: int) -> Dictionary:
 	if not _peer.has(pid):
-		_peer[pid] = {"t_state": _time, "t_progress": _time, "retries": {}, "t_retry": -INF, "logged": false,
-			"digest": "", "kicked": false}
+		_peer[pid] = {"t_state": _time, "t_progress": _time, "retries": {}, "t_retry": -INF, "opens": {},
+			"t_open": -INF, "t_refused": -INF, "logged": false, "digest": "", "kicked": false}
 	return _peer[pid]
 
 
