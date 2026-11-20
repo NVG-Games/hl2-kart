@@ -1,12 +1,13 @@
 class_name EditorUI
 extends Control
-## The editor's screen (1.3): top bar (the track's name, FILE / EDIT / VIEW, the snap group, the
-## COMPLEXITY meter, the validation badge, the orange TEST DRIVE button with its options, HELP),
-## the palette with keycaps and "?", the outliner, the tool options and the inspector on the right,
-## the status bar (cursor, road, selection, snap, bake state, the tool's step, what the mouse does
-## on what is under it), toasts, cards, the validation drawer and the slots P16 / P17 fill (hint
-## cards, the catalog drawer), plus the OLDER VERSIONS, TRACK PROPERTIES, SAVE AS, HOST and
-## "Save changes?" dialogs. The root lets the mouse through (the viewport's); the panels stop it.
+## The editor's screen (1.3): top bar (the track's name, FILE / EDIT / VIEW, UNDO / REDO / SAVE,
+## TOP VIEW / FRAME TRACK, the snap group as icon toggles with their steps, the COMPLEXITY meter,
+## the validation badge, the orange TEST DRIVE button with its options, HELP), the palette (each
+## tool's icon, name and keycap, its hint card again from a quiet (i)), the outliner, the tool
+## options and the inspector on the right, the status bar (cursor, road, selection, snap, bake
+## state, the tool's step, what the mouse does on what is under it), toasts with their level's disc,
+## cards, the validation drawer and the slots P16 / P17 fill (hint cards, the catalog drawer), plus
+## the OLDER VERSIONS, TRACK PROPERTIES, SAVE AS, HOST and "Save changes?" dialogs. The root lets the mouse through (the viewport's); the panels stop it.
 ## The panels never keep the keyboard focus (no panel walking: Enter and the arrows stay the
 ## editor's); text fields keep it while typed in. P10.
 
@@ -41,6 +42,13 @@ const ACTION_OF := {F_SAVE: "ed_save", F_SAVE_AS: "ed_save_as", E_UNDO: "ed_undo
 	E_COPY: "ed_copy", E_PASTE: "ed_paste", E_PASTE_HERE: "ed_paste_here", E_DUPLICATE: "ed_duplicate",
 	E_DELETE: "ed_delete", E_SELECT_ALL: "ed_select_all", V_TOP: "ed_top", V_FRAME: "ed_frame_all", V_HOME: "ed_home",
 	V_LINE: "ed_line", V_UNHIDE: "ed_unhide"}
+## The menus' icons (EditorKit.icon names).
+const MENU_ICONS := {F_NEW: "file_new", F_OPEN: "folder", F_SAVE: "save", F_SAVE_AS: "save", F_DUPLICATE: "duplicate",
+	F_PROPS: "sliders", F_OLDER: "history", F_THUMB: "image", F_HOST: "online", F_FOLDER: "folder", F_EXIT_HOME: "exit",
+	F_EXIT_MENU: "home", E_UNDO: "undo", E_REDO: "redo", E_CUT: "cut", E_COPY: "copy", E_PASTE: "paste",
+	E_PASTE_HERE: "paste", E_DUPLICATE: "duplicate", E_DELETE: "trash", E_SELECT_ALL: "select_all", E_DESELECT: "deselect",
+	E_REVERSE: "reverse", V_TOP: "top_view", V_FRAME: "frame_all", V_HOME: "flag", V_LINE: "route", V_ZONES: "gravity",
+	V_PINS: "pin", V_GRID: "grid", V_LABELS: "tag", V_UNHIDE: "eye", V_SPEED: "gauge", V_MUSIC: "music"}
 
 var editor: TrackEditor
 var report: LevelReport
@@ -59,6 +67,11 @@ var name_button: Button
 var file_menu: MenuButton
 var edit_menu: MenuButton
 var view_menu: MenuButton
+var undo_button: Button
+var redo_button: Button
+var save_button: Button
+var top_button: Button
+var frame_button: Button
 var grid_toggle: Button
 var grid_size: OptionButton
 var angle_toggle: Button
@@ -135,6 +148,7 @@ func setup(ed: TrackEditor) -> void:
 	if ip != null and ip.has_signal("prompts_changed") and not ip.is_connected("prompts_changed", refresh_status):
 		ip.connect("prompts_changed", refresh_status)
 	_sync_snap()
+	_sync_history()
 	_tool_tips()
 	refresh_tool()
 	refresh_inspector()
@@ -155,6 +169,7 @@ func refresh_tool() -> void:
 	var id := editor.tool.id
 	for t in tool_buttons:
 		(tool_buttons[t] as Button).set_pressed_no_signal(t == id)
+	_hint_glyphs()
 	if _last_tool != "" and _last_tool != id:
 		Game.play_ui("res://assets/sound/ui/buttonclick.wav", -8.0)
 	_last_tool = id
@@ -163,7 +178,8 @@ func refresh_tool() -> void:
 		c.queue_free()
 	editor.tool.options(options_box)
 	var title := str(TOOL_NAMES.get(id, id.to_upper()))
-	options_title.text = "%s  TOOL OPTIONS · %s" % ["-" if options_open else "+", title]
+	options_title.text = "TOOL OPTIONS · %s" % title
+	options_title.icon = EditorKit.icon("chevron_down" if options_open else "chevron_right", 16)
 	options_scroll.visible = options_open and options_box.get_child_count() > 0
 	_hint_key = "~"
 	refresh_status()
@@ -187,11 +203,16 @@ func set_report(r: LevelReport) -> void:
 	var errs := r.errors() if r != null else 0
 	var warns := r.warnings() if r != null else 0
 	badge.text = badge_text(errs, warns)
-	badge.icon = EditorKit.icon("error" if errs > 0 else "tick", 16)
+	badge.icon = EditorKit.icon("error" if errs > 0 else ("warning" if warns > 0 else "tick"), 16)
 	var col := EditorKit.ERROR_COLOR if errs > 0 else (EditorKit.WARN_COLOR if warns > 0 else EditorKit.OK_COLOR)
 	for k in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
 		badge.add_theme_color_override(k, col)
-	badge.tooltip_text = "The track can be raced." if errs == 0 else "Fix the errors before hosting it (F3 shows them)."
+	if errs > 0:
+		badge.tooltip_text = EditorKit.plain("Fix the errors before you host it: {ed_validation} lists them.")
+	elif warns > 0:
+		badge.tooltip_text = EditorKit.plain("The track can be raced; {ed_validation} lists the warnings.")
+	else:
+		badge.tooltip_text = EditorKit.plain("The track can be raced. {ed_validation}: the validation list.")
 	drawer.set_report(r)
 	# an open road or no road: the button says why it will not drive (only that stops it, 1.7)
 	var why := editor.session.drive_blocker() if editor != null and editor.session != null and editor.session.is_open() else ""
@@ -236,11 +257,19 @@ func toast(text: String) -> void:
 	var p := PanelContainer.new()
 	p.theme_type_variation = "EdCard"
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 10)
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(h)
+	var ic := EditorKit.icon_rect(toast_level(text), 18)
+	ic.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	h.add_child(ic)
 	var l := PromptLabel.new(EditorKit.prompt(text), EditorKit.FONT, UiKit.TEXT)
 	l.add_theme_font_override("normal_font", UiKit.font(true))
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.custom_minimum_size.x = 300
-	p.add_child(l)
+	l.custom_minimum_size.x = 272
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	h.add_child(l)
 	toasts.add_child(p)
 	while toasts.get_child_count() > TOAST_MAX:
 		var old := toasts.get_child(0)
@@ -321,6 +350,19 @@ func toggle_validation() -> void:
 		tw.tween_property(drawer, "modulate:a", 1.0, 0.15)
 		tw.tween_property(drawer, "offset_top", fb - DRAWER_H, 0.15)
 		tw.tween_property(drawer, "offset_bottom", fb, 0.15)
+
+
+## A toast's disc: "warning" for what was refused or failed (a limit, "could not", "first"),
+## "tick" for what was done (saved, copied, pasted...), "info" for the rest.
+static func toast_level(text: String) -> String:
+	var t := text.to_lower()
+	for w in ["limit", "could not", "cannot", "at most", "at least", "nothing to", "no terrain", "not copied", "first.", "no tight", "no crate"]:
+		if t.contains(w):
+			return "warning"
+	for w in ["saved", "copied", "cut ", "pasted", "added", "thumbnail set", "hidden", "imported"]:
+		if t.begins_with(w):
+			return "tick"
+	return "info"
 
 
 ## "RACEABLE", "RACEABLE · 5 WARNINGS", "2 ERRORS · 5 WARNINGS".
@@ -447,6 +489,9 @@ func _build() -> void:
 	options_title.theme_type_variation = "EdFlat"
 	options_title.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	options_title.add_theme_color_override("font_color", UiKit.ORANGE)
+	options_title.add_theme_constant_override("h_separation", 6)
+	for k in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_hover_pressed_color", "icon_focus_color"]:
+		options_title.add_theme_color_override(k, UiKit.ORANGE)
 	options_title.clip_text = true
 	rv.add_child(options_title)
 	options_scroll = ScrollContainer.new()
@@ -539,13 +584,13 @@ func _place(c: Control, al: float, at: float, ar: float, ab: float, ol: float, o
 
 func _build_top() -> HBoxContainer:
 	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 6)
+	h.add_theme_constant_override("separation", 4)
 	name_button = EditorKit.button("MY TRACK", _open_properties, "Track properties: name, description, AUTO DRESS...")
 	name_button.theme_type_variation = "EdFlat"
 	name_button.add_theme_font_override("font", UiKit.font(true))
 	name_button.clip_text = true
 	name_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	name_button.custom_minimum_size = Vector2(170, 30)
+	name_button.custom_minimum_size = Vector2(160, 30)
 	name_button.focus_mode = Control.FOCUS_NONE
 	h.add_child(name_button)
 	file_menu = _menu("FILE", [
@@ -565,29 +610,37 @@ func _build_top() -> HBoxContainer:
 		[V_UNHIDE, "SHOW HIDDEN"], [-1], [V_SPEED, "CAMERA SPEED..."], [V_MUSIC, "MUSIC", true]])
 	h.add_child(view_menu)
 	h.add_child(VSeparator.new())
-	# snap group
-	grid_toggle = EditorKit.toggle("GRID", true, func(on: bool) -> void: set_snap("on", on))
-	grid_toggle.tooltip_text = "Grid snap (G). Hold Ctrl while dragging to invert it."
-	h.add_child(grid_toggle)
+	# UNDO / REDO / SAVE, then the camera's TOP VIEW and FRAME TRACK
+	undo_button = EditorKit.icon_button("undo", func() -> void: run_action("ed_undo"), "UNDO ({ed_undo})")
+	redo_button = EditorKit.icon_button("redo", func() -> void: run_action("ed_redo"), "REDO ({ed_redo})")
+	save_button = EditorKit.icon_button("save", save_named, "SAVE ({ed_save})")
+	top_button = EditorKit.icon_button("top_view", func() -> void: run_action("ed_top"), "TOP VIEW ({ed_top}): look straight down; again to go back.")
+	frame_button = EditorKit.icon_button("frame_all", func() -> void: run_action("ed_frame_all"), "FRAME TRACK ({ed_frame_all}): the whole track in view.")
+	for b in [undo_button, redo_button, save_button]:
+		h.add_child(b)
+	h.add_child(VSeparator.new())
+	h.add_child(top_button)
+	h.add_child(frame_button)
+	h.add_child(VSeparator.new())
+	# snap group: an icon toggle and its step each
+	grid_toggle = _snap_toggle("grid", "GRID SNAP ({ed_grid}): points and objects move in grid steps. Hold {ed_mod_ctrl} while dragging to invert it.",
+		func(on: bool) -> void: set_snap("on", on))
 	var gl := []
 	for g in GRID_SIZES:
 		gl.append(("%s m" % str(g)).replace(".0 m", " m"))
 	grid_size = EditorKit.choice(gl, 2, func(i: int) -> void: set_snap("grid", GRID_SIZES[i]))
 	grid_size.custom_minimum_size.x = 78
-	grid_size.tooltip_text = "Grid step"
-	h.add_child(grid_size)
-	angle_toggle = EditorKit.toggle("ANGLE", true, func(on: bool) -> void: set_snap("angle_on", on))
-	angle_toggle.tooltip_text = "Angle snap for rotations"
-	h.add_child(angle_toggle)
+	grid_size.tooltip_text = "GRID STEP"
+	h.add_child(_pair(grid_toggle, grid_size))
+	angle_toggle = _snap_toggle("angle", "ANGLE SNAP: rotations turn in steps.", func(on: bool) -> void: set_snap("angle_on", on))
 	var al := []
 	for a in ANGLE_STEPS:
 		al.append("%d°" % int(a))
 	angle_step = EditorKit.choice(al, 1, func(i: int) -> void: set_snap("angle", ANGLE_STEPS[i]))
 	angle_step.custom_minimum_size.x = 62
-	angle_step.tooltip_text = "Angle step"
-	h.add_child(angle_step)
-	surface_toggle = EditorKit.toggle("SURFACE", true, func(on: bool) -> void: set_snap("surface", on))
-	surface_toggle.tooltip_text = "Drop what you move onto what is under it"
+	angle_step.tooltip_text = "ANGLE STEP"
+	h.add_child(_pair(angle_toggle, angle_step))
+	surface_toggle = _snap_toggle("snap_surface", "SURFACE SNAP: what you move drops onto what is under it.", func(on: bool) -> void: set_snap("surface", on))
 	h.add_child(surface_toggle)
 	for b in [grid_toggle, grid_size, angle_toggle, angle_step, surface_toggle]:
 		(b as Control).focus_mode = Control.FOCUS_NONE
@@ -612,31 +665,61 @@ func _build_top() -> HBoxContainer:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	h.add_child(spacer)
-	badge = EditorKit.button("RACEABLE", toggle_validation, "{ed_validation} the validation list")
+	badge = EditorKit.button("RACEABLE", toggle_validation, "Show or hide the validation list ({ed_validation}).")
 	badge.theme_type_variation = "EdFlat"
 	badge.icon = EditorKit.icon("tick", 16)
+	# the disc keeps its own colour under the mouse
+	for k in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_hover_pressed_color", "icon_focus_color"]:
+		badge.add_theme_color_override(k, Color.WHITE)
 	badge.add_theme_font_override("font", UiKit.font(true))
 	badge.focus_mode = Control.FOCUS_NONE
 	h.add_child(badge)
 	var key := InputPrompts.action_text("ed_test", "keyboard")
-	test_button = EditorKit.button("TEST DRIVE  " + key, func() -> void: _drive("start"), "Drive it from the start ({ed_test}).")
+	test_button = EditorKit.button("TEST DRIVE  " + key, func() -> void: _drive("start"), "Drive it from the start ({ed_test}).", "drive")
 	test_button.theme_type_variation = "EdAccent"
 	test_button.add_theme_font_override("font", UiKit.font(true))
 	test_button.focus_mode = Control.FOCUS_NONE
-	h.add_child(test_button)
-	test_more = EditorKit.button("", _open_test_options, "Test drive options")
+	test_more = EditorKit.button("", _open_test_options, "TEST DRIVE OPTIONS: from here, watch a bot lap, bots, laps, hazards, difficulty.", "chevron_down")
 	test_more.theme_type_variation = "EdAccent"
-	test_more.icon = theme.get_icon("arrow", "OptionButton") if theme != null else null
-	test_more.add_theme_color_override("icon_normal_color", Color.BLACK)
+	test_more.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	test_more.custom_minimum_size.x = 30
 	test_more.focus_mode = Control.FOCUS_NONE
-	h.add_child(test_more)
-	help_button = EditorKit.button("HELP", open_help, "{ed_help} keys and mouse")
-	help_button.theme_type_variation = "EdFlat"
-	help_button.add_theme_font_override("font", UiKit.font(true))
-	help_button.focus_mode = Control.FOCUS_NONE
+	h.add_child(_pair(test_button, test_more))
+	help_button = EditorKit.icon_button("help", open_help, "HELP ({ed_help}): every key and mouse button.")
 	h.add_child(help_button)
 	return h
+
+
+## Two controls side by side with a 1 px gap (a snap toggle and its step, TEST DRIVE and its arrow).
+func _pair(a: Control, b: Control) -> HBoxContainer:
+	var p := HBoxContainer.new()
+	p.add_theme_constant_override("separation", 1)
+	p.add_child(a)
+	p.add_child(b)
+	return p
+
+
+## A snap toggle of the top bar: its icon only (orange when on), the tip says what it does.
+func _snap_toggle(icon_name: String, tip: String, cb: Callable) -> Button:
+	var b := EditorKit.toggle("", true, cb)
+	b.icon = EditorKit.icon(icon_name, EditorKit.ICON_BAR)
+	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.custom_minimum_size = Vector2(EditorKit.ICON_BAR + 12, EditorKit.ROW_H)
+	b.tooltip_text = EditorKit.plain(tip)
+	return b
+
+
+## UNDO and REDO name their step in the tooltip and grey out with nothing to do.
+func _sync_history() -> void:
+	if undo_button == null or editor == null:
+		return
+	var h := editor.history
+	var can_u := h != null and h.can_undo()
+	var can_r := h != null and h.can_redo()
+	undo_button.disabled = not can_u
+	redo_button.disabled = not can_r
+	undo_button.tooltip_text = EditorKit.plain("UNDO %s({ed_undo})" % (h.undo_name() + " " if can_u else ""))
+	redo_button.tooltip_text = EditorKit.plain("REDO %s({ed_redo})" % (h.redo_name() + " " if can_r else ""))
 
 
 func _menu(title: String, items: Array) -> MenuButton:
@@ -656,6 +739,9 @@ func _menu(title: String, items: Array) -> MenuButton:
 			pm.add_check_item(it[1], id)
 		else:
 			pm.add_item(it[1], id)
+		if MENU_ICONS.has(id):
+			pm.set_item_icon(pm.get_item_index(id), EditorKit.icon(str(MENU_ICONS[id]), EditorKit.ICON))
+			pm.set_item_icon_modulate(pm.get_item_index(id), UiKit.TEXT)
 		var act := str(ACTION_OF.get(id, ""))
 		if act != "" and InputMap.has_action(act):
 			for ev in InputMap.action_get_events(act):
@@ -677,8 +763,10 @@ func _menus_state() -> void:
 	var h := editor.history
 	pm.set_item_text(pm.get_item_index(E_UNDO), "UNDO " + h.undo_name() if h != null and h.can_undo() else "UNDO")
 	pm.set_item_text(pm.get_item_index(E_REDO), "REDO " + h.redo_name() if h != null and h.can_redo() else "REDO")
-	pm.set_item_disabled(pm.get_item_index(E_UNDO), h == null or not h.can_undo())
-	pm.set_item_disabled(pm.get_item_index(E_REDO), h == null or not h.can_redo())
+	for p in [[E_UNDO, h != null and h.can_undo()], [E_REDO, h != null and h.can_redo()]]:
+		var i := pm.get_item_index(p[0])
+		pm.set_item_disabled(i, not p[1])
+		pm.set_item_icon_modulate(i, UiKit.TEXT if p[1] else Color(1, 1, 1, 0.3))
 	var vm := view_menu.get_popup()
 	vm.set_item_checked(vm.get_item_index(V_TOP), editor.camera != null and editor.camera.top)
 	vm.set_item_checked(vm.get_item_index(V_LINE), editor.show_line)
@@ -747,6 +835,7 @@ func _build_palette() -> VBoxContainer:
 	for id in TrackEditor.TOOL_IDS:
 		var h := HBoxContainer.new()
 		h.add_theme_constant_override("separation", 2)
+		# [icon NAME ........ key] (i): the key sits at the button's right end
 		var b := Button.new()
 		b.text = TOOL_NAMES.get(id, id.to_upper())
 		b.theme_type_variation = "EdToggle"
@@ -756,26 +845,44 @@ func _build_palette() -> VBoxContainer:
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.custom_minimum_size.y = EditorKit.ROW_H
 		b.focus_mode = Control.FOCUS_NONE
-		b.icon = EditorKit.keycap(InputPrompts.action_text("ed_tool_" + id, "keyboard"))
-		b.add_theme_constant_override("h_separation", 10)
+		b.icon = EditorKit.tool_icon(id, EditorKit.ICON_BAR)
+		b.add_theme_constant_override("h_separation", 9)
+		var kc := TextureRect.new()
+		kc.name = "Keycap"
+		kc.texture = EditorKit.keycap(InputPrompts.action_text("ed_tool_" + id, "keyboard"))
+		kc.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+		kc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		kc.set_anchors_and_offsets_preset(Control.PRESET_RIGHT_WIDE)
+		kc.offset_left = -30.0
+		kc.offset_right = -6.0
+		b.add_child(kc)
 		var tid: String = id
 		b.pressed.connect(func() -> void:
 			if editor != null:
 				editor.set_tool(tid))
 		h.add_child(b)
-		var q := Button.new()
-		q.text = "?"
-		q.theme_type_variation = "EdFlat"
-		q.focus_mode = Control.FOCUS_NONE
-		q.custom_minimum_size = Vector2(26, EditorKit.ROW_H)
-		q.tooltip_text = "Show this tool's hint again"
-		q.pressed.connect(func() -> void:
+		# the hint card again: a quiet (i), shown on the active tool's row and under the mouse
+		var q := EditorKit.icon_button("info_circle", func() -> void:
 			if editor != null:
-				HintCard.recall(editor, tid))
+				HintCard.recall(editor, tid), "%s: show its hint card again." % b.text, 16)
+		q.name = "Hint"
+		q.custom_minimum_size = Vector2(24, EditorKit.ROW_H)
 		h.add_child(q)
+		for c in [b, q]:
+			(c as Control).mouse_entered.connect(func() -> void: _hint_glyphs(tid))
+			(c as Control).mouse_exited.connect(func() -> void: _hint_glyphs(""))
 		tool_buttons[id] = b
 		palette.add_child(h)
 	return palette
+
+
+## The palette's (i): full on the active tool's row and the row under the mouse, faint elsewhere.
+func _hint_glyphs(hovered := "") -> void:
+	var cur := editor.tool.id if editor != null and editor.tool != null else ""
+	for id in tool_buttons:
+		var q := (tool_buttons[id] as Button).get_parent().get_node_or_null("Hint") as Control
+		if q != null:
+			q.modulate.a = 1.0 if id == cur or id == hovered else 0.25
 
 
 ## The tooltips name the tools' purpose (the tool's own text when it has one).
@@ -1044,6 +1151,7 @@ func _on_focus_changed(c: Control) -> void:
 
 
 func _on_history() -> void:
+	_sync_history()
 	refresh_status()
 
 
@@ -1105,11 +1213,12 @@ func _open_test_options() -> void:
 	v.add_theme_constant_override("separation", 6)
 	v.custom_minimum_size.x = 320
 	pop.add_child(v)
-	for e in [["FROM THE START", "start", "ed_test"], ["FROM HERE", "here", "ed_test_here"], ["WATCH A BOT LAP", "watch", "ed_test_watch"]]:
+	for e in [["FROM THE START", "start", "ed_test", "drive"], ["FROM HERE", "here", "ed_test_here", "pin"],
+			["WATCH A BOT LAP", "watch", "ed_test_watch", "eye"]]:
 		var from: String = e[1]
 		var b := EditorKit.button("%s   %s" % [e[0], EditorKit.plain("{%s}" % e[2])], func() -> void:
 			pop.hide()
-			_drive(from))
+			_drive(from), "", e[3])
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		v.add_child(b)
 	v.add_child(HSeparator.new())

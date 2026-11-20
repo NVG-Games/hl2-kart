@@ -17,11 +17,12 @@ extends Node
 ## OBJECTS' catalog drawer and a stamp ghost; 14 ALONG ROAD lamp posts; 15 ITEMS: a crate row, a pad
 ## with its red warning, a low-gravity zone; 16 HAZARDS: the see-saw tint and a turret's SIDE / ZONE /
 ## DIFFICULTY inspector; 17 CROWDS: a stand and PEOPLE; 18 WORLD: WHITE FOREST on the hills; 19 the
-## validation drawer, FIX buttons and "!" pins; 20 COMPLEXITY; 21 the help overlay; 22 pad FLY with
-## the reticle and the kart ghost; 23 a test drive's pause menu with the errors line; 24 back in the
-## editor with the toast and the trail; 25 NEW RACE with the MY TRACKS card picked; 26 the lobby (a
+## validation drawer, FIX buttons and "!" pins; 20 COMPLEXITY; 21 the help overlay; 22 the EDIT menu,
+## 23 a hover tooltip on UNDO and 24 the pad's EDITOR MENU, with their icons; 25 pad FLY with the
+## reticle and the kart ghost; 26 a test drive's pause menu with the errors line; 27 back in the
+## editor with the toast and the trail; 28 NEW RACE with the MY TRACKS card picked; 29-31 the lobby (a
 ## friend at 42 % with the time left and another at NO TRACK; the friend's RETRY; the host's START
-## RACE locked with its status line); 27 the server browser's TRACK column (fake replies).
+## RACE locked with its status line); 32 the server browser's TRACK column (fake replies).
 
 
 func _ready() -> void:
@@ -86,6 +87,7 @@ class Walker:
 			["branch_hills", _s_branch], ["terrain", _s_terrain], ["paint", _s_paint], ["objects", _s_objects],
 			["along_road", _s_along], ["items", _s_items], ["hazards", _s_hazards], ["crowds", _s_crowds],
 			["world", _s_world], ["validation", _s_validation], ["complexity", _s_complexity], ["help", _s_help],
+			["menus", _s_menus],
 			["pad_fly", _s_pad_fly], ["test_drive_pause", _s_drive_pause], ["back_in_editor", _s_back],
 			["new_race", _s_new_race], ["lobby", _s_lobby], ["server_browser", _s_browser]]
 		for st in steps:
@@ -617,6 +619,33 @@ class Walker:
 		await shot("help", "the help overlay: keyboard column with modifier keycaps, the Xbox pad column")
 		if ed.ui != null:
 			ed.ui.open_help()
+		await _frames(2)
+		_ok()
+
+	## The EDIT menu open, a hover tooltip on UNDO (a mouse motion pushed into the window: the OS
+	## cursor stays where it is) and the pad's EDITOR MENU, with their icons.
+	func _s_menus() -> void:
+		var ui := ed.ui
+		if ui == null:
+			_ok()
+			return
+		ed.set_tool("road")
+		ed.selection.clear()
+		await _frames(2)
+		ui.edit_menu.show_popup()
+		await shot("edit_menu", "the EDIT menu with its icons and keys", 0.4)
+		ui.edit_menu.get_popup().hide()
+		await _frames(2)
+		var at := ui.undo_button.get_global_rect().get_center()
+		var m := InputEventMouseMotion.new()
+		m.position = at
+		m.global_position = at
+		get_viewport().push_input(m)
+		await shot("tooltip", "a hover tooltip: UNDO with its step and key", 1.4)
+		ui.open_menu()
+		await shot("editor_menu", "the pad's EDITOR MENU with its icons", 0.4)
+		if ui.menu != null:
+			ui.menu.close()
 		await _frames(2)
 		_ok()
 

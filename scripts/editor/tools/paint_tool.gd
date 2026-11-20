@@ -51,13 +51,14 @@ func options(box: VBoxContainer) -> void:
 		EditorKit.plain("The brush radius ({ed_brush_smaller} {ed_brush_bigger}).")))
 	box.add_child(EditorKit.row("STRENGTH", EditorKit.number(strength, TerrainTool.STRENGTH_MIN, TerrainTool.STRENGTH_MAX, 0.01, func(v: float) -> void: set_strength(v), "%.2f"),
 		EditorKit.plain("{ed_strength_down} {ed_strength_up}")))
-	box.add_child(EditorKit.row("FALLOFF", EditorKit.modes(TerrainTool.FALLOFF_NAMES, LevelBrush.FALLOFFS.find(falloff), func(i: int) -> void:
+	box.add_child(EditorKit.row("FALLOFF", EditorKit.modes(["", "", ""], LevelBrush.FALLOFFS.find(falloff), func(i: int) -> void:
 		falloff = LevelBrush.FALLOFFS[i]
 		_save()
-		editor.redraw())))
+		editor.redraw(), TerrainTool.FALLOFF_ICONS, TerrainTool.FALLOFF_TIPS), "How the brush weakens from its middle to its edge."))
 	box.add_child(EditorKit.button("PICK LAYER", func() -> void:
 		picking = true
-		editor.status("Click the ground to pick its strongest layer.", true), "Or {ed_mod_alt} + click without moving."))
+		editor.status("Click the ground to pick its strongest layer.", true),
+		"Then click the ground: its strongest layer. Or {ed_mod_alt} + click without moving.", "eyedropper"))
 	box.add_child(EditorKit.hint("{ed_place} paints, {ed_mod_ctrl} erases to BASE."))
 	box.add_child(EditorKit.section("LAYER TEXTURES"))
 	var layers := layer_keys()
@@ -67,14 +68,14 @@ func options(box: VBoxContainer) -> void:
 			"The material of the %s layer." % LAYER_NAMES[i])
 		b.clip_text = true
 		box.add_child(EditorKit.row(LAYER_NAMES[i], b))
-	box.add_child(EditorKit.section("AUTO PAINT"))
+	box.add_child(EditorKit.section_icon("AUTO PAINT", "wand"))
 	box.add_child(EditorKit.row("ROCK ON SLOPES", EditorKit.check(bool(auto.rock), func(v: bool) -> void: _auto("rock", v))))
 	box.add_child(EditorKit.row("STEEPER THAN", EditorKit.number(float(auto.slope), 10.0, 80.0, 1.0, func(v: float) -> void: _auto("slope", v), "%.0f", " deg")))
 	box.add_child(EditorKit.row("SAND LOW DOWN", EditorKit.check(bool(auto.sand), func(v: bool) -> void: _auto("sand", v))))
 	box.add_child(EditorKit.row("BELOW", EditorKit.number(float(auto.sand_below), LevelDoc.HEIGHT_MIN, LevelDoc.HEIGHT_MAX, 0.5, func(v: float) -> void: _auto("sand_below", v), "%.1f", " m")))
 	box.add_child(EditorKit.row("DIRT BY ROADS", EditorKit.number(float(auto.dirt), 0.0, 8.0, 0.5, func(v: float) -> void: _auto("dirt", v), "%.1f", " m"),
 		"0 leaves the roadsides alone."))
-	box.add_child(EditorKit.button("AUTO PAINT", func() -> void: auto_paint(), "Paints the whole ground by these rules (one undo step)."))
+	box.add_child(EditorKit.button("AUTO PAINT", func() -> void: auto_paint(), "Paints the whole ground by these rules (one undo step).", "wand"))
 
 
 func hints(_hit: EditorHit) -> Array:

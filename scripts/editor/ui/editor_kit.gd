@@ -1,7 +1,8 @@
 class_name EditorKit
 ## Compact editor widgets and the editor theme (a copy of UiKit.theme() plus number fields,
-## ItemList, PopupPanel, ColorPicker, HScrollBar, TextEdit, MenuButton / PopupMenu styles);
-## prompt() expands combos into modifier keycaps (C1 S25). P10.
+## ItemList, PopupPanel, ColorPicker, HScrollBar, TextEdit, MenuButton / PopupMenu and tooltip
+## styles); prompt() expands combos into modifier keycaps (C1 S25); icon() loads the editor's line
+## icons. P10.
 ##
 ## Every widget's callback may take the value alone or the value and `final` (true when an edit
 ## ends: a typed number, the end of a drag, a picked colour): drags call it with final false while
@@ -23,9 +24,23 @@ const INFO_COLOR := Color(0.45, 0.7, 1.0)
 ## Mouse buttons in prompts are words (no mouse icons ship).
 const MOUSE_WORDS := {MOUSE_BUTTON_LEFT: "LEFT MOUSE", MOUSE_BUTTON_RIGHT: "RIGHT MOUSE",
 	MOUSE_BUTTON_MIDDLE: "MIDDLE MOUSE", MOUSE_BUTTON_WHEEL_UP: "WHEEL", MOUSE_BUTTON_WHEEL_DOWN: "WHEEL"}
+## The editor's line icons: 24 x 24 SVGs drawn for this game, 2 px strokes in currentColor. Loaded
+## at run time like InputPrompts' Kenney icons (the folder has a .gdignore: Godot never imports it).
+const ICON_DIR := "res://art/editor_icons/"
+## Icon sizes: beside a button's text; on the top bar's icon buttons.
+const ICON := 18
+const ICON_BAR := 20
+## Status names -> [file, colour] (the validation levels, the badge).
+const STATUS := {"tick": ["status_ok", OK_COLOR], "ok": ["status_ok", OK_COLOR], "error": ["status_error", ERROR_COLOR],
+	"warning": ["status_warning", WARN_COLOR], "info": ["status_info", INFO_COLOR]}
+## Each tool's icon (the palette, its hint card, the EDITOR MENU's TOOL page).
+const TOOL_ICONS := {"select": "tool_select", "road": "tool_road", "branch": "tool_branch", "terrain": "tool_terrain",
+	"paint": "tool_paint", "objects": "tool_objects", "items": "tool_items", "hazards": "tool_hazards",
+	"crowds": "tool_crowds", "world": "tool_world"}
 
 static var _theme: Theme
 static var _icons := {}
+static var _styles := {}
 
 
 ## The editor's theme: UiKit's look, compact (15 px text, 30 px rows, small paddings).
@@ -42,6 +57,9 @@ static func theme() -> Theme:
 	t.set_stylebox("focus", "Button", UiKit.box(Color(0, 0, 0, 0), o, 2, 3, 8))
 	t.set_stylebox("disabled", "Button", UiKit.box(Color(1, 1, 1, 0.03), Color(1, 1, 1, 0.06), 1, 3, 8))
 	t.set_font_size("font_size", "Button", FONT)
+	# the line icons are white: these colours tint them like the text beside them
+	t.set_constant("h_separation", "Button", 6)
+	_icon_colors(t, "Button", UiKit.TEXT, Color.WHITE, Color.WHITE, Color.BLACK)
 	# a toggle / segment: on = solid orange (the active tool, GRID, the picked mode)
 	t.set_type_variation("EdToggle", "Button")
 	t.set_stylebox("normal", "EdToggle", UiKit.box(Color(1, 1, 1, 0.05), Color(1, 1, 1, 0.14), 1, 3, 8))
@@ -51,8 +69,8 @@ static func theme() -> Theme:
 	t.set_stylebox("focus", "EdToggle", UiKit.box(Color(0, 0, 0, 0), Color.WHITE, 2, 3, 8))
 	t.set_color("font_pressed_color", "EdToggle", Color.BLACK)
 	t.set_color("font_hover_pressed_color", "EdToggle", Color.BLACK)
-	t.set_color("icon_pressed_color", "EdToggle", Color.WHITE)
-	# flat buttons (the track name, "?", the drawer's rows)
+	_icon_colors(t, "EdToggle", UiKit.TEXT, Color.WHITE, Color.BLACK, Color.BLACK)
+	# flat buttons (the track name, the top bar's icons, the drawer's rows)
 	t.set_type_variation("EdFlat", "Button")
 	var empty := StyleBoxEmpty.new()
 	empty.content_margin_left = 6
@@ -64,6 +82,7 @@ static func theme() -> Theme:
 	t.set_stylebox("hover", "EdFlat", UiKit.box(Color(1, 1, 1, 0.1), Color(0, 0, 0, 0), 0, 3, 6))
 	t.set_stylebox("hover_pressed", "EdFlat", UiKit.box(Color(1, 1, 1, 0.1), Color(0, 0, 0, 0), 0, 3, 6))
 	t.set_color("font_hover_color", "EdFlat", o)
+	_icon_colors(t, "EdFlat", UiKit.TEXT, o, o, o)
 	# the one orange filled button of the bar (TEST DRIVE)
 	t.set_type_variation("EdAccent", "Button")
 	t.set_stylebox("normal", "EdAccent", UiKit.box(o, o, 1, 3, 10))
@@ -72,6 +91,14 @@ static func theme() -> Theme:
 	t.set_stylebox("focus", "EdAccent", UiKit.box(Color(0, 0, 0, 0), Color.WHITE, 2, 3, 10))
 	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_hover_pressed_color"]:
 		t.set_color(c, "EdAccent", Color.BLACK)
+	_icon_colors(t, "EdAccent", Color.BLACK, Color.BLACK, Color.BLACK, Color.BLACK)
+	# hover tooltips: the editor's dark card, readable text
+	t.set_stylebox("panel", "TooltipPanel", UiKit.box(Color(0.06, 0.06, 0.06, 0.97), Color(1, 1, 1, 0.22), 1, 3, 8))
+	t.set_font("font", "TooltipLabel", UiKit.font(false))
+	t.set_font_size("font_size", "TooltipLabel", 14)
+	t.set_color("font_color", "TooltipLabel", UiKit.TEXT)
+	t.set_color("font_shadow_color", "TooltipLabel", Color(0, 0, 0, 0))
+	t.set_constant("line_spacing", "TooltipLabel", 2)
 	# menus of the top bar
 	for st in ["normal", "hover", "pressed", "focus", "disabled"]:
 		t.set_stylebox(st, "MenuButton", t.get_stylebox(st, "EdFlat"))
@@ -196,6 +223,26 @@ static func plain(text: String) -> String:
 	return out
 
 
+## The editor's Button stylebox of a state with 6 px sides (the action grid's narrow cells), cached.
+static func _compact(state: String) -> StyleBox:
+	if not _styles.has(state):
+		var sb := theme().get_stylebox(state, "Button").duplicate() as StyleBox
+		sb.content_margin_left = 6
+		sb.content_margin_right = 6
+		_styles[state] = sb
+	return _styles[state]
+
+
+## A button type's icon tints: idle, under the mouse, pressed (or on), pressed under the mouse.
+static func _icon_colors(t: Theme, type: String, idle: Color, hover: Color, pressed: Color, hover_pressed: Color) -> void:
+	t.set_color("icon_normal_color", type, idle)
+	t.set_color("icon_focus_color", type, idle)
+	t.set_color("icon_hover_color", type, hover)
+	t.set_color("icon_pressed_color", type, pressed)
+	t.set_color("icon_hover_pressed_color", type, hover_pressed)
+	t.set_color("icon_disabled_color", type, Color(idle, idle.a * 0.35))
+
+
 ## A scroll bar part: BAR_W across (4 px margins on every side).
 static func _bar(c: Color) -> StyleBoxFlat:
 	var sb := UiKit.box(c, Color(0, 0, 0, 0), 0, 3, 0)
@@ -207,6 +254,28 @@ static func section(text: String) -> Label:
 	var l := UiKit.label(text, FONT_SMALL, UiKit.ORANGE, true)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l
+
+
+## section() after an orange icon (icon()'s names): the tool options' and the inspector's headings
+## that name a kind (WATER, a hazard group, BOOST PAD...).
+static func section_icon(text: String, icon_name: String) -> HBoxContainer:
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 6)
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	h.add_child(icon_rect(icon_name, 16, UiKit.ORANGE))
+	h.add_child(section(text))
+	return h
+
+
+## A TextureRect of icon(), centred in a px square (labels, rows).
+static func icon_rect(icon_name: String, px := 16, color := Color.WHITE) -> TextureRect:
+	var r := TextureRect.new()
+	r.texture = icon(icon_name, px, color)
+	r.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+	r.custom_minimum_size = Vector2(px, px)
+	r.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return r
 
 
 ## [label ....... control]; the label is clipped to its column (its whole text in its tooltip),
@@ -370,12 +439,18 @@ static func slider(min_v: float, max_v: float, step: float, value: float, on_cha
 	return h
 
 
-static func button(text: String, cb: Callable, tip := "") -> Button:
+## A button; with an icon (icon()'s names) it stands before the text. The tip's {ed_*} combos are
+## written as their keys.
+static func button(text: String, cb: Callable, tip := "", icon_name := "") -> Button:
 	var b := Button.new()
 	b.text = text
 	b.tooltip_text = plain(tip)
 	b.custom_minimum_size.y = ROW_H - 2
 	b.clip_text = false
+	if icon_name != "":
+		# the text follows its icon (a wide button would leave the icon alone at the edge)
+		b.icon = icon(icon_name, ICON)
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	if cb.is_valid():
 		b.pressed.connect(func() -> void:
 			Game.play_ui("res://assets/sound/ui/buttonclickrelease.wav", -8.0)
@@ -383,19 +458,63 @@ static func button(text: String, cb: Callable, tip := "") -> Button:
 	return b
 
 
-## A toggle button (orange when on); cb(on).
-static func toggle(text: String, on: bool, cb: Callable) -> Button:
+## A toggle button (orange when on); cb(on). With an icon it stands before the text.
+static func toggle(text: String, on: bool, cb: Callable, icon_name := "") -> Button:
 	var b := Button.new()
 	b.text = text
 	b.toggle_mode = true
 	b.button_pressed = on
 	b.theme_type_variation = "EdToggle"
 	b.custom_minimum_size.y = ROW_H - 2
+	if icon_name != "":
+		b.icon = icon(icon_name, ICON)
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	if cb.is_valid():
 		b.toggled.connect(func(v: bool) -> void:
 			Game.play_ui("res://assets/sound/ui/buttonclick.wav", -10.0)
 			cb.call(v))
 	return b
+
+
+## A square button with only an icon (the top bar's UNDO, SAVE, HELP...): the tip names what it
+## does and its key ({ed_*} combos written as their keys). EdFlat; toggle_mode for an on / off one.
+static func icon_button(icon_name: String, cb: Callable, tip: String, px := ICON_BAR) -> Button:
+	var b := Button.new()
+	b.icon = icon(icon_name, px)
+	b.theme_type_variation = "EdFlat"
+	b.tooltip_text = plain(tip)
+	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.custom_minimum_size = Vector2(px + 10, ROW_H)
+	b.focus_mode = Control.FOCUS_NONE
+	if cb.is_valid():
+		b.pressed.connect(func() -> void:
+			Game.play_ui("res://assets/sound/ui/buttonclickrelease.wav", -8.0)
+			cb.call())
+	return b
+
+
+## Action buttons in a grid of `cols` columns, icon and a short name each (the tool options'
+## OPEN LOOP, REVERSE...): entries [text, icon, callback, tip]. The tip says it in full with its
+## key; a name too long for its cell trims with "..." (the tip has it whole).
+static func actions(entries: Array, cols := 2) -> GridContainer:
+	var g := GridContainer.new()
+	g.columns = cols
+	g.add_theme_constant_override("h_separation", 4)
+	g.add_theme_constant_override("v_separation", 4)
+	for e in entries:
+		var b := button(str(e[0]), e[2] if e.size() > 2 else Callable(), str(e[3]) if e.size() > 3 else "", str(e[1]))
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.add_theme_font_size_override("font_size", FONT_SMALL)
+		b.add_theme_constant_override("h_separation", 5)
+		for st in ["normal", "hover", "pressed", "disabled", "focus"]:
+			b.add_theme_stylebox_override(st, _compact(st))
+		b.clip_text = true
+		b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		b.custom_minimum_size.x = 60
+		if not b.tooltip_text.begins_with(b.text):
+			b.tooltip_text = b.text + ("\n" + b.tooltip_text if b.tooltip_text != "" else "")
+		g.add_child(b)
+	return g
 
 
 ## A text field; on_change(text[, final]): live with final false, once more with final true when
@@ -445,8 +564,10 @@ static func hint(text: String) -> PromptLabel:
 
 
 ## One of N as joined toggle buttons; on_select(index). Names that do not fit one line wrap to
-## more lines (never cut); each button's tooltip has its name.
-static func modes(items: Array, selected: int, on_select: Callable) -> HFlowContainer:
+## more lines (never cut); each button's tooltip has its name (or tips[i], {ed_*} written as keys).
+## With icons (icon()'s names) each button has its icon before the name; an empty name makes an
+## icon-only button (its tip says what it is).
+static func modes(items: Array, selected: int, on_select: Callable, icons: Array = [], tips: Array = []) -> HFlowContainer:
 	var h := HFlowContainer.new()
 	h.add_theme_constant_override("h_separation", 2)
 	h.add_theme_constant_override("v_separation", 2)
@@ -454,13 +575,42 @@ static func modes(items: Array, selected: int, on_select: Callable) -> HFlowCont
 	for i in items.size():
 		var b := Button.new()
 		b.text = str(items[i])
-		b.tooltip_text = str(items[i])
+		b.tooltip_text = plain(str(tips[i])) if i < tips.size() and str(tips[i]) != "" else str(items[i])
+		if i < icons.size() and str(icons[i]) != "":
+			b.icon = icon(str(icons[i]), ICON)
+			if b.text == "":
+				b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			elif items.size() == 1:
+				b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.theme_type_variation = "EdToggle"
 		b.toggle_mode = true
 		b.button_group = group
 		b.button_pressed = i == selected
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.custom_minimum_size.y = ROW_H - 2
+		var idx := i
+		b.pressed.connect(func() -> void:
+			Game.play_ui("res://assets/sound/ui/buttonclick.wav", -10.0)
+			if on_select.is_valid():
+				on_select.call(idx))
+		h.add_child(b)
+	return h
+
+
+## One of N as tiles, the icon above the name (the brushes, OBJECTS' and ITEMS' kinds): one row,
+## the tiles share its width; a name wraps to a second line rather than being cut. on_select(index);
+## tips[i] is the tile's tooltip under its name ({ed_*} written as keys).
+static func tiles(items: Array, selected: int, on_select: Callable, icons: Array, tips: Array = []) -> HBoxContainer:
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 2)
+	var group := ButtonGroup.new()
+	for i in items.size():
+		var b := Tile.new(str(items[i]), str(icons[i]) if i < icons.size() else "")
+		var tip := plain(str(tips[i])) if i < tips.size() else ""
+		b.tooltip_text = str(items[i]) + ("\n" + tip if tip != "" else "")
+		b.button_group = group
+		b.button_pressed = i == selected
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var idx := i
 		b.pressed.connect(func() -> void:
 			Game.play_ui("res://assets/sound/ui/buttonclick.wav", -10.0)
@@ -477,43 +627,35 @@ static func keycap(text: String) -> Texture2D:
 	return KeycapTexture.of(text, 20.0)
 
 
-## A small round icon: "tick" (raceable), "error", "warning", "info".
-static func icon(kind: String, px := 16) -> Texture2D:
-	var key := "%s_%d" % [kind, px]
+## An editor icon `px` high, cached, crisp at any scale (DPITexture): a line icon of ICON_DIR by its
+## file name in `color` (white by default: a Button's icon_*_color theme colours tint it), or a
+## status disc ("tick" / "ok", "error", "warning", "info") in its level's colour. null when there is
+## no such file.
+static func icon(icon_name: String, px := 16, color := Color.WHITE) -> Texture2D:
+	var file := icon_name
+	var col := color
+	if STATUS.has(icon_name):
+		file = str(STATUS[icon_name][0])
+		if color == Color.WHITE:
+			col = STATUS[icon_name][1]
+	var hex := col.to_html(false)
+	var key := "%s@%d#%s" % [file, px, hex]
 	if _icons.has(key):
 		return _icons[key]
-	var img := Image.create(px, px, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
-	var col: Color = {"tick": OK_COLOR, "error": ERROR_COLOR, "warning": WARN_COLOR}.get(kind, INFO_COLOR)
-	var r := px * 0.5
-	for y in px:
-		for x in px:
-			var p := Vector2(x + 0.5, y + 0.5)
-			var d := p.distance_to(Vector2(r, r))
-			var a := clampf(r - d, 0.0, 1.0)
-			if a <= 0.0:
-				continue
-			var c := col
-			var u := p / px
-			var mark := false
-			if kind == "tick":
-				mark = _seg(u, Vector2(0.26, 0.52), Vector2(0.43, 0.7)) < 0.075 or _seg(u, Vector2(0.43, 0.7), Vector2(0.75, 0.32)) < 0.075
-			elif kind == "info":
-				mark = _seg(u, Vector2(0.5, 0.45), Vector2(0.5, 0.75)) < 0.07 or u.distance_to(Vector2(0.5, 0.28)) < 0.08
-			else:
-				mark = _seg(u, Vector2(0.5, 0.22), Vector2(0.5, 0.56)) < 0.07 or u.distance_to(Vector2(0.5, 0.74)) < 0.08
-			if mark:
-				c = Color(0.05, 0.05, 0.05)
-			img.set_pixel(x, y, Color(c.r, c.g, c.b, a))
-	var t := ImageTexture.create_from_image(img)
-	_icons[key] = t
-	return t
+	var tex: Texture2D = null
+	var path := ICON_DIR + file + ".svg"
+	if file != "" and FileAccess.file_exists(path):
+		var src := FileAccess.get_file_as_string(path).replace("currentColor", "#" + hex)
+		tex = DPITexture.create_from_string(src, maxf(px, 4.0) / 24.0)
+	elif file != "":
+		push_warning("EditorKit.icon: no icon %s" % path)
+	_icons[key] = tex
+	return tex
 
 
-static func _seg(p: Vector2, a: Vector2, b: Vector2) -> float:
-	var ab := b - a
-	var k := clampf((p - a).dot(ab) / ab.length_squared(), 0.0, 1.0)
-	return p.distance_to(a + ab * k)
+## A tool's icon (TOOL_ICONS).
+static func tool_icon(tool_id: String, px := ICON, color := Color.WHITE) -> Texture2D:
+	return icon(str(TOOL_ICONS.get(tool_id, "")), px, color)
 
 
 ## How many arguments a callable takes (bound arguments taken off).
@@ -541,3 +683,75 @@ static func _call2(cb: Callable, v: Variant, final: bool, last: Array = []) -> v
 	else:
 		last[0] = v
 	cb.call(v)
+
+
+## tiles()' button: a toggle with its icon above its name (wrapped to two lines when the tile is
+## narrow), drawn in the EdToggle colours of its state. The name is `label` (text stays empty, so
+## the Button sizes by custom_minimum_size).
+class Tile:
+	extends Button
+	const ICON_PX := 22
+	const FONT_PX := 12
+	const PAD := 5.0
+	const GAP := 3.0
+	var label := ""
+	var icon_name := ""
+	var _lines := PackedStringArray()
+
+	func _init(text_: String, icon_: String) -> void:
+		label = text_
+		icon_name = icon_
+		theme_type_variation = "EdToggle"
+		toggle_mode = true
+		focus_mode = Control.FOCUS_NONE
+		clip_contents = true
+		resized.connect(_fit)
+
+	func _ready() -> void:
+		_fit()
+
+	func _font() -> Font:
+		return UiKit.font(true)
+
+	## The name's lines at this width (word wrap), and the minimum size that holds them.
+	func _fit() -> void:
+		var f := _font()
+		var words := label.split(" ", false)
+		var widest := 0.0
+		for w in words:
+			widest = maxf(widest, f.get_string_size(w, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_PX).x)
+		var room := maxf(size.x - PAD * 2.0, widest)
+		var lines := PackedStringArray()
+		var cur := ""
+		for w in words:
+			var t := w if cur == "" else cur + " " + w
+			if cur != "" and f.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_PX).x > room:
+				lines.append(cur)
+				cur = w
+			else:
+				cur = t
+		if cur != "":
+			lines.append(cur)
+		_lines = lines
+		var line_h := f.get_height(FONT_PX)
+		var want := Vector2(ceilf(maxf(widest, ICON_PX) + PAD * 2.0), ceilf(PAD * 2.0 + ICON_PX + GAP + line_h * maxi(lines.size(), 1)))
+		if not custom_minimum_size.is_equal_approx(want):
+			custom_minimum_size = want
+		queue_redraw()
+
+	func _draw() -> void:
+		var mode := {DRAW_NORMAL: "normal", DRAW_PRESSED: "pressed", DRAW_HOVER: "hover", DRAW_DISABLED: "disabled",
+			DRAW_HOVER_PRESSED: "hover_pressed"}.get(get_draw_mode(), "normal") as String
+		var fc := get_theme_color("font_color" if mode == "normal" else "font_%s_color" % mode)
+		var ic := get_theme_color("icon_%s_color" % mode)
+		var f := _font()
+		var line_h := f.get_height(FONT_PX)
+		var block := ICON_PX + GAP + line_h * _lines.size()
+		var y := floorf((size.y - block) * 0.5)
+		var tex := EditorKit.icon(icon_name, ICON_PX)
+		if tex != null:
+			draw_texture_rect(tex, Rect2(Vector2(floorf((size.x - ICON_PX) * 0.5), y), Vector2(ICON_PX, ICON_PX)), false, ic)
+		y += ICON_PX + GAP
+		for l in _lines:
+			draw_string(f, Vector2(PAD, y + f.get_ascent(FONT_PX)), l, HORIZONTAL_ALIGNMENT_CENTER, size.x - PAD * 2.0, FONT_PX, fc)
+			y += line_h

@@ -236,7 +236,7 @@ func _build() -> void:
 	foot.add_child(last)
 	hints_button = EditorKit.button("SHOW HINTS AGAIN", func() -> void:
 		HintCard.reset(editor)
-		close(), "Every tool shows its hint card again the next time it is picked.")
+		close(), "Every tool shows its hint card again the next time it is picked.", "info_circle")
 	hints_button.focus_mode = Control.FOCUS_NONE
 	foot.add_child(hints_button)
 	var how := PromptLabel.new("ANY KEY OR {ui_cancel} CLOSES", FONT, UiKit.TEXT_DIM)

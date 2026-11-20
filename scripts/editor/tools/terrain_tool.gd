@@ -13,6 +13,13 @@ extends EditorTool
 const BRUSHES := ["raise", "lower", "smooth", "flatten", "noise"]
 const BRUSH_NAMES := ["RAISE", "LOWER", "SMOOTH", "FLATTEN", "NOISE"]
 const FALLOFF_NAMES := ["SMOOTH", "LINEAR", "FLAT"]
+## The brushes' and the falloffs' icons and tips (EditorKit.icon names), shared with PAINT's falloff.
+const BRUSH_ICONS := ["raise", "lower", "smooth", "flatten", "noise"]
+const BRUSH_TIPS := ["Drag to raise the ground ({ed_mod_ctrl}: lower it).", "Drag to lower the ground ({ed_mod_ctrl}: raise it).",
+	"Drag to even out bumps.", "Drag to level the ground to one height (TARGET).", "Drag to add random bumps."]
+const FALLOFF_ICONS := ["falloff_smooth", "falloff_linear", "falloff_flat"]
+const FALLOFF_TIPS := ["SMOOTH FALLOFF: strong in the middle, soft to the edge.", "LINEAR FALLOFF: evenly weaker to the edge.",
+	"FLAT FALLOFF: the same strength to the edge."]
 const SIZE_MIN := 2.0
 const SIZE_MAX := 200.0
 const STRENGTH_MIN := 0.01
@@ -105,17 +112,17 @@ func deactivate() -> void:
 
 func options(box: VBoxContainer) -> void:
 	box.add_child(EditorKit.section("BRUSH"))
-	box.add_child(EditorKit.modes(BRUSH_NAMES, BRUSHES.find(brush), func(i: int) -> void:
+	box.add_child(EditorKit.tiles(BRUSH_NAMES, BRUSHES.find(brush), func(i: int) -> void:
 		set_brush(BRUSHES[i])
-		_refresh_options()))
+		_refresh_options(), BRUSH_ICONS, BRUSH_TIPS))
 	box.add_child(EditorKit.row("SIZE", EditorKit.number(size, SIZE_MIN, SIZE_MAX, 1.0, func(v: float) -> void: set_size(v), "%.0f", " m"),
 		EditorKit.plain("The brush radius ({ed_brush_smaller} {ed_brush_bigger}).")))
 	box.add_child(EditorKit.row("STRENGTH", EditorKit.number(strength, STRENGTH_MIN, STRENGTH_MAX, 0.01, func(v: float) -> void: set_strength(v), "%.2f"),
 		EditorKit.plain("{ed_strength_down} {ed_strength_up}")))
-	box.add_child(EditorKit.row("FALLOFF", EditorKit.modes(FALLOFF_NAMES, LevelBrush.FALLOFFS.find(falloff), func(i: int) -> void:
+	box.add_child(EditorKit.row("FALLOFF", EditorKit.modes(["", "", ""], LevelBrush.FALLOFFS.find(falloff), func(i: int) -> void:
 		falloff = LevelBrush.FALLOFFS[i]
 		_save()
-		editor.redraw())))
+		editor.redraw(), FALLOFF_ICONS, FALLOFF_TIPS), "How the brush weakens from its middle to its edge."))
 	if brush == "noise":
 		box.add_child(EditorKit.row("NOISE SCALE", EditorKit.number(noise_scale, 8.0, 256.0, 1.0, func(v: float) -> void:
 			noise_scale = v
@@ -128,19 +135,21 @@ func options(box: VBoxContainer) -> void:
 		box.add_child(EditorKit.row("TARGET", UiKit.label(txt, 14, UiKit.TEXT)))
 		box.add_child(EditorKit.button("PICK HEIGHT", func() -> void:
 			picking = true
-			editor.status("Click the ground to pick the height.", true), "Or {ed_mod_alt} + click without moving."))
+			editor.status("Click the ground to pick the height.", true), "Then click the ground for its height. Or {ed_mod_alt} + click without moving.", "eyedropper"))
 	var ft := EditorKit.toggle("ROADS FOLLOW THE GROUND", follow, func(v: bool) -> void:
 		follow = v
-		_save())
+		_save(), "drape")
 	ft.tooltip_text = "Road points with FOLLOW GROUND keep their height above the ground you sculpt."
 	box.add_child(ft)
 	box.add_child(EditorKit.hint("{ed_place} sculpts, {ed_mod_ctrl} swaps RAISE and LOWER, {ed_mod_shift} smooths."))
-	box.add_child(EditorKit.section("WATER"))
-	box.add_child(EditorKit.toggle("ADD LAKE", lake_mode, func(on: bool) -> void:
+	box.add_child(EditorKit.section_icon("WATER", "water"))
+	var lk := EditorKit.toggle("ADD LAKE", lake_mode, func(on: bool) -> void:
 		lake_mode = on
-		editor.redraw()))
+		editor.redraw(), "plus")
+	lk.tooltip_text = "On: drag a rectangle on the ground for a lake."
+	box.add_child(lk)
 	box.add_child(EditorKit.hint("Drag a rectangle on the ground; drag its middle dot up and down."))
-	box.add_child(EditorKit.section("WORLD"))
+	box.add_child(EditorKit.section_icon("WORLD", "tool_world"))
 	box.add_child(EditorKit.row("SHOW CARVE", EditorKit.check(show_carve, func(v: bool) -> void: set_show_carve(v)),
 		"Off: the natural ground, without the roads cut into it."))
 	var doc := editor.doc
@@ -158,7 +167,7 @@ func options(box: VBoxContainer) -> void:
 	il.mouse_filter = Control.MOUSE_FILTER_PASS
 	box.add_child(EditorKit.row("WORLD SIZE", il, full))
 	box.add_child(EditorKit.button("RESIZE WORLD...", func() -> void: editor.open_dialog(ResizeDialog.new(self)),
-		"Resample the ground to another world size or resolution."))
+		"Resample the ground to another world size or resolution.", "scale"))
 	box.add_child(EditorKit.row("NO TERRAIN", EditorKit.check(not doc.has_terrain(), func(v: bool) -> void: set_terrain(not v)),
 		"Floating roads over a void: every open edge is a pit."))
 
@@ -174,7 +183,7 @@ func inspect(uids: PackedInt32Array, box: VBoxContainer) -> bool:
 		return false
 	var lk: Dictionary = f.item
 	var path: Array = f.path
-	box.add_child(EditorKit.section("LAKE" if uids.size() == 1 else "%d LAKES" % uids.size()))
+	box.add_child(EditorKit.section_icon("LAKE" if uids.size() == 1 else "%d LAKES" % uids.size(), "water"))
 	var list := uids.duplicate()
 	box.add_child(EditorKit.row("LEVEL", EditorKit.number(float(lk.get("level", 0.0)), LevelDoc.HEIGHT_MIN, LevelDoc.HEIGHT_MAX, 0.1,
 		func(v: float) -> void:

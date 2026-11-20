@@ -1510,16 +1510,22 @@ func options(box: VBoxContainer) -> void:
 	var ids := LevelStyles.ids(editor.doc.data)
 	box.add_child(EditorKit.row("SEGMENT STYLE", EditorKit.choice(style_names(ids), maxi(Array(ids).find(new_style), 0),
 		func(i: int) -> void: new_style = ids[i]), "NEW SEGMENT STYLE: the style of new points and of DRAW."))
-	box.add_child(EditorKit.button("OPEN LOOP" if is_closed(-1) else "CLOSE LOOP", toggle_loop, "{ed_close_loop}"))
-	box.add_child(EditorKit.button("REVERSE DIRECTION", reverse))
-	box.add_child(EditorKit.button("SET START LINE", func() -> void:
-		picking_start = true
-		editor.status("Click the road where the start line goes", true)))
-	box.add_child(EditorKit.button("DRAPE ON TERRAIN", drape))
-	box.add_child(EditorKit.button("SMOOTH HEIGHTS", smooth))
-	box.add_child(EditorKit.button("RAILS ON TIGHT BENDS", rails))
-	box.add_child(EditorKit.button("AUTO DRESS...", func() -> void: editor.open_dialog(AutoDressDialog.new(editor))))
-	box.add_child(EditorKit.button("STYLES...", func() -> void: editor.open_dialog(StyleEditor.new(editor))))
+	var closed := is_closed(-1)
+	box.add_child(EditorKit.actions([
+		["OPEN LOOP" if closed else "CLOSE LOOP", "loop_open" if closed else "loop_closed", toggle_loop,
+			("Open the loop at the selected segment ({ed_close_loop})." if closed
+				else "Join the last point to the first: a lap ({ed_close_loop}).")],
+		["REVERSE", "reverse", reverse, "REVERSE DIRECTION: the race runs the other way round."],
+		["SET START LINE", "flag", func() -> void:
+			picking_start = true
+			editor.status("Click the road where the start line goes", true), "Then click the road where the start line goes."],
+		["DRAPE ON GROUND", "drape", drape, "DRAPE ON TERRAIN: every road point just above the ground, and it follows the ground."],
+		["SMOOTH HEIGHTS", "smooth", smooth, "Evens out the road's bumps and dips."],
+		["RAILS ON BENDS", "rails", rails, "RAILS ON TIGHT BENDS: a rail on the outside of every tight bend."],
+		["AUTO DRESS...", "wand", func() -> void: editor.open_dialog(AutoDressDialog.new(editor)),
+			"Crate rows, boost pads, rails, scenery and a crowd in one go: you pick which."],
+		["STYLES...", "palette", func() -> void: editor.open_dialog(StyleEditor.new(editor)),
+			"The road styles: copy one, then change its materials, centre lines and grip."]]))
 	box.add_child(EditorKit.hint("CLICK ADD · {ed_draw} + DRAG DRAW · {ed_mod_ctrl} + CLICK INSERT · {ed_close_loop} LOOP · {ed_jump} JUMP · {ed_mod_ctrl} / {ed_mod_alt} + WHEEL WIDTH / BANK"))
 
 
@@ -1595,7 +1601,7 @@ func point_inspector(key: int, uids: PackedInt32Array, box: VBoxContainer) -> vo
 	if pt.is_empty():
 		return
 	var k := index_of(key, uid)
-	box.add_child(EditorKit.section("POINT %d" % (k + 1) if uids.size() == 1 else "%d POINTS" % uids.size()))
+	box.add_child(EditorKit.section_icon("POINT %d" % (k + 1) if uids.size() == 1 else "%d POINTS" % uids.size(), "point"))
 	box.add_child(EditorKit.row("POSITION", EditorKit.vec3(_v3(pt.pos), func(v: Vector3, final: bool) -> void:
 		editor.commit("MOVE POINT", [LevelDoc.op_set(ppath(key, uid) + ["pos"], _arr(v))], "insp_pos_%d" % uid)
 		if final and editor.is_inside_tree():
@@ -1630,8 +1636,9 @@ func point_inspector(key: int, uids: PackedInt32Array, box: VBoxContainer) -> vo
 			box.add_child(EditorKit.row("HANDLE " + sd.to_upper(), EditorKit.number(float(h.get(sd, 0.0)), 0.0, HANDLE_MAX, 0.5,
 				set_len, "%.1f", " m")))
 	if key == -1:
-		box.add_child(EditorKit.button("SET START LINE HERE", func() -> void: set_start_here(uid)))
-		box.add_child(EditorKit.button("EDIT ITS SEGMENT", func() -> void: select_segment(uid)))
+		box.add_child(EditorKit.actions([
+			["START LINE HERE", "flag", func() -> void: set_start_here(uid), "SET START LINE HERE: the start line moves to this point."],
+			["EDIT SEGMENT", "segment", func() -> void: select_segment(uid), "EDIT ITS SEGMENT: the road from this point to the next."]]))
 
 
 ## The point fields as one set per selected point of that road.
@@ -1653,7 +1660,7 @@ func segment_inspector(key: int, uid: int, box: VBoxContainer) -> void:
 	if pt.is_empty():
 		return
 	var k := index_of(key, uid)
-	box.add_child(EditorKit.section("SEGMENT %d" % (k + 1)))
+	box.add_child(EditorKit.section_icon("SEGMENT %d" % (k + 1), "segment"))
 	var ids := LevelStyles.ids(editor.doc.data)
 	var sid := str(pt.get("style", "asphalt"))
 	box.add_child(EditorKit.row("STYLE", EditorKit.choice(style_names(ids), maxi(Array(ids).find(sid), 0),

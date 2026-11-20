@@ -14,6 +14,8 @@ const ORDER := {"error": 0, "warning": 1, "info": 2}
 
 var editor: TrackEditor
 var title: Label
+## The worst level's disc before the title.
+var title_icon: TextureRect
 var list: VBoxContainer
 var scroll: ScrollContainer
 ## The shown issues, in the drawer's order.
@@ -30,12 +32,15 @@ func _init() -> void:
 	v.add_theme_constant_override("separation", 6)
 	add_child(v)
 	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
 	v.add_child(head)
+	title_icon = EditorKit.icon_rect("tick", 18)
+	head.add_child(title_icon)
 	title = UiKit.label("VALIDATION", EditorKit.FONT, Color.WHITE, true)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.clip_text = true
 	head.add_child(title)
-	var close_b := EditorKit.button("CLOSE", func() -> void: visible = false, "{ed_validation}")
+	var close_b := EditorKit.button("CLOSE", func() -> void: visible = false, "Close the list ({ed_validation}).", "close")
 	close_b.theme_type_variation = "EdFlat"
 	close_b.focus_mode = Control.FOCUS_NONE
 	head.add_child(close_b)
@@ -90,6 +95,7 @@ func set_report(r: LevelReport) -> void:
 	var errs := r.errors() if r != null else 0
 	var warns := r.warnings() if r != null else 0
 	title.text = "VALIDATION: RACEABLE" if errs == 0 and warns == 0 else "VALIDATION: %s" % EditorUI.badge_text(errs, warns)
+	title_icon.texture = EditorKit.icon("error" if errs > 0 else ("warning" if warns > 0 else "tick"), 18)
 	for it in shown:
 		list.add_child(_row(it))
 
@@ -100,16 +106,13 @@ func _row(it: Dictionary) -> Control:
 	p.mouse_filter = Control.MOUSE_FILTER_STOP
 	p.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	p.set_meta("issue", it)
-	p.tooltip_text = "Click to show it."
+	p.tooltip_text = "Click to show it on the track."
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 8)
 	p.add_child(h)
-	var ic := TextureRect.new()
-	ic.texture = EditorKit.icon(str(it.get("level", "info")), 16)
-	ic.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+	var ic := EditorKit.icon_rect(str(it.get("level", "info")), 16)
 	ic.custom_minimum_size = Vector2(18, 18)
 	ic.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	h.add_child(ic)
 	var txt := PromptLabel.new(EditorKit.prompt(str(it.get("text", it.get("code", "")))), EditorKit.FONT_SMALL, UiKit.TEXT)
 	txt.add_theme_font_override("normal_font", UiKit.font(false))
@@ -129,7 +132,8 @@ func _row(it: Dictionary) -> Control:
 	if fix != "":
 		# the issue's own label (a hazard_setup is ADD THE SEE-SAW or DELETE); fix_label for the rest
 		var label := LevelFixes.label(it) if LevelFixes.LABELS.has(fix) else fix_label(fix)
-		var b := EditorKit.button(label, func() -> void: press_fix(it), "FIX: " + label)
+		# a fix that deletes says so with a bin; the others are the editor's automatic fixes
+		var b := EditorKit.button(label, func() -> void: press_fix(it), "FIX: %s (one undo step)." % label, "trash" if label == "DELETE" else "wand")
 		b.focus_mode = Control.FOCUS_NONE
 		b.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 		b.set_meta("issue", it)

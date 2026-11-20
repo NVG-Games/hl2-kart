@@ -66,7 +66,7 @@ func deactivate() -> void:
 func options(box: VBoxContainer) -> void:
 	var n := (editor.doc.data.get("branches", []) as Array).size() if editor != null and editor.doc != null else 0
 	box.add_child(EditorKit.row("BRANCHES", UiKit.label("%d of %d" % [n, MAX_BRANCHES], EditorKit.FONT_SMALL, UiKit.TEXT)))
-	box.add_child(EditorKit.button("CANCEL THIS BRANCH", cancel, "{ed_cancel}"))
+	box.add_child(EditorKit.button("CANCEL THIS BRANCH", cancel, "Drop the branch you are laying out ({ed_cancel}).", "cancel"))
 	box.add_child(EditorKit.hint("1 CLICK THE ROAD WHERE IT LEAVES (GREEN) · 2 CLICK THE GROUND TO LAY IT OUT, THEN THE ROAD WHERE IT REJOINS · 3 {ed_finish} FINISH"))
 
 
@@ -566,7 +566,7 @@ func inspect(uids: PackedInt32Array, box: VBoxContainer) -> bool:
 	if b.is_empty():
 		return false
 	var path := ["branches", "#%d" % buid]
-	box.add_child(EditorKit.section("BRANCH"))
+	box.add_child(EditorKit.section_icon("BRANCH", "tool_branch"))
 	var rename := func(t: String) -> void:
 		var nm := t.strip_edges().to_upper().left(NAME_LEN)
 		if nm != "" and nm != str(branch(buid).get("name", "")):

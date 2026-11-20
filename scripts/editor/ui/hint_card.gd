@@ -3,7 +3,7 @@ extends PanelContainer
 ## The tool hint cards (1.11): the first time each tool is picked (settings.editor_hints holds the
 ## ids seen) a card at the top of the free area with the tool's name and three lines with its key
 ## icons. Not modal (the mouse goes through it): it fades after the tool's first successful action
-## (EditorTool.succeeded -> done) or after 12 s; the palette's "?" brings it back (recall); HELP's
+## (EditorTool.succeeded -> done) or after 12 s; the palette's (i) brings it back (recall); HELP's
 ## SHOW HINTS AGAIN clears the ids seen (reset). P16.
 
 ## Seconds a card stays before it fades by itself.
@@ -71,7 +71,7 @@ static func done(ed: TrackEditor, tool_id: String) -> void:
 		c.fade()
 
 
-## The palette's "?": the tool's card again (seen or not).
+## The palette's (i): the tool's card again (seen or not).
 static func recall(ed: TrackEditor, tool_id: String) -> void:
 	if ed == null or not TEXTS.has(tool_id):
 		return
@@ -158,9 +158,15 @@ static func _show(ed: TrackEditor, tool_id: String) -> void:
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.add_theme_constant_override("separation", 4)
 	card.add_child(v)
+	# the tool's icon and name, as in the palette
 	var tn := str(EditorUI.TOOL_NAMES.get(tool_id, tool_id.to_upper()))
-	var head := UiKit.label(tn, EditorKit.FONT, UiKit.ORANGE, true)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
 	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	head.add_child(EditorKit.icon_rect(str(EditorKit.TOOL_ICONS.get(tool_id, "")), EditorKit.ICON_BAR, UiKit.ORANGE))
+	var hl := UiKit.label(tn, EditorKit.FONT, UiKit.ORANGE, true)
+	hl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	head.add_child(hl)
 	v.add_child(head)
 	for line in lines(ed, tool_id):
 		var l := PromptLabel.new(EditorKit.prompt(str(line)), EditorKit.FONT, UiKit.TEXT)

@@ -15,6 +15,12 @@ const MAIN := [["RESUME", "resume"], ["TOOL", "tool"], ["TEST DRIVE FROM THE STA
 	["TRACK PROPERTIES", "props"], ["SET THUMBNAIL FROM CAMERA", "thumb"], ["HELP", "help"],
 	["EXIT TO TRACK EDITOR", "exit_home"], ["EXIT TO MAIN MENU", "exit_menu"]]
 const VIEW := [["TOP VIEW", "ed_top"], ["RACING LINE", "ed_line"], ["GO TO START", "ed_home"], ["FRAME TRACK", "ed_frame_all"]]
+## Each entry's icon (EditorKit.icon names; TOOL shows the tool in hand).
+const ICONS := {"resume": "play", "start": "drive", "here": "pin", "watch": "eye", "options": "sliders", "view": "frame_all",
+	"undo": "undo", "redo": "redo", "save": "save", "host": "online", "props": "tag", "thumb": "image", "help": "help",
+	"exit_home": "exit", "exit_menu": "home", "ed_top": "top_view", "ed_line": "route", "ed_home": "flag",
+	"ed_frame_all": "frame_all", "back": "undo"}
+const ICON_PX := 22
 
 var editor: TrackEditor
 ## "main" | "tool" | "options" | "view"
@@ -55,7 +61,8 @@ func show_page(p: String) -> void:
 			for id in TrackEditor.TOOL_IDS:
 				var tid: String = id
 				var key := InputPrompts.action_text("ed_tool_" + id, "keyboard")
-				var b := _item("%s   %s%s" % [EditorUI.TOOL_NAMES.get(id, id.to_upper()), key, "   (NOW)" if id == cur else ""], func() -> void: _pick_tool(tid))
+				var b := _item("%s   %s%s" % [EditorUI.TOOL_NAMES.get(id, id.to_upper()), key, "   (NOW)" if id == cur else ""], func() -> void: _pick_tool(tid),
+					str(EditorKit.TOOL_ICONS.get(id, "")))
 				if id == cur:
 					default_focus = b
 		"options":
@@ -71,14 +78,14 @@ func show_page(p: String) -> void:
 					cc.focus_mode = Control.FOCUS_ALL
 			var first := _page_box.find_children("*", "HSlider", true, false)
 			default_focus = first[0] if not first.is_empty() else null
-			_item("BACK", func() -> void: show_page("main"))
+			_item("BACK", func() -> void: show_page("main"), ICONS.back)
 			if default_focus == null and not items.is_empty():
 				default_focus = items[0]
 		"view":
 			title_label.text = "VIEW"
 			for e in VIEW:
 				var act: String = e[1]
-				_item("%s   %s" % [e[0], EditorKit.plain("{%s}" % act)], func() -> void: _act(act))
+				_item("%s   %s" % [e[0], EditorKit.plain("{%s}" % act)], func() -> void: _act(act), str(ICONS.get(act, "")))
 			default_focus = items[0]
 		_:
 			title_label.text = "EDITOR MENU"
@@ -91,7 +98,10 @@ func show_page(p: String) -> void:
 					text = "UNDO " + h.undo_name()
 				elif id == "redo" and h != null and h.can_redo():
 					text = "REDO " + h.redo_name()
-				var b := _item(text, func() -> void: press(id))
+				var ic := str(ICONS.get(id, ""))
+				if id == "tool" and editor != null and editor.tool != null:
+					ic = str(EditorKit.TOOL_ICONS.get(editor.tool.id, ""))
+				var b := _item(text, func() -> void: press(id), ic)
 				if id == "undo" or id == "redo":
 					b.disabled = h == null or not (h.can_undo() if id == "undo" else h.can_redo())
 				if id == back_to:
@@ -102,9 +112,16 @@ func show_page(p: String) -> void:
 		default_focus.grab_focus.call_deferred()
 
 
-func _item(text: String, cb: Callable) -> Button:
+## An entry; with an icon (EditorKit.icon names) before its text, tinted like the text.
+func _item(text: String, cb: Callable, icon_name := "") -> Button:
 	var b := UiKit.menu_item(text)
 	b.add_theme_font_size_override("font_size", ITEM_FONT)
+	if icon_name != "":
+		b.icon = EditorKit.icon(icon_name, ICON_PX)
+		b.add_theme_constant_override("h_separation", 12)
+		for k in [["icon_normal_color", UiKit.MENU_IDLE], ["icon_hover_color", Color.WHITE], ["icon_focus_color", Color.WHITE],
+				["icon_pressed_color", UiKit.PRESSED], ["icon_hover_pressed_color", UiKit.PRESSED], ["icon_disabled_color", Color(1, 1, 1, 0.25)]]:
+			b.add_theme_color_override(k[0], k[1])
 	b.pressed.connect(cb)
 	_page_box.add_child(b)
 	items.append(b)

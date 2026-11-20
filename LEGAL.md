@@ -41,7 +41,9 @@ this fan project; that content remains Valve's.
 
 The source code (GDScript, shaders, Python tools) is published by NVG Games under
 the PolyForm Noncommercial License 1.0.0 (see `LICENSE.md`): you can use, study,
-change and share it for any non-commercial purpose.
+change and share it for any non-commercial purpose. The track editor's line icons in
+`art/editor_icons/` were drawn for this project (no icon pack) and are covered by the same
+license.
 
 ## Third-party software
 

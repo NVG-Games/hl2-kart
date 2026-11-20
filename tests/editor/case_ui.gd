@@ -6,7 +6,8 @@ extends RefCounted
 ## frames the spot and selects the item; the EDITOR MENU walks by pad (the D-pad goes down every
 ## entry and back, A opens the TOOL page, B goes back to the main page, B closes it); the
 ## COMPLEXITY colours at 0.79 / 0.81 / 1.01 and its breakdown; the badge; the palette sets the
-## tool; the status bar shows tool.hints through prompt; is_typing; the panels let go of the focus.
+## tool; the status bar shows tool.hints through prompt; is_typing; the panels let go of the focus;
+## every icon the editor names exists in art/editor_icons and loads at the size asked.
 
 const NEEDS_CONTENT := false
 const Sel := preload("res://tests/editor/case_select.gd")
@@ -16,6 +17,7 @@ const DEV := 1
 func run(t: Node) -> void:
 	var ed: TrackEditor = await Sel.open_editor(t, Sel.test_doc())
 	_prompts(t)
+	_icons(t)
 	await _drawer(t, ed)
 	_complexity(t, ed)
 	await _palette_status(t, ed)
@@ -25,6 +27,30 @@ func run(t: Node) -> void:
 	await _dialogs(t, ed)
 	_number(t)
 	await Sel.close_editor(t, ed)
+
+
+## The icon names of the editor's tables all load (a typo would show nothing), crisp at the size
+## asked; a status name is its level's disc; an unknown name is null.
+func _icons(t: Node) -> void:
+	var names := {}
+	for table in [EditorKit.TOOL_ICONS, EditorUI.MENU_ICONS, EditorMenu.ICONS, Outliner.GROUP_ICONS, Outliner.ROW_ICONS, HazardsTool.GROUP_ICONS]:
+		for k in table:
+			names[str(table[k])] = true
+	for list in [TerrainTool.BRUSH_ICONS, TerrainTool.FALLOFF_ICONS, ObjectsTool.MODE_ICONS, ItemsTool.MODE_ICONS, EditorKit.STATUS.keys()]:
+		for n in list:
+			names[str(n)] = true
+	var missing := []
+	for n in names:
+		var tex := EditorKit.icon(n, 20)
+		if tex == null or tex.get_height() != 20:
+			missing.append(n)
+	t.check(missing.is_empty() and names.size() > 40, "%d editor icons load at 20 px (missing or wrong size: %s)" % [names.size(), str(missing)])
+	t.check(EditorKit.icon("tick", 16) == EditorKit.icon("status_ok", 16, EditorKit.OK_COLOR) and EditorKit.icon("tick", 16) != EditorKit.icon("status_ok", 16),
+		"a status name is its level's disc in its colour")
+	for c in HazardsTool.choices():
+		if str(HazardsTool.GROUP_ICONS.get(str(c.group), "")) == "":
+			missing.append(str(c.id))
+	t.check(missing.is_empty(), "every hazard group has its icon")
 
 
 func _prompts(t: Node) -> void:
@@ -120,7 +146,19 @@ func _palette_status(t: Node, ed: TrackEditor) -> void:
 	await t.frames(1)
 	t.check(ed.tool.id == "select" and (ui.tool_buttons["select"] as Button).button_pressed and not (ui.tool_buttons["road"] as Button).button_pressed,
 		"a palette button picks its tool, the active one is lit")
-	t.check((ui.tool_buttons["road"] as Button).icon != null and (ui.tool_buttons["road"] as Button).tooltip_text.begins_with("ROAD (2)"), "the palette shows the keycaps and the purpose")
+	var rb := ui.tool_buttons["road"] as Button
+	var kc := rb.get_node_or_null("Keycap") as TextureRect
+	t.check(rb.icon != null and rb.icon == EditorKit.tool_icon("road", EditorKit.ICON_BAR) and kc != null and kc.texture != null
+		and rb.tooltip_text.begins_with("ROAD (2)"), "the palette shows the tools' icons, keycaps and purpose")
+	var hint := rb.get_parent().get_node_or_null("Hint") as Button
+	t.check(hint != null and hint.icon != null and hint.tooltip_text.begins_with("ROAD: show its hint card"), "each row has its (i) for the hint card")
+	# the top bar's icon buttons say what they do and their keys
+	var undo_key := EditorKit.plain("{ed_undo}")
+	t.check(ui.undo_button.icon != null and ui.undo_button.tooltip_text.contains(undo_key) and ui.save_button.tooltip_text.contains(EditorKit.plain("{ed_save}"))
+		and ui.help_button.icon != null and ui.help_button.text == "" and ui.grid_toggle.icon != null and ui.grid_toggle.tooltip_text.contains(EditorKit.plain("{ed_grid}")),
+		"UNDO, SAVE, HELP and the snap toggles are icons with their keys in the tooltip (%s)" % ui.undo_button.tooltip_text)
+	t.check(ui.undo_button.disabled == not ed.history.can_undo() and ui.redo_button.disabled == not ed.history.can_redo()
+		and (not ed.history.can_undo() or ui.undo_button.tooltip_text.contains(ed.history.undo_name())), "UNDO / REDO grey out with nothing to do and name their step")
 	t.check(ui.options_box.get_child_count() > 0, "SELECT's options are in the right column")
 	ed.set_tool("road")
 	t.check((ui.tool_buttons["road"] as Button).button_pressed, "a key's tool switch lights its button")

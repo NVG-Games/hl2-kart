@@ -11,6 +11,11 @@ extends EditorTool
 
 const MODES := ["row", "crate", "pad", "barrels", "zone"]
 const MODE_NAMES := ["CRATE ROW", "SINGLE CRATE", "BOOST PAD", "BARRELS", "LOW GRAVITY"]
+## The kinds' icons and tips (EditorKit.icon names; {ed_*} written as keys).
+const MODE_ICONS := ["crate_row", "crate", "boost", "barrels", "gravity"]
+const MODE_TIPS := ["Click a road: a row of item crates across it.", "Click anywhere: one item crate.",
+	"Click a road: a boost pad on the racing line; {ed_mod_shift} + click: in that lane.", "Click a road: a group of barrels on it.",
+	"Click a road: a low-gravity stretch; drag its ends to size it."]
 const SECTION := {"item_row": "items", "crate": "crates", "pad": "pads", "barrels": "barrels", "zone": "zones"}
 const NOUN := {"item_row": "CRATE ROW", "crate": "CRATE", "pad": "BOOST PAD", "barrels": "BARRELS", "zone": "LOW GRAVITY ZONE"}
 ## Hard caps per list (2.10).
@@ -358,6 +363,10 @@ func status_step() -> String:
 			return "Click a road for a boost pad on the racing line ({ed_mod_shift} + click: in that lane)"
 		"zone":
 			return "Click a road for a 60 m low-gravity zone; drag its end bars along the road"
+		"row":
+			return "Click a road to add a crate row"
+		"barrels":
+			return "Click a road to add a group of barrels"
 	return "Click a road to add %s" % _mode_name().to_lower()
 
 
@@ -687,12 +696,11 @@ func on_doc_changed(_sections: PackedStringArray, _uids: PackedInt32Array) -> vo
 func options(box: VBoxContainer) -> void:
 	if editor == null or editor.doc == null:
 		return
-	box.add_child(EditorKit.modes(MODE_NAMES.slice(0, 3), MODES.slice(0, 3).find(mode),
-		func(i: int) -> void: set_mode(MODES[i])))
-	box.add_child(EditorKit.modes(MODE_NAMES.slice(3), MODES.slice(3).find(mode),
-		func(i: int) -> void: set_mode(MODES[3 + i])))
-	box.add_child(EditorKit.button("AUTO ITEMS", auto_items, "Crate rows on the straights, about every 400 m"))
-	box.add_child(EditorKit.button("AUTO DRESS...", func() -> void: editor.open_dialog(AutoDressDialog.new(editor))))
+	box.add_child(EditorKit.tiles(MODE_NAMES, MODES.find(mode), func(i: int) -> void: set_mode(MODES[i]), MODE_ICONS, MODE_TIPS))
+	box.add_child(EditorKit.actions([
+		["AUTO ITEMS", "tool_items", auto_items, "Crate rows on the straights, about every 400 m (one undo step)."],
+		["AUTO DRESS...", "wand", func() -> void: editor.open_dialog(AutoDressDialog.new(editor)),
+			"Crate rows, boost pads, rails, scenery and a crowd in one go: you pick which."]]))
 	_counts_label = UiKit.label(counts_text(), EditorKit.FONT_SMALL, UiKit.TEXT_DIM)
 	_counts_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(_counts_label)
@@ -731,7 +739,8 @@ func inspect(uids: PackedInt32Array, box: VBoxContainer) -> bool:
 	if it.is_empty():
 		return false
 	var noun: String = NOUN[k]
-	box.add_child(EditorKit.section(noun if same.size() == 1 else "%d × %s" % [same.size(), noun]))
+	var kind_icon: String = {"item_row": "crate_row", "crate": "crate", "pad": "boost", "barrels": "barrels", "zone": "gravity"}.get(k, "")
+	box.add_child(EditorKit.section_icon(noun if same.size() == 1 else "%d × %s" % [same.size(), noun], kind_icon))
 	match k:
 		"item_row":
 			var count := int(it.get("count", 0))

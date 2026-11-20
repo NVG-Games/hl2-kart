@@ -4,7 +4,7 @@ extends RefCounted
 ## circuit's look with it); every lighting preset writes its env in one step and keeps the sky;
 ## AMBIENT STRENGTH reaches the built environment (the sky's ambient and a colour's); a dragged
 ## number folds into one step; water, race, music. Then 1.11: the tool hint cards (first pick
-## only, fade on success or after 12 s, "?" recall, SHOW HINTS AGAIN) and the help overlay (two
+## only, fade on success or after 12 s, (i) recall, SHOW HINTS AGAIN) and the help overlay (two
 ## columns through EditorKit.prompt, the sections, the last line, any key / B closes it).
 
 const NEEDS_CONTENT := false
@@ -216,7 +216,7 @@ func _hints() -> void:
 	t.check(HintCard.current(ed) == null, "a tool seen before shows no card")
 	HintCard.recall(ed, "terrain")
 	var cr := HintCard.current(ed)
-	t.check(cr != null and cr.tool_id == "terrain", "the palette's ? brings it back")
+	t.check(cr != null and cr.tool_id == "terrain", "the palette's (i) brings it back")
 	cr.age = HintCard.SHOW_S + 0.1
 	await t.frames(1)
 	t.check(cr.fading or not is_instance_valid(cr), "it fades by itself after 12 s")

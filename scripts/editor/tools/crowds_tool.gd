@@ -8,7 +8,7 @@ extends EditorTool
 ## (red past 450). P17.
 
 const MODES := ["group", "gman", "birds", "gnome", "zombies", "holo", "lamarr", "nihilanth"]
-const MODE_NAMES := ["GROUP", "G-MAN", "BIRDS", "GNOME", "ZOMBIES", "HOLOGRAM", "LAMARR", "NIHILANTH"]
+const MODE_NAMES := ["SPECTATORS", "G-MAN", "BIRDS", "GNOME", "ZOMBIES", "HOLOGRAM", "LAMARR", "NIHILANTH"]
 const ROLE_NAMES := ["CITIZENS", "REFUGEES", "REBELS", "METROCOPS", "COMBINE", "SCIENTISTS", "GUARDS", "VORTIGAUNTS",
 	"ALIEN SLAVES", "SOLDIERS (HECU)", "ZOMBIES", "CAMEOS"]
 const MOOD_NAMES := ["FANS", "POLITE", "EXCITED", "LOYAL", "MILITARY", "CHANTING", "SCARED"]
@@ -450,11 +450,16 @@ func on_doc_changed(_sections: PackedStringArray, _uids: PackedInt32Array) -> vo
 func options(box: VBoxContainer) -> void:
 	if editor == null or editor.doc == null:
 		return
+	# a crowd of spectators, then the extras (one each, where you click)
 	box.add_child(EditorKit.section("PLACE"))
-	box.add_child(EditorKit.modes(MODE_NAMES.slice(0, 4), MODES.slice(0, 4).find(mode),
-		func(i: int) -> void: set_mode(MODES[i])))
-	box.add_child(EditorKit.modes(MODE_NAMES.slice(4), MODES.slice(4).find(mode),
-		func(i: int) -> void: set_mode(MODES[4 + i])))
+	box.add_child(EditorKit.modes(MODE_NAMES.slice(0, 1), 0 if mode == "group" else -1, func(_i: int) -> void: set_mode("group"),
+		["tool_crowds"], ["Click beside a road: a crowd on that side; drag its end bars to make it longer."]))
+	box.add_child(EditorKit.section_icon("EXTRAS", "person"))
+	var tips := []
+	for m in MODES.slice(1):
+		tips.append("Click to place %s.%s" % [EGG_NAMES[m], " {ed_mod_ctrl} + click: a point of its path." if m in PATH_KINDS else ""])
+	box.add_child(EditorKit.modes(MODE_NAMES.slice(1), MODES.slice(1).find(mode),
+		func(i: int) -> void: set_mode(MODES[1 + i]), [], tips))
 	_people_label = UiKit.label("", EditorKit.FONT_SMALL, UiKit.TEXT, true)
 	box.add_child(_people_label)
 	_update_people()
@@ -510,7 +515,7 @@ func _group_inspector(uids: PackedInt32Array, box: VBoxContainer) -> void:
 			same.append(u)
 	var uid := same[0]
 	var g := _h.item_of("crowds", uid)
-	box.add_child(EditorKit.section("CROWD" if same.size() == 1 else "%d CROWDS" % same.size()))
+	box.add_child(EditorKit.section_icon("CROWD" if same.size() == 1 else "%d CROWDS" % same.size(), "tool_crowds"))
 	var roles: Array = LevelDoc.CROWD_ROLES
 	var moods: Array = LevelDoc.CROWD_MOODS
 	box.add_child(EditorKit.row("WHO", EditorKit.choice(ROLE_NAMES, roles.find(str(g.get("role", "citizen"))),
@@ -556,7 +561,7 @@ func _egg_inspector(uid: int, box: VBoxContainer) -> void:
 	if e.is_empty():
 		return
 	var kind := str(e.get("kind", ""))
-	box.add_child(EditorKit.section(str(EGG_NAMES.get(kind, kind.to_upper()))))
+	box.add_child(EditorKit.section_icon(str(EGG_NAMES.get(kind, kind.to_upper())), "person"))
 	box.add_child(EditorKit.row("POSITION", EditorKit.vec3(ItemsTool._v3(e.get("pos")), func(v: Vector3) -> void:
 		editor.commit("MOVE EXTRA", [ItemsTool.op_field("eggs", uid, "pos", ItemsTool._arr(v))], "insp_pos_%d" % uid))))
 	box.add_child(EditorKit.row("YAW", EditorKit.number(float(e.get("yaw", 0.0)), -180.0, 180.0, 5.0, func(v: float) -> void:
@@ -579,7 +584,8 @@ func _egg_inspector(uid: int, box: VBoxContainer) -> void:
 		box.add_child(EditorKit.hint("PATH: %d POINT%s · {ed_mod_ctrl} + CLICK ADDS ONE" % [n, "" if n == 1 else "S"]))
 		box.add_child(EditorKit.button("CLEAR PATH", func() -> void:
 			var p0 := ItemsTool._v3(_h.item_of("eggs", uid).get("pos"))
-			editor.commit("CLEAR PATH", [ItemsTool.op_field("eggs", uid, "path", [ItemsTool._arr(p0)])])))
+			editor.commit("CLEAR PATH", [ItemsTool.op_field("eggs", uid, "path", [ItemsTool._arr(p0)])]),
+			"Forget its path points: it stays where it stands.", "trash"))
 	if kind == "holo":
 		box.add_child(EditorKit.hint("The hologram plays beside the nearest jump of the nearest road."))
 

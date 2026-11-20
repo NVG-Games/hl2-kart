@@ -19,6 +19,10 @@ extends EditorTool
 
 const MODES := ["stamp", "scatter", "along"]
 const MODE_NAMES := ["STAMP", "SCATTER", "ALONG ROAD"]
+## The modes' icons and tips (EditorKit.icon names; {ed_*} written as keys).
+const MODE_ICONS := ["stamp", "scatter", "along_road"]
+const MODE_TIPS := ["Click to place the picked model, one at a time.", "Drag to paint many at once ({ed_scatter}).",
+	"Press on a road's edge and drag along it: a row of them."]
 const SECTION := {"prop": "props", "light": "lights", "fire": "fires", "screen": "screens"}
 const NOUN := {"prop": "OBJECT", "light": "LIGHT", "fire": "FIRE", "screen": "SCREEN"}
 const CAP := {"props": 3000, "lights": 128, "fires": 32, "screens": 16}
@@ -1074,7 +1078,7 @@ func on_doc_changed(_sections: PackedStringArray, _uids: PackedInt32Array) -> vo
 func options(box: VBoxContainer) -> void:
 	if editor == null or editor.doc == null:
 		return
-	box.add_child(EditorKit.modes(MODE_NAMES, MODES.find(mode), func(i: int) -> void: set_mode(MODES[i])))
+	box.add_child(EditorKit.tiles(MODE_NAMES, MODES.find(mode), func(i: int) -> void: set_mode(MODES[i]), MODE_ICONS, MODE_TIPS))
 	_count_label = UiKit.label("", EditorKit.FONT_SMALL, UiKit.TEXT, true)
 	box.add_child(_count_label)
 	_update_count()
@@ -1160,7 +1164,8 @@ func inspect(uids: PackedInt32Array, box: VBoxContainer) -> bool:
 	var it := item_of(sec, uid)
 	if it.is_empty():
 		return false
-	box.add_child(EditorKit.section(str(NOUN[k]) if same.size() == 1 else "%d × %s" % [same.size(), str(NOUN[k])]))
+	box.add_child(EditorKit.section_icon(str(NOUN[k]) if same.size() == 1 else "%d × %s" % [same.size(), str(NOUN[k])],
+		str({"prop": "tool_objects", "light": "light", "fire": "fire", "screen": "screen"}.get(k, ""))))
 	if k == "prop":
 		_prop_inspector(same, it, box)
 		return true
@@ -1213,7 +1218,7 @@ func _prop_inspector(same: PackedInt32Array, it: Dictionary, box: VBoxContainer)
 			editor.set_tool.call_deferred("objects")
 		else:
 			show_catalog(true)
-		editor.status("Pick the new model in the catalog")))
+		editor.status("Pick the new model in the catalog"), "Then pick the new model in the catalog.", "reverse"))
 	if same.size() == 1:
 		box.add_child(EditorKit.row("POSITION", EditorKit.vec3(ItemsTool._v3(it.get("pos")), func(v: Vector3) -> void:
 			editor.commit("MOVE OBJECT", [ItemsTool.op_field("props", uid, "pos", ItemsTool._arr(v))], "insp_pos_%d" % uid))))
@@ -1242,7 +1247,8 @@ func _prop_inspector(same: PackedInt32Array, it: Dictionary, box: VBoxContainer)
 		for p in list_of("props"):
 			if p is Dictionary and int(p.get("group", 0)) == g:
 				n += 1
-		box.add_child(EditorKit.button("SELECT ITS GROUP (%d)" % n, func() -> void: select_group(g)))
+		box.add_child(EditorKit.button("SELECT ITS GROUP (%d)" % n, func() -> void: select_group(g),
+			"Selects the objects placed with it (one SCATTER stroke or ALONG ROAD row).", "select_all"))
 
 
 ## PHYSICS on / off for props (only physics_ok models; at most 300 on a track).

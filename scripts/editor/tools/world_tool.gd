@@ -57,7 +57,7 @@ func options(box: VBoxContainer) -> void:
 	var env := env_of()
 	var race := race_of()
 	# THEME
-	box.add_child(EditorKit.section("THEME"))
+	box.add_child(EditorKit.section_icon("THEME", "palette"))
 	var cur_theme := str(editor.doc.data.get("theme", ""))
 	var names := []
 	for t in LevelThemes.IDS:
@@ -67,7 +67,7 @@ func options(box: VBoxContainer) -> void:
 			apply_theme(LevelThemes.IDS[i - 1]))
 	box.add_child(EditorKit.row("THEME", tc, "Sky, light, fog, ground textures, start arch, background, rescue and music of a Half-Life place, in one step."))
 	# SKY & LIGHT
-	box.add_child(EditorKit.section("SKY & LIGHT"))
+	box.add_child(EditorKit.section_icon("SKY & LIGHT", "sun"))
 	var skies := sky_list()
 	var sky := str(env.get("sky", LevelDoc.DEFAULT_SKY))
 	var so := EditorKit.choice([], -1, func(i: int) -> void: set_env_key("sky", skies[i], "SKY"))
@@ -128,13 +128,13 @@ func options(box: VBoxContainer) -> void:
 	box.add_child(EditorKit.row("GI (SDFGI)", EditorKit.check(bool(env.get("sdfgi", true)), func(v: bool) -> void: set_env_key("sdfgi", v, "GI")),
 		"Realtime global illumination on MEDIUM graphics and up."))
 	# WATER
-	box.add_child(EditorKit.section("WATER"))
+	box.add_child(EditorKit.section_icon("WATER", "water"))
 	var water := water_of()
 	box.add_child(EditorKit.row("SEA", EditorKit.check(bool(water.get("sea", false)), func(v: bool) -> void: set_water("sea", v))))
 	box.add_child(EditorKit.row("SEA LEVEL", EditorKit.number(float(water.get("level", 0.0)), -200.0, 500.0, 0.5, func(v: float) -> void: set_water("level", v), "%.1f", " m")))
 	box.add_child(EditorKit.hint("Lakes: TERRAIN ({ed_tool_terrain}) > ADD LAKE."))
 	# START & SCENERY
-	box.add_child(EditorKit.section("START & SCENERY"))
+	box.add_child(EditorKit.section_icon("START & SCENERY", "flag"))
 	box.add_child(EditorKit.row("START ARCH", EditorKit.choice(GANTRY_NAMES, LevelDoc.GANTRIES.find(str(race.get("gantry", "combine"))),
 		func(i: int) -> void: set_race("gantry", LevelDoc.GANTRIES[i], "START ARCH"))))
 	var bg := str(race.get("background", "none"))
@@ -162,7 +162,7 @@ func options(box: VBoxContainer) -> void:
 	gc.disabled = not city
 	box.add_child(EditorKit.row("SEAGULLS", gc, "CITY 17 background only."))
 	# RACE
-	box.add_child(EditorKit.section("RACE"))
+	box.add_child(EditorKit.section_icon("RACE", "drive"))
 	box.add_child(EditorKit.row("RESCUE", EditorKit.choice(RESCUE_NAMES, LevelDoc.RESCUES.find(str(race.get("rescue", "scanner"))),
 		func(i: int) -> void: set_race("rescue", LevelDoc.RESCUES[i], "RESCUE")), "Who puts a kart back on the road."))
 	box.add_child(EditorKit.row("OFF-TRACK LIMIT", EditorKit.number(float(race.get("offtrack", 60.0)), 30.0, 200.0, 1.0,
@@ -442,17 +442,17 @@ func _music_box(box: VBoxContainer) -> void:
 		var i: int = sel[sel.size() - 1] if not sel.is_empty() else (at if at >= 0 else 0)
 		if g != null and i >= 0 and i < ids.size():
 			g.play_track(ids[i], "once")
-			editor.status("PLAYING " + str(g.music_title(ids[i])).to_upper()), "Preview the last song picked.")
+			editor.status("PLAYING " + str(g.music_title(ids[i])).to_upper()), "Preview the last song picked.", "play")
 	play.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(play)
 	var stop := EditorKit.button("STOP", func() -> void:
 		if g != null:
-			g.stop_music())
+			g.stop_music(), "Stop the preview.", "stop")
 	stop.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(stop)
 	var none := EditorKit.button("NONE", func() -> void:
 		set_music([])
-		_refresh_options(), "Back to the game's race mix.")
+		_refresh_options(), "No songs picked: the game's race mix.", "close")
 	none.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(none)
 	box.add_child(row)

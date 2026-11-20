@@ -16,6 +16,9 @@ extends EditorTool
 ## lint lines for it. P19.
 
 const GROUPS := ["TURRETS & SOLDIERS", "COMBINE MACHINES", "CREATURES", "TRAPS", "TRAINS & BRIDGES"]
+## Each group's icon (EditorKit.icon names): its heading in the options, its hazards' outliner rows.
+const GROUP_ICONS := {"TURRETS & SOLDIERS": "crosshair", "COMBINE MACHINES": "machine", "CREATURES": "creature",
+	"TRAPS": "trap", "TRAINS & BRIDGES": "train"}
 const SECTION := "hazards"
 ## Hard caps (2.10): hazards, heavy ones (LevelDoc.CAPS.heavy), points per hazard.
 const CAP := 48
@@ -85,6 +88,12 @@ func deactivate() -> void:
 
 
 # ---------------------------------------------------------------- the list
+
+## A hazard type's icon: its group's ("tool_hazards" for an unknown type).
+static func icon_of(type: String) -> String:
+	var td = LevelHazards.TYPES.get(type)
+	return str(GROUP_ICONS.get(str(td.get("group", "")), "tool_hazards")) if td is Dictionary else "tool_hazards"
+
 
 ## The entries of the list: [{id, type, mount, style, label, group, desc, heavy, setup}] in the
 ## groups' order; the turret is FLOOR and CEILING, the strike zone MORTAR and ARC.
@@ -1072,7 +1081,7 @@ func options(box: VBoxContainer) -> void:
 	if str(cur.get("setup", "")) != "":
 		line += " Green on the road: where it may go."
 	_desc_line = line
-	box.add_child(EditorKit.section("PLACING: %s" % str(cur.get("label", "-"))))
+	box.add_child(EditorKit.section_icon("PLACING: %s" % str(cur.get("label", "-")), icon_of(str(cur.get("type", "")))))
 	box.add_child(EditorKit.hint(line))
 	_counts = UiKit.label(counts_text(), EditorKit.FONT_SMALL, UiKit.TEXT_DIM)
 	_counts.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1080,7 +1089,7 @@ func options(box: VBoxContainer) -> void:
 	box.add_child(EditorKit.hint("● NEEDS A SETUP · CLICK THE ROAD: PLACE · {ed_mod_ctrl} + CLICK: ADD A POINT · DRAG THE END BARS: ZONE · {ed_delete} DELETE"))
 	var group := ButtonGroup.new()
 	for g in GROUPS:
-		box.add_child(EditorKit.section(g))
+		box.add_child(EditorKit.section_icon(g, str(GROUP_ICONS.get(g, ""))))
 		var grid := GridContainer.new()
 		grid.columns = 2
 		grid.add_theme_constant_override("h_separation", 2)
@@ -1122,7 +1131,7 @@ func inspect(uids: PackedInt32Array, box: VBoxContainer) -> bool:
 	var td := td_of(hz)
 	var c := choice_for(hz)
 	var label := str(c.get("label", td.get("label", "HAZARD")))
-	box.add_child(EditorKit.section(label if uids.size() == 1 else "%s · %d SELECTED" % [label, uids.size()]))
+	box.add_child(EditorKit.section_icon(label if uids.size() == 1 else "%s · %d SELECTED" % [label, uids.size()], icon_of(str(hz.get("type", "")))))
 	box.add_child(EditorKit.row("TYPE", UiKit.label("%s · %s" % [label, str(td.get("group", ""))], EditorKit.FONT_SMALL, UiKit.TEXT_DIM)))
 	box.add_child(EditorKit.hint(str(c.get("desc", td.get("desc", "")))))
 	var ty := str(hz.type)

@@ -73,8 +73,12 @@ func options(box: VBoxContainer) -> void:
 		return
 	var ids := ["move", "rotate", "scale"]
 	box.add_child(EditorKit.modes(["MOVE", "ROTATE", "SCALE"], maxi(ids.find(editor.gizmo.mode), 0),
-		func(i: int) -> void: editor.gizmo.mode = ids[i]))
-	box.add_child(EditorKit.toggle("LOCAL AXES", editor.gizmo.local, func(on: bool) -> void: editor.gizmo.local = on))
+		func(i: int) -> void: editor.gizmo.mode = ids[i], ["move", "rotate", "scale"],
+		["MOVE ({ed_move}): drag the gizmo's arrows.", "ROTATE ({ed_rotate}): drag the gizmo's rings.",
+			"SCALE ({ed_scale}): drag the gizmo's handles."]))
+	var la := EditorKit.toggle("LOCAL AXES", editor.gizmo.local, func(on: bool) -> void: editor.gizmo.local = on, "axes")
+	la.tooltip_text = EditorKit.plain("LOCAL AXES ({ed_space}): the gizmo turns with the object; off: the world's axes.")
+	box.add_child(la)
 	box.add_child(EditorKit.hint("{ed_move} {ed_rotate} {ed_scale} MODE · {ed_space} AXES · {ed_mod_alt} + DRAG A HANDLE: DUPLICATE · {ed_mod_ctrl} DRAG: INVERT GRID"))
 
 
