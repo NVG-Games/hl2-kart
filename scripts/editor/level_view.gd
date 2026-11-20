@@ -165,27 +165,38 @@ func show_roads(b: LevelBuild, changed: PackedStringArray) -> void:
 	counts["preview"] = made
 
 
-func update_terrain(rect: Rect2i, collision: bool) -> void:
+func update_terrain(rect: Rect2i, collision: bool, lods := 2) -> void:
 	var t := terrain_live
 	if t == null or rect.size.x <= 0 or rect.size.y <= 0:
 		return
 	_ensure()
 	_ensure_terrain_mat()
 	for c in t.chunks_in(rect):
-		var h := t.chunk_hash(c.x, c.y)
-		for lod in 2:
-			var nm := ("terrain_lod_%d_%d" if lod >= 1 else "terrain_%d_%d") % [c.x, c.y]
-			_drop_chunk(nm)
-			var mi := t.chunk_node(c.x, c.y, lod)
-			if mi == null:
-				continue
-			mi.set_meta("level_hash", h)
-			mi.set_surface_override_material(0, _terrain_mat)
-			_chunks_root.add_child(mi)
-			_chunks[nm] = mi
+		update_chunk(c, lods)
 	if collision:
 		for c in t.tiles_in(rect):
 			_make_tile(t, c.x, c.y, t.tile_hash(c.x, c.y))
+
+
+## One render chunk rebuilt from the live terrain: LOD 0 only while a stroke or a drag runs (lods
+## 1, half the work; the far LOD follows at the gesture's end), else both.
+func update_chunk(c: Vector2i, lods := 2) -> void:
+	var t := terrain_live
+	if t == null:
+		return
+	_ensure()
+	_ensure_terrain_mat()
+	var h := t.chunk_hash(c.x, c.y)
+	for lod in clampi(lods, 1, 2):
+		var nm := ("terrain_lod_%d_%d" if lod >= 1 else "terrain_%d_%d") % [c.x, c.y]
+		_drop_chunk(nm)
+		var mi := t.chunk_node(c.x, c.y, lod)
+		if mi == null:
+			continue
+		mi.set_meta("level_hash", h)
+		mi.set_surface_override_material(0, _terrain_mat)
+		_chunks_root.add_child(mi)
+		_chunks[nm] = mi
 
 
 ## Add / move / remove prop, light, fire, screen nodes.

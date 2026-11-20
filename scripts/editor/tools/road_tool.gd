@@ -980,6 +980,14 @@ func _preview(final: bool) -> void:
 			_place_label()
 
 
+## A worker preview is on show (TrackEditor._show_preview): the point's readout follows it.
+func on_preview() -> void:
+	if _drag.is_empty() or str(_drag.get("mode", "")) != "point":
+		return
+	readout = compute_readout(int(_drag.key), int(_drag.uid))
+	_place_label()
+
+
 ## The drag readout of a point from the preview road: the tightest radius and the steepest grade
 ## on its two segments, its width and its segment's length; R red under the too_tight limit
 ## (width / 2 + treatment + 2 m), GRADE red over 30 %.

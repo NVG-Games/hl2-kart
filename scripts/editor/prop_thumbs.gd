@@ -12,6 +12,7 @@ signal thumb_ready(key: String, tex: Texture2D)
 const SIZE := 128
 const DIR := "user://cache/prop_thumbs"
 const LOADS := 3                # threaded loads in flight at most
+const GAP := 3                  # frames between two renders (a big model's first render costs a frame)
 const FOV := 30.0
 const PITCH := 30.0
 const YAW := 35.0
@@ -22,9 +23,17 @@ var _queue: Array[String] = []  # waiting for a load slot
 var _loading := {}              # key -> resource path
 var _loaded: Array = []         # [key, PackedScene] waiting for a render
 var _stage := {}                # the render in flight {key, node, frames}
+var _gap := 0                   # frames to wait before the next render
+var _saves: Array[int] = []     # PNG writes on workers (waited for when they are done)
 var _vp: SubViewport
 var _cam: Camera3D
 var _root: Node3D
+
+
+func _exit_tree() -> void:
+	for id in _saves:
+		WorkerThreadPool.wait_for_task_completion(id)
+	_saves.clear()
 
 
 ## Thumbnails need a window to render in.
@@ -82,7 +91,11 @@ func _process(_delta: float) -> void:
 	_poll_loads()
 	while _loading.size() < LOADS and not _queue.is_empty():
 		_start_load(_queue.pop_front())
-	if _stage.is_empty():
+	while not _saves.is_empty() and WorkerThreadPool.is_task_completed(_saves[0]):
+		WorkerThreadPool.wait_for_task_completion(_saves.pop_front())
+	if _gap > 0:
+		_gap -= 1
+	elif _stage.is_empty():
 		if not _loaded.is_empty():
 			var e: Array = _loaded.pop_front()
 			_render(str(e[0]), e[1])
@@ -187,7 +200,10 @@ func _finish() -> void:
 		return
 	var f := file_of(key)
 	DirAccess.make_dir_recursive_absolute(f.get_base_dir())
-	img.save_png(f)
+	# the PNG is encoded and written on a worker (a few ms a picture on the main thread)
+	var shot := img.duplicate() as Image
+	_saves.append(WorkerThreadPool.add_task(func() -> void: shot.save_png(f), false, "PropThumbs save"))
+	_gap = GAP
 	var tex := ImageTexture.create_from_image(img)
 	_cache[key] = tex
 	thumb_ready.emit(key, tex)

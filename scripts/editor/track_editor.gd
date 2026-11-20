@@ -39,6 +39,9 @@ var trail := {}                 # last_drive's trail while shown
 const DRAG_PX := 4.0
 ## Seconds after the last edit before the background bake.
 const BAKE_DELAY := 0.5
+## settle's re-carve: ms of jobs a frame, samples per band piece.
+const CARVE_BUDGET_MS := 6.0
+const BAND_PIECE := 12
 ## The fixed panels round the free area (1.3).
 const PANEL_LEFT := 240.0
 const PANEL_RIGHT := 380.0
@@ -100,6 +103,10 @@ var settle_times := {}
 var bake_state := ""
 ## No window: no thumbnail render.
 var headless := false
+## Drag previews compile on a worker while the frame goes on (the road follows a frame or two
+## behind the cursor) and settle's re-carve runs a chunk at a time; false (headless, unless a test
+## sets it): both right away.
+var async_preview := true
 
 var _mouse := Vector2(-1, -1)
 var _hover_dirty := false
@@ -111,6 +118,11 @@ var _bake_t0 := 0
 var _waiters: Array = []        # [{rev, cb}] of bake_now
 var _pending: LevelBuild        # a bake held back while a drag runs
 var _preview_segs := {}         # segment index -> true: the stretch the live preview replaces
+var _pv_task := -1              # the WorkerThreadPool task of a preview being compiled
+var _pv_out: Array = [null, 0]  # its result and start time (usec)
+var _pv_next := {}              # road_key -> point_uids asked for while one compiles (newest wins)
+var _carve_jobs: Array = []     # settle's local re-carve, a render chunk at a time (_carve_step)
+var _carve_chunks := {}         # Vector2i -> true: the chunks those jobs rebuild when they are done
 var _overlay_dirty := true
 var _markers_dirty := true
 var _box := AABB()                # the track's box at the last bake (the view's fog reach)
@@ -134,6 +146,7 @@ func _ready() -> void:
 	doc = session.doc
 	history = session.history
 	headless = DisplayServer.get_name() == "headless"
+	async_preview = not headless
 	EditorInput.apply()
 	view = get_node_or_null("View") as LevelView
 	if view == null:
@@ -213,6 +226,8 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	if not _ready_done:
 		return
+	_pv_cancel()     # a worker preview still compiling is waited for
+	_carve_clear()
 	end_press(false)
 	if history != null:
 		history.end_gesture()
@@ -378,18 +393,65 @@ func flags(name: String) -> PackedByteArray:
 	return build.flags[name]
 
 
-## preview_segments + view.show_roads
+## preview_segments + view.show_roads. In a window the compile runs on a worker: one at a time,
+## the newest request waiting for it (a drag of 20 ms previews kept the frame at 20 ms).
 func preview_roads(road_key: int, point_uids: PackedInt32Array) -> void:
 	if doc == null:
 		return
-	var t0 := Time.get_ticks_usec()
+	if not async_preview:
+		var t0 := Time.get_ticks_usec()
+		_show_preview(LevelCompiler.preview_segments(doc, road_key, point_uids, build), t0)
+		return
+	if _pv_task >= 0:
+		_pv_next[road_key] = point_uids
+		return
+	_pv_launch(road_key, point_uids)
+
+
+func _pv_launch(road_key: int, point_uids: PackedInt32Array) -> void:
+	var snap := doc.snapshot()
 	var prev := build
-	preview = LevelCompiler.preview_segments(doc, road_key, point_uids, prev)
+	var out := [null, Time.get_ticks_usec()]
+	_pv_out = out
+	_pv_task = WorkerThreadPool.add_task(func() -> void:
+		out[0] = LevelCompiler.preview_segments(snap, road_key, point_uids, prev), false, "TrackEditor preview")
+
+
+## A finished worker preview goes on show (while the drag still runs), then the waiting request.
+func _pv_poll() -> void:
+	if _pv_task < 0 or not WorkerThreadPool.is_task_completed(_pv_task):
+		return
+	WorkerThreadPool.wait_for_task_completion(_pv_task)
+	_pv_task = -1
+	var b = _pv_out[0]
+	if b is LevelBuild and _dragging != "" and (build == null or (b as LevelBuild).revision > build.revision):
+		_show_preview(b, int(_pv_out[1]))
+	if _dragging == "":
+		_pv_next = {}
+	elif not _pv_next.is_empty():
+		var key: int = _pv_next.keys()[0]
+		var uids: PackedInt32Array = _pv_next[key]
+		_pv_next.erase(key)
+		_pv_launch(key, uids)
+
+
+## Waits for a preview still compiling and drops it (settle and the bake take over).
+func _pv_cancel() -> void:
+	_pv_next = {}
+	if _pv_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_pv_task)
+		_pv_task = -1
+
+
+func _show_preview(b: LevelBuild, t0: int) -> void:
+	preview = b
 	_note_preview()
 	if view != null:
 		view.show_roads(preview, preview.stats.get("groups", PackedStringArray()))
 	last_preview_ms = (Time.get_ticks_usec() - t0) / 1000.0
 	_overlay_dirty = true
+	if tool != null and tool.has_method("on_preview"):
+		tool.call("on_preview")
 
 
 ## Gesture end (3.4, 3.11): the changed groups' collision, then a local re-carve of the edited
@@ -397,6 +459,7 @@ func preview_roads(road_key: int, point_uids: PackedInt32Array) -> void:
 func settle(road_key: int, point_uids: PackedInt32Array) -> void:
 	if doc == null:
 		return
+	_pv_cancel()
 	var t0 := Time.get_ticks_usec()
 	if preview == null or preview.roads.is_empty() or preview.roads[0].key != road_key or preview.revision != doc.revision:
 		preview = LevelCompiler.preview_segments(doc, road_key, point_uids, build)
@@ -420,31 +483,106 @@ func settle(road_key: int, point_uids: PackedInt32Array) -> void:
 		var tr = doc.data.get("terrain", {})
 		var flat := float(tr.get("flat", 6.0)) if tr is Dictionary else 6.0
 		var blend := float(tr.get("blend", 28.0)) if tr is Dictionary else 28.0
-		var rect := Rect2i()
+		# the band the edited segments (old and new) can carve, in short pieces: a long diagonal
+		# segment's whole box was up to 400 x 300 cells and froze the release for 0.2-0.35 s
+		var pieces: Array = []
 		for k in segs:
 			for r in [old, pr]:
-				var rr := _influence(t, r, _seg_span(r, k), flat + blend)
-				if rr.has_area():
-					rect = rr if not rect.has_area() else rect.merge(rr)
-		if rect.has_area():
+				pieces.append_array(_band(t, r, _seg_span(r, k), flat + blend))
+		var by_chunk := {}
+		for rr in pieces:
+			for c in t.chunks_in(rr):
+				# the cells chunk c's mesh reads (its vertices and the ring its normals use)
+				var box := Rect2i(c.x * LevelTerrain.CHUNK - 1, c.y * LevelTerrain.CHUNK - 1, LevelTerrain.CHUNK + 3, LevelTerrain.CHUNK + 3)
+				var part := (rr as Rect2i).intersection(box)
+				if part.has_area():
+					by_chunk[c] = part if not by_chunk.has(c) else (by_chunk[c] as Rect2i).merge(part)
+		if not by_chunk.is_empty():
 			var roads: Array = []
 			for r in build.roads:
 				roads.append(r)
-			# the partial road carves under its own key so the skip of the old segments leaves it in
-			var key := pr.key
-			pr.key = -77777
 			roads.append(pr)
-			tk = Time.get_ticks_usec()
-			t.carve(roads, flat, blend, rect, [], {road_key: segs})
-			settle_times["carve"] = (Time.get_ticks_usec() - tk) / 1000.0
-			pr.key = key
-			tk = Time.get_ticks_usec()
-			if view != null:
-				view.update_terrain(rect, false)
-			settle_times["chunks"] = (Time.get_ticks_usec() - tk) / 1000.0
+			var rect := Rect2i()
+			for c in by_chunk:
+				rect = by_chunk[c] if not rect.has_area() else rect.merge(by_chunk[c])
+				_carve_jobs.append({"t": t, "c": c, "rect": by_chunk[c], "roads": roads, "pr": pr, "flat": flat,
+					"blend": blend, "skip": {road_key: segs}})
 			settle_times["rect"] = rect
+			settle_times["jobs"] = by_chunk.size()
+			# the chunk nearest the cursor first
+			var at := _mouse_ground()
+			if not is_nan(at.x):
+				var ci := Vector2((at.x - t.origin.x) / t.cell, (at.z - t.origin.y) / t.cell)
+				_carve_jobs.sort_custom(func(a, b) -> bool:
+					return Vector2((a.rect as Rect2i).get_center()).distance_squared_to(ci) < Vector2((b.rect as Rect2i).get_center()).distance_squared_to(ci))
+			if not async_preview:
+				carve_flush()
 	last_settle_ms = (Time.get_ticks_usec() - t0) / 1000.0
 	bake_soon(BAKE_DELAY)
+
+
+## One settle job or more a frame, CARVE_BUDGET_MS in all: a render chunk's part of the band carved
+## and that chunk rebuilt (jobs of a terrain the bake has replaced since are dropped).
+func _carve_step() -> void:
+	if _carve_jobs.is_empty():
+		return
+	var t0 := Time.get_ticks_usec()
+	var n := 0
+	while not _carve_jobs.is_empty() and (n == 0 or (Time.get_ticks_usec() - t0) < CARVE_BUDGET_MS * 1000.0):
+		var j: Dictionary = _carve_jobs.pop_front()
+		n += 1
+		var t: LevelTerrain = j.t
+		if t == null or t != terrain():
+			continue
+		var pr: LevelRoad = j.pr
+		var key := pr.key
+		# the partial road carves under its own key so the skip of the old segments leaves it in
+		pr.key = -77777
+		t.carve(j.roads, float(j.flat), float(j.blend), j.rect, [], j.skip, true)
+		pr.key = key
+		if view != null:
+			view.update_chunk(j.c)   # its neighbours have jobs of their own
+
+
+## Runs every settle job now (headless, tests that look at the ground right after a release).
+func carve_flush() -> void:
+	while not _carve_jobs.is_empty():
+		_carve_step()
+
+
+## Drops settle jobs still waiting (a bake was applied, the editor closes).
+func _carve_clear() -> void:
+	_carve_jobs.clear()
+
+
+## The cells a stretch of samples can carve, as boxes of at most BAND_PIECE samples each.
+func _band(t: LevelTerrain, r: LevelRoad, span: Vector2i, reach: float) -> Array:
+	var out: Array = []
+	if r == null or span.x < 0 or r.n <= 0:
+		return out
+	var i := span.x
+	var guard := 0
+	while guard <= r.n:
+		var j := i
+		var m := 0
+		while m < BAND_PIECE and j != span.y and guard + m < r.n:
+			j = r.wrap(j + 1)
+			m += 1
+		var rr := _influence(t, r, Vector2i(i, j), reach)
+		if rr.has_area():
+			out.append(rr)
+		if j == span.y or m == 0:
+			break
+		i = j
+		guard += m
+	return out
+
+
+## Where the mouse meets the ground (NAN vector off the view).
+func _mouse_ground() -> Vector3:
+	if camera == null or not camera.is_inside_tree() or _mouse.x < 0.0:
+		return Vector3(NAN, NAN, NAN)
+	return _ground_point(camera.project_ray_origin(_mouse), camera.project_ray_normal(_mouse))
 
 
 func bake_soon(delay := 0.5) -> void:
@@ -660,20 +798,26 @@ func refresh_terrain(rect: Rect2i, collision: bool) -> void:
 	if not r.has_area():
 		return
 	var sp_ok := doc.splat.size() == t.splat.size()
+	var moved := false   # a PAINT stroke changes the splat only: no re-carve for it
 	for z in range(r.position.y, r.end.y):
 		var row := z * t.res
 		for x in range(r.position.x, r.end.x):
-			t.natural[row + x] = doc.heights[row + x]
+			var hv := doc.heights[row + x]
+			var was := t.natural[row + x]
+			if hv != was and not (is_nan(hv) and is_nan(was)):
+				t.natural[row + x] = hv
+				moved = true
 			if sp_ok:
 				for c in 4:
 					t.splat[(row + x) * 4 + c] = doc.splat[(row + x) * 4 + c]
 	var tr = doc.data.get("terrain", {})
 	var flat := float(tr.get("flat", 6.0)) if tr is Dictionary else 6.0
 	var blend := float(tr.get("blend", 28.0)) if tr is Dictionary else 28.0
-	if build != null:
-		t.carve(build.roads, flat, blend, r)
+	if build != null and moved:
+		t.carve(build.roads, flat, blend, r, [], {}, true)
 	if view != null:
-		view.update_terrain(r, collision)
+		# a live stroke rebuilds the near LOD only; its end (collision) both
+		view.update_terrain(r, collision, 2 if collision else 1)
 
 
 ## Metres from the camera to the far side of the track (the editor view's fog starts past it).
@@ -767,6 +911,8 @@ func _process(delta: float) -> void:
 				_bake_t = 0.0   # after the drag
 			else:
 				_start_bake()
+	_pv_poll()
+	_carve_step()
 	if _hover_dirty:
 		_update_hover()
 	if camera != null and view != null:
@@ -1564,6 +1710,7 @@ func _on_bake_done(b: LevelBuild) -> void:
 
 func _apply_bake(b: LevelBuild) -> void:
 	build = b
+	_carve_clear()   # the bake's terrain is carved whole
 	if preview != null and preview.revision <= b.revision:
 		preview = null
 		_preview_segs = {}

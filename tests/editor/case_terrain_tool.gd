@@ -107,7 +107,7 @@ func _dab_chunks() -> void:
 	var first := tool.last_dab.duplicate()
 	var chunks1 := _ids(ed.view.chunk_nodes())
 	var moved := _changed(chunks0, chunks1)
-	t.check(moved == ["terrain_4_4", "terrain_lod_4_4"], "a dab rebuilds only its chunk, both LODs (%s)" % str(moved))
+	t.check(moved == ["terrain_4_4"], "a dab rebuilds only its chunk, the near LOD (the far one at the stroke's end) (%s)" % str(moved))
 	var costs := [float(first.ms)]
 	for k in 4:
 		tool.drag_move(_hit(60.0 + (k + 1) * 2.5, 64.0), 0)
@@ -129,6 +129,7 @@ func _dab_chunks() -> void:
 	ed._dragging = ""
 	var tiles1 := _ids(ed.view.tile_nodes())
 	t.check(_changed(tiles0, tiles1) == ["col_terrain_2_2"], "at the stroke's end the tile under it is rebuilt (%s)" % str(_changed(tiles0, tiles1)))
+	t.check(_changed(chunks1, _ids(ed.view.chunk_nodes())).has("terrain_lod_4_4"), "and the far LOD of its chunk")
 	t.check(ed.history.position() == hist + 1 and ed.history.undo_name() == "TERRAIN: RAISE", "the stroke is one undo step (%s)" % ed.history.undo_name())
 	var top := _nat(64.0, 64.0)
 	t.check(top > 1.0 and top <= 5.0, "the ground went up (%.2f m)" % top)

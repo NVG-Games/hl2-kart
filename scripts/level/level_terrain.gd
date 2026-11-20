@@ -40,6 +40,7 @@ var _a_road := PackedInt32Array()
 var _a_i := PackedInt32Array()
 var _a_lat := PackedFloat32Array()
 var _a_d := PackedFloat32Array()
+var _prep_cache := {}           # road instance id -> [WeakRef, flat, blend, prep] (carve(cache))
 
 
 ## null when world.terrain is false (or the document has no heightmap).
@@ -96,8 +97,10 @@ func size() -> float:
 ## dip it; `pits` ({center: Vector2, radius, floor_y}) sink it; one 3 x 3 pass smooths where two
 ## carves meet; the ground stays CLEAR under every open / street surface; all within -500..1500 m.
 ## `rect` (samples) re-carves only those cells from the samples whose influence meets it; `skip`
-## ({road key: PackedInt32Array of segment indices}) leaves those segments' samples out.
-func carve(roads: Array, flat: float, blend: float, rect := Rect2i(), pits := [], skip := {}) -> void:
+## ({road key: PackedInt32Array of segment indices}) leaves those segments' samples out. `cache`
+## (the editor's brush strokes and drag settles, many small rects against the same roads) keeps
+## each road's per-sample prep between calls: a prep walks every sample (about 3 ms a call).
+func carve(roads: Array, flat: float, blend: float, rect := Rect2i(), pits := [], skip := {}, cache := false) -> void:
 	var flat_m := maxf(flat, 0.0)
 	var cells := res * res
 	if res < 2 or natural.size() != cells:
@@ -132,7 +135,7 @@ func carve(roads: Array, flat: float, blend: float, rect := Rect2i(), pits := []
 		if not r is LevelRoad:
 			preps.append({})
 			continue
-		var pr := _prep(r, flat_m, blend)
+		var pr := _prep_cached(r, flat_m, blend) if cache else _prep(r, flat_m, blend)
 		preps.append(pr)
 		var skipped := {}
 		var sk = skip.get(r.key, skip.get(str(r.key)))
@@ -330,6 +333,20 @@ func _alloc(cells: int) -> void:
 
 ## Per-sample numbers of one road for the carve: kind, half widths per side (width / 2 + the
 ## side's treatment), bank slope, roof, skirt, dip, aerial flag, plan frames, raster radius.
+## _prep kept per road object (the same compiled roads are carved again and again while editing);
+## a road that was freed or carved with other widths is prepared again.
+func _prep_cached(r: LevelRoad, flat_m: float, blend: float) -> Dictionary:
+	var id := r.get_instance_id()
+	var e = _prep_cache.get(id)
+	if e is Array and (e[0] as WeakRef).get_ref() == r and float(e[1]) == flat_m and float(e[2]) == blend:
+		return e[3]
+	var pr := _prep(r, flat_m, blend)
+	if _prep_cache.size() >= 24:
+		_prep_cache.clear()
+	_prep_cache[id] = [weakref(r), flat_m, blend, pr]
+	return pr
+
+
 func _prep(r: LevelRoad, flat_m: float, blend: float) -> Dictionary:
 	var n: int = r.n if r.n > 0 else r.pos.size()
 	n = mini(n, r.pos.size())

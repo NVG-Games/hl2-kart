@@ -447,21 +447,33 @@ func stroke_to(p: Vector2) -> void:
 		return
 	var n := mini(int(dist / step), MAX_DABS)
 	var dir := (p - last) / dist
+	# the batch's dabs write the heights, then one notice for their rect: one re-carve and one
+	# rebuild of each chunk, not one per dab (12 dabs on a chunk rebuilt it 12 times)
+	var batch := Rect2i()
 	for k in n:
-		dab(last + dir * step * (k + 1))
+		var r := dab(last + dir * step * (k + 1), false)
+		if r.has_area():
+			batch = r if not batch.has_area() else batch.merge(r)
+	if batch.has_area():
+		var t0 := Time.get_ticks_usec()
+		editor.doc.notify(PackedStringArray(["terrain"]), PackedInt32Array(), batch)
+		var lt := editor.terrain()
+		last_dab = {"ms": (Time.get_ticks_usec() - t0) / 1000.0, "chunks": lt.chunks_in(batch).size() if lt != null else 0,
+			"rect": batch, "dabs": n}
 	# a flick past MAX_DABS: the rest of the way in the next batch
 	_pending = p if dist - n * step >= step else Vector2(NAN, NAN)
 
 
 ## One dab at p: the heights written, the document told (TrackEditor copies them into the live
 ## terrain, re-carves the rect and rebuilds its chunks; collision waits for the stroke's end).
-func dab(p: Vector2) -> void:
+## notify false: the caller tells the document once for a batch. Returns the dab's rect.
+func dab(p: Vector2, notify := true) -> Rect2i:
 	var doc := editor.doc
 	var t := editor.terrain()
 	if t == null or t.res != doc.res() or doc.heights.size() != t.res * t.res:
 		t = LevelTerrain.from_doc(doc)
 	if t == null:
-		return
+		return Rect2i()
 	var t0 := Time.get_ticks_usec()
 	var m := str(_stroke.get("mode", brush))
 	var r: Rect2i
@@ -473,12 +485,15 @@ func dab(p: Vector2) -> void:
 	_stroke.t = _now()
 	_stroke.dabs = int(_stroke.dabs) + 1
 	if not r.has_area():
-		return
+		return r
 	var sr: Rect2i = _stroke.rect
 	_stroke.rect = r if not sr.has_area() else sr.merge(r)
+	if not notify:
+		return r
 	doc.notify(PackedStringArray(["terrain"]), PackedInt32Array(), r)
 	var lt := editor.terrain()
 	last_dab = {"ms": (Time.get_ticks_usec() - t0) / 1000.0, "chunks": lt.chunks_in(r).size() if lt != null else 0, "rect": r}
+	return r
 
 
 ## The stroke's end: one undo step (the touched rect and its before-copy, plus ROADS FOLLOW THE

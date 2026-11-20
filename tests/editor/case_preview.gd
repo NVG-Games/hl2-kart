@@ -100,12 +100,48 @@ func run(t: Node) -> void:
 	var old_p := b.roads[0].pos[old_i]
 	t.check(tr.height_at(old_p.x, old_p.z) > old_p.y - 0.3 or absf(old_p.y) < 0.5, "the old spot is no longer carved as a bed")
 	t.check(ed.view.counts.get("preview", 0) > 0 and ed._bake_t > 0.0, "a background bake is due after settle")
+	await _async_case(t, ed, uid, path, p0)
 	_input_case(t, ed)
 	ed.queue_free()
 	await t.frames(1)
 	s.close()
 	if keep_doc != null:
 		t.log("a session doc was open before the case (closed)")
+
+
+## In a window the preview compiles on a worker and settle re-carves a render chunk at a time (both
+## off headless unless asked for): the frame returns at once, the road and the ground follow.
+func _async_case(t: Node, ed: TrackEditor, uid: int, path: Array, p0: Array) -> void:
+	ed.async_preview = true
+	ed._dragging = "tool"
+	var moved := p0.duplicate()
+	moved[0] = float(p0[0]) + 60.0 * cos(TAU * 33 / 64)
+	moved[2] = float(p0[2]) + 60.0 * sin(TAU * 33 / 64)
+	var ms: float = t.ms(func() -> void:
+		ed.commit("MOVE POINT", [LevelDoc.op_set(path, moved)], "drag")
+		ed.preview_roads(-1, PackedInt32Array([uid])))
+	t.check(ed._pv_task >= 0, "async: the preview compiles on a worker (%.2f ms on the main thread)" % ms)
+	ed.preview_roads(-1, PackedInt32Array([uid]))
+	t.check(ed._pv_next.has(-1), "async: a request made during a compile waits as the newest")
+	var waited := 0
+	while (ed._pv_task >= 0 or not ed._pv_next.is_empty()) and waited < 300:
+		await t.frames(1)
+		waited += 1
+	t.check(ed.preview != null and ed.preview.revision == ed.doc.revision, "async: the newest move's preview is on show (%d frames)" % waited)
+	ed.settle(-1, PackedInt32Array([uid]))
+	t.check(not ed._carve_jobs.is_empty() and ed._pv_task < 0, "async: settle leaves the re-carve to chunk jobs (%d)" % ed._carve_jobs.size())
+	ed._dragging = ""
+	waited = 0
+	while not ed._carve_jobs.is_empty() and waited < 300:
+		await t.frames(1)
+		waited += 1
+	var pr := ed.road(-1)
+	var q := Vector3(float(moved[0]), float(moved[1]), float(moved[2]))
+	var i := pr.closest(q)
+	var under := ed.terrain().height_at(pr.pos[i].x, pr.pos[i].z)
+	t.check(ed._carve_jobs.is_empty() and absf(under - (pr.pos[i].y - 0.35)) < 0.4,
+		"async: the jobs finish in %d frames and the ground under the moved road is its bed (%.2f vs road %.2f)" % [waited, under, pr.pos[i].y])
+	ed.async_preview = false
 
 
 ## The input routing (1.5, C2 M2) with a recording tool: a press that moves <= 4 px is a click, more
