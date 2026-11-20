@@ -3,6 +3,31 @@
 All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](https://semver.org):
 `MAJOR.MINOR.PATCH` (while in 0.x, MINOR is a feature release and PATCH a fix).
 
+## [0.3.1] - 2026-11-20
+
+The track editor, fixed by hand: its buttons take every click, PAINT paints what it says, ITEMS
+and HAZARDS place where you click, and the panels are smaller. Online, 0.3.0 and 0.3.1 play
+together.
+
+### Fixed
+- Track editor: the buttons in TOOL OPTIONS and the inspector (PAINT's layers and PICK LAYER,
+  ITEMS' kinds, the HAZARDS list, every toggle) ignored a normal click; only a press and release
+  in the same frame got through.
+- PAINT: on most themes DIRT painted grass and the ground was an olive sand. Every theme's layers
+  now look like their names (grass, brown dirt, rock, paving, sand), and the layer buttons show
+  the texture each one paints.
+- ITEMS and HAZARDS: a click beside the road (up to 14 m past its edge) places on the road, on an
+  open road too; a click that does nothing says why in a message, not only in the status bar.
+
+### Changed
+- Track editor: while there is no road or the loop is still open the badge reads DRAFT · DRAW A
+  ROAD or DRAFT · CLOSE THE LOOP instead of an error, with no red pin on the map.
+- Track editor: the panels and text are 15 % smaller; VIEW > UI SIZE picks SMALL, MEDIUM or LARGE.
+- OBJECTS: a taller catalog with the categories in a list down its left side (with their counts),
+  bigger pictures, a wider search, and an arrow that makes it taller still.
+- Every tool's options start with a line on what the tool does and how to use it.
+- The EMPTY FIELD template is a grass field.
+
 ## [0.3.0] - 2026-11-20
 
 Two new tracks make seven: Nova Prospekt and White Forest. Highway 17 moved to the coast,
