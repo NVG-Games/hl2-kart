@@ -3,7 +3,13 @@
 All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](https://semver.org):
 `MAJOR.MINOR.PATCH` (while in 0.x, MINOR is a feature release and PATCH a fix).
 
-## [Unreleased]
+## [0.3.0] - 2026-11-20
+
+Two new tracks make seven: Nova Prospekt and White Forest. Highway 17 moved to the coast,
+CT17 lies in ruins and Xen is alive. Every track has its own rescue. There is a track editor:
+build a track in 3D, drive it, and race it online, where friends download it in the lobby.
+Any gamepad works, with its own button pictures. The first start after updating builds the
+content again, once. Online, everyone needs 0.3.0.
 
 ### Added
 - A TRACK EDITOR in the main menu: build your own track in 3D, drive it and race it with friends.
@@ -56,6 +62,9 @@ All notable changes to Half-Life 2: Kart. Versions follow [semantic versioning](
   - VIEW: ZONES, a GRID drawn on the ground, LABELS with the OUTLINER's names and the issue pins;
     the race direction (an arrow every 50 m) and the grid slots behind the start are always
     drawn. The editor plays the menu music (VIEW > MUSIC).
+  - Icons on the tools, the top bar (UNDO, REDO, SAVE, TOP VIEW, FRAME TRACK, the snap toggles,
+    HELP), the tool options, the OUTLINER, the menus and the checklist, with tooltips that name
+    each key.
   - The mouse and keyboard edit everything; a controller flies the camera (the status bar shows
     its buttons), test-drives (A / X / Y) and works the EDITOR MENU (Start: tools, UNDO, REDO,
     save, the thumbnail and more).

@@ -62,7 +62,7 @@ beam you back. The gravity gun pulls
 the kart ahead back over you, Dog gallops with Half-Life 2's own animations and the bathtub
 has two propane-tank thrusters. And there is a [track editor](#track-editor): build your own
 track in 3D, drive it, and race it online, where friends download it in the lobby. Every change
-is in [CHANGELOG.md](CHANGELOG.md#unreleased).
+is in [CHANGELOG.md](CHANGELOG.md#030---2026-11-20).
 
 ## The circuits
 
@@ -256,6 +256,8 @@ Switch, Steam Deck and others), and the game shows that pad's own buttons. Every
 changed in Options → Keyboard & mouse and Options → Controller, which draws your pad with each
 button's action and has ready-made layouts.
 
+<p align="center"><img src="docs/media/controller.jpg" width="720" alt="Options, Controller: a large Xbox pad picture with every button's action, layouts and vibration"></p>
+
 <a id="track-editor"></a>
 ## Track editor
 
@@ -263,6 +265,17 @@ TRACK EDITOR in the main menu opens your tracks (MY TRACKS), the ones you downlo
 (DOWNLOADED) and five templates to start from: an empty field, a test oval, a figure eight over
 a bridge, forest hills with a jump and a shortcut, and a City 17 block with a tunnel. Pick a
 template and the editor opens on it; press F5 at any time to drive what you have.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/editor_build.webp" alt="A road drawn point by point on an empty field, then a hill raised under it with the terrain brush"></td>
+    <td width="50%"><img src="docs/media/editor.jpg" alt="The editor: a road over a hill, a sentry turret selected with its SIDE, ZONE and DIFFICULTY"></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top">Click round to lay the road, then raise a hill under it</td>
+    <td align="center" valign="top">A turret on the road, set up in the inspector</td>
+  </tr>
+</table>
 
 - **Tools** (keys 1 to 0): SELECT, ROAD, BRANCH (forks and shortcuts the computer drivers take
   too), TERRAIN, PAINT, OBJECTS (the Half-Life props on your computer), ITEMS (crate rows, boost
